@@ -9,6 +9,7 @@ Imports System.Net
 Imports System.Reflection
 Imports Microsoft.VisualBasic.ApplicationServices
 Imports System.Runtime
+Imports System.Xml
 
 Public Class frmMainPageV2
 
@@ -30,9 +31,77 @@ Public Class frmMainPageV2
 
     Private TradeMode As Boolean = True ' Tracks if Buy or Sell mode
     Private isTrailingStopLossPlaced As Boolean = False 'Tracks if trailing stop loss already placed once
+    Private SLTriggered As Boolean = False ' Tracks if stop loss has been triggered
 
     Private latestOrderId As String = Nothing ' Track the most recent order ID
 
+    'For rate limiter
+    Private rateLimiter As DeribitRateLimiter
+    Private accountLimits As RateLimitInfo
+
+    Public Class RateLimitInfo
+        Public Property MaxCredits As Integer
+        Public Property RefillRate As Integer
+        Public Property BurstLimit As Integer
+        Public Property CurrentEstimatedCredits As Integer
+    End Class
+
+    Public Class DeribitRateLimiter
+        Private ReadOnly _maxCredits As Integer
+        Private ReadOnly _refillRate As Integer = 10 ' Credits per millisecond
+        Private ReadOnly _costPerRequest As Integer = 200 ' Conservative estimate
+        Private _currentCredits As Integer
+        Private _lastRefillTime As DateTime
+        Private ReadOnly _lockObject As New Object()
+
+        Public Sub New(maxCredits As Integer, costPerRequest As Integer)
+            _maxCredits = maxCredits
+            _costPerRequest = costPerRequest
+            _currentCredits = maxCredits
+            _lastRefillTime = DateTime.UtcNow
+        End Sub
+
+        Public Function CanMakeRequest() As Boolean
+            SyncLock _lockObject
+                RefillCredits()
+                Return _currentCredits >= _costPerRequest
+            End SyncLock
+        End Function
+
+        Public Function ConsumeCredits() As Boolean
+            SyncLock _lockObject
+                RefillCredits()
+                If _currentCredits >= _costPerRequest Then
+                    _currentCredits -= _costPerRequest
+                    Return True
+                End If
+                Return False
+            End SyncLock
+        End Function
+
+        Private Sub RefillCredits()
+            Dim now As DateTime = DateTime.UtcNow
+            Dim elapsedMs As Double = (now - _lastRefillTime).TotalMilliseconds
+
+            If elapsedMs > 0 Then
+                Dim creditsToAdd As Integer = CInt(elapsedMs * _refillRate)
+                _currentCredits = Math.Min(_maxCredits, _currentCredits + creditsToAdd)
+                _lastRefillTime = now
+            End If
+        End Sub
+
+        Public Function GetWaitTimeMs() As Integer
+            SyncLock _lockObject
+                RefillCredits()
+                If _currentCredits >= _costPerRequest Then
+                    Return 0
+                End If
+
+                Dim creditsNeeded As Integer = _costPerRequest - _currentCredits
+                Return CInt(Math.Ceiling(creditsNeeded / _refillRate))
+            End SyncLock
+        End Function
+    End Class
 
     Private Async Function WebSocketCalls() As Task
 
@@ -233,6 +302,10 @@ Public Class frmMainPageV2
                 HandleBalanceUpdates(response)
                 ' Call the function to handle user order/position updates
                 HandleOrderPositionUpdates(response)
+                ' NEW: Handle account summary responses
+                HandleAccountSummaryResponse(response)
+                ' NEW: Handle rate limit errors
+                HandleRateLimitError(response)
 
                 ' Timeout check
                 If (DateTime.Now - lastMessageTime).TotalSeconds > 75 Then
@@ -254,6 +327,7 @@ Public Class frmMainPageV2
         End If
     End Function
 
+    Private accountSummaryTaskCompletionSource As TaskCompletionSource(Of RateLimitInfo)
     Private Async Sub MonitorAuthentication()
         While webSocketClient.State = WebSocketState.Open
             Try
@@ -281,6 +355,118 @@ Public Class frmMainPageV2
         Dim heartbeatPayload As String = $"{{""jsonrpc"":""2.0"",""id"":3,""method"":""public/set_heartbeat"",""params"":{{""interval"":{intervalSeconds}}}}}"
         Await SendWebSocketMessageAsync(heartbeatPayload)
     End Function
+
+
+    'Rate limiter functions below
+    Private Sub HandleAccountSummaryResponse(response As String)
+        Try
+            Dim json = JObject.Parse(response)
+
+            ' Check if this is an account summary response (ID 999 from our request)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
+            If messageId = 999 Then
+
+                Dim errorField = json.SelectToken("error")
+                If errorField IsNot Nothing Then
+                    AppendColoredText(txtLogs, $"Account summary error: {errorField.ToString()}", Color.Yellow)
+
+                    ' Complete the task with conservative defaults on error
+                    If accountSummaryTaskCompletionSource IsNot Nothing Then
+                        accountSummaryTaskCompletionSource.SetResult(New RateLimitInfo With {
+                        .MaxCredits = 1000,
+                        .RefillRate = 10,
+                        .BurstLimit = 10,
+                        .CurrentEstimatedCredits = 1000
+                    })
+                    End If
+                    Return
+                End If
+
+                ' Extract rate limit information from the result
+                Dim result = json.SelectToken("result")
+                If result IsNot Nothing Then
+                    Dim rateLimitInfo = ExtractRateLimitsFromAccountSummary(result)
+                    AppendColoredText(txtLogs, $"Account summary received - Max Credits: {rateLimitInfo.MaxCredits}", Color.LimeGreen)
+
+                    ' Complete the waiting task
+                    If accountSummaryTaskCompletionSource IsNot Nothing Then
+                        accountSummaryTaskCompletionSource.SetResult(rateLimitInfo)
+                    End If
+                End If
+            End If
+
+        Catch ex As Exception
+            ' Ignore parsing errors for non-account-summary responses
+        End Try
+    End Sub
+
+    Private Function ExtractRateLimitsFromAccountSummary(accountData As JToken) As RateLimitInfo
+        Try
+            ' Look for limits in the account summary response
+            Dim limits = accountData.SelectToken("limits")
+            If limits IsNot Nothing Then
+                Dim matchingEngineLimit = limits.SelectToken("matching_engine")
+                If matchingEngineLimit IsNot Nothing Then
+                    Dim burst = matchingEngineLimit.SelectToken("burst")?.ToObject(Of Integer)()
+                    Dim rate = matchingEngineLimit.SelectToken("rate")?.ToObject(Of Integer)()
+
+                    If burst.HasValue AndAlso rate.HasValue Then
+                        ' Calculate total credits using Deribit's formula
+                        Dim totalCredits As Integer = CInt(Math.Round(burst.Value * 10000 / rate.Value))
+
+                        Return New RateLimitInfo With {
+                        .MaxCredits = totalCredits,
+                        .RefillRate = 10, ' Standard 10 credits per millisecond
+                        .BurstLimit = burst.Value,
+                        .CurrentEstimatedCredits = totalCredits
+                    }
+                    End If
+                End If
+            End If
+
+            ' Fallback to conservative estimates if limits not found
+            Return New RateLimitInfo With {
+            .MaxCredits = 2000,
+            .RefillRate = 10,
+            .BurstLimit = 20,
+            .CurrentEstimatedCredits = 2000
+        }
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error extracting rate limits: {ex.Message}", Color.Yellow)
+            ' Return very conservative defaults
+            Return New RateLimitInfo With {
+            .MaxCredits = 1000,
+            .RefillRate = 10,
+            .BurstLimit = 10,
+            .CurrentEstimatedCredits = 1000
+        }
+        End Try
+    End Function
+
+    Private Sub HandleRateLimitError(response As String)
+        Try
+            Dim json = JObject.Parse(response)
+            Dim errorField = json.SelectToken("error")
+
+            If errorField IsNot Nothing Then
+                Dim errorCode = errorField.SelectToken("code")?.ToObject(Of Integer)()
+                If errorCode = 10028 Then ' too_many_requests
+                    AppendColoredText(txtLogs, "Rate limit exceeded - reducing API frequency", Color.Red)
+                    ' Add null check for rateLimiter
+                    If rateLimiter IsNot Nothing AndAlso accountLimits IsNot Nothing Then
+                        Dim newMaxCredits = CInt(accountLimits.MaxCredits * 0.7)
+                        rateLimiter = New DeribitRateLimiter(newMaxCredits, 200)
+                        accountLimits.MaxCredits = newMaxCredits ' Update the stored limits too
+                        AppendColoredText(txtLogs, $"Rate limiter adjusted to {newMaxCredits} max credits", Color.Yellow)
+                    End If
+                End If
+            End If
+        Catch ex As Exception
+            ' Ignore parsing errors for non-JSON responses
+        End Try
+    End Sub
+
 
     'Price-related subscriptions below
     '---------------------------------------------------------------------------------------------------------
@@ -528,35 +714,91 @@ Public Class frmMainPageV2
                               End Sub)
                 End If
 
-                'For keeping current order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
+                'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
                 If (CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
-                            Await UpdateLimitOrderWithOTOCOAsync(bestBid)
-                            txtPlacedPrice.Text = bestBid
+                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
+                            ' Add null check for rateLimiter
+                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                Await UpdateLimitOrderWithOTOCOAsync(bestBid)
+                                txtPlacedPrice.Text = bestBid
+                            Else
+                                ' Handle both null limiter and rate limiting scenarios
+                                If rateLimiter Is Nothing Then
+                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping order update", Color.Orange)
+                                Else
+                                    AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
+                                End If
+                            End If
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
-                            Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
-                            txtPlacedPrice.Text = bestAsk
+                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
+                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
+                                txtPlacedPrice.Text = bestAsk
+                            Else
+                                If rateLimiter Is Nothing Then
+                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping order update", Color.Orange)
+                                Else
+                                    AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
+                                End If
+                            End If
                         End If
                     End If
                 End If
 
-                'For keeping current order at top of orderbook for trailing stop loss orders. +/- 5 leeway to reduce too many edit orders sent
-                If (CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True) Then
+                'For keeping triggered stop loss order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
+                If (SLTriggered = True) And (PositionSLOrderId IsNot Nothing) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
-                            Await UpdateStopLossForTrailingOrder(bestBid)
-                            txtPlacedPrice.Text = bestBid
+                        If bestAsk < ((Decimal.Parse(txtPlacedStopLossPrice.Text)) - 3) Then
+                            ' ALL stop-loss updates are CRITICAL - no conditional logic needed
+                            Await UpdateStopLossForTriggeredStopLossOrder(bestAsk)
+                            txtPlacedStopLossPrice.Text = bestAsk
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
-                            Await UpdateStopLossForTrailingOrder(bestAsk)
-                            txtPlacedPrice.Text = bestAsk
+                        If bestBid > ((Decimal.Parse(txtPlacedStopLossPrice.Text)) + 3) Then
+                            ' ALL stop-loss updates are CRITICAL - no conditional logic needed
+                            Await UpdateStopLossForTriggeredStopLossOrder(bestBid)
+                            txtPlacedStopLossPrice.Text = bestBid
                         End If
                     End If
                 End If
+
+
+                'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
+                If (CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True) Then
+                    If TradeMode = True Then
+                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
+                            ' Add null check for rateLimiter
+                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                Await UpdateStopLossForTrailingOrder(bestBid)
+                                txtPlacedPrice.Text = bestBid
+                            Else
+                                ' Handle both null limiter and rate limiting scenarios
+                                If rateLimiter Is Nothing Then
+                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
+                                Else
+                                    AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
+                                End If
+                            End If
+                        End If
+                    Else
+                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
+                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                Await UpdateStopLossForTrailingOrder(bestAsk)
+                                txtPlacedPrice.Text = bestAsk
+                            Else
+                                If rateLimiter Is Nothing Then
+                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
+                                Else
+                                    AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
+                                End If
+                            End If
+                        End If
+                    End If
+                End If
+
+
 
                 'Check if a trailing order is in position and current price has hit take profit price. 
                 'If yes, cancel stop loss and place trailing stop loss order
@@ -628,6 +870,8 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+
+
     ' Variable to track the specific order ID of interest
     Private CurrentOpenOrderId, CurrentTPOrderId, CurrentSLOrderId As String
     Private PositionTPOrderId, PositionSLOrderId As String
@@ -695,9 +939,13 @@ Public Class frmMainPageV2
                                                       OpenOrderNo = False
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
+                                                      SLTriggered = True
 
-                                                      lblOrderStatus.Text = "In Position"
-                                                      lblOrderStatus.ForeColor = Color.Yellow
+                                                      AppendColoredText(txtLogs, $"Triggered SL placed @ ${price}", Color.Red)
+                                                      txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
+
+                                                      lblOrderStatus.Text = "Stop Loss Triggered"
+                                                      lblOrderStatus.ForeColor = Color.Red
                                                       OpenPositions = True
                                                       OpenOrderNo = False
                                                   Case "EntryTrailingOrder"
@@ -794,6 +1042,7 @@ Public Class frmMainPageV2
                                         PorLAmt = (Decimal.Parse(txtPlacedPrice.Text) - ExecPrice) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
                                         PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                         PorL = False
+                                        SLTriggered = False
                                         'Need to calculate PorL when trailing stop loss is triggered
                                     Case "EntryTrailingOrder"
                                         lblOrderStatus.Text = "In Position"
@@ -877,15 +1126,16 @@ Public Class frmMainPageV2
                                         isTrailingStop = False
                                         isTrailingPosition = False
                                         isTrailingStopLossPlaced = False
+                                        SLTriggered = False
 
                                         PositionEmpty = True
 
                                         Await CancelOrderAsync()
 
-                                        If PorL = True Then
+                                        If (PorL = True) And (PorLAmt > 0) Then
                                             AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.LimeGreen)
                                             AppendColoredText(txtLogs, $"Profit made: ${PorLAmt}.", Color.LimeGreen)
-                                        Else
+                                        ElseIf (PorL = False) And (PorLAmt > 0) Then
                                             AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Crimson)
                                             AppendColoredText(txtLogs, $"Loss of: ${PorLAmt}.", Color.Crimson)
                                         End If
@@ -933,7 +1183,6 @@ Public Class frmMainPageV2
     '-----------------------------------------------------------------------
     Private Async Function ExecuteOrderAsync(TypeOfOrder As String) As Task
         Try
-
             Dim takeprofitprice As Decimal
             Dim stoplossTriggerPrice As Decimal
             Dim triggeroffset As Decimal
@@ -946,7 +1195,6 @@ Public Class frmMainPageV2
 
             ' Ensure WebSocket is connected
             If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
-                'txtLogs.AppendText("WebSocket is not connected." + Environment.NewLine)
                 AppendColoredText(txtLogs, "WebSocket is not connected.", Color.Red)
                 Return
             End If
@@ -956,261 +1204,266 @@ Public Class frmMainPageV2
             Dim amount As Decimal
 
             If Not Decimal.TryParse(amountText, amount) OrElse amount <= 0 Then
-                'txtLogs.AppendText("Please enter a valid positive amount." + Environment.NewLine)
                 AppendColoredText(txtLogs, "Please enter a valid positive amount.", Color.Yellow)
                 Return
             End If
 
-            If TypeOfOrder = "BuyLimit" Then
+            Select Case TypeOfOrder
+                Case "BuyLimit"
 
-                ' Ensure BestBidPrice is valid
-                If BestBidPrice <= 0 Then
-                    'txtLogs.AppendText("Best bid price is not valid." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "Best bid price is not valid.", Color.Yellow)
+                    ' Ensure BestBidPrice is valid
+                    If BestBidPrice <= 0 Then
+                        AppendColoredText(txtLogs, "Best bid price is not valid.", Color.Yellow)
+                        Return
+                    End If
+
+                    BestPrice = BestBidPrice
+
+                    'If manual take profit textbox is not empty, use that
+                    If Decimal.Parse(txtManualTP.Text) > 0 Then
+                        takeprofitprice = Decimal.Parse(txtManualTP.Text)
+                    Else
+                        takeprofitprice = BestPrice + Decimal.Parse(txtTakeProfit.Text)
+                    End If
+
+                    takeprofitprice = If(Decimal.Parse(txtManualTP.Text) > 0, Decimal.Parse(txtManualTP.Text), BestPrice + Decimal.Parse(txtTakeProfit.Text))
+
+                    'If manual stop loss textbox is not empty, use that
+                    If Decimal.Parse(txtManualSL.Text) > 0 Then
+                        stoplossPrice = Decimal.Parse(txtManualSL.Text)
+                        stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) + Decimal.Parse(txtStopLoss.Text)
+                    Else
+                        stoplossTriggerPrice = BestPrice - Decimal.Parse(txtTrigger.Text)
+                        stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                        'stoplossPrice = BestPrice - Decimal.Parse(txtTrigger.Text) + Decimal.Parse(txtStopLoss.Text)
+                    End If
+
+                    triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
+
+                    ordermethod = "private/buy"
+                    direction = "sell"
+                    ordertype = "limit"
+
+
+                Case "SellLimit"
+
+                    ' Ensure BestAskPrice is valid
+                    If BestAskPrice <= 0 Then
+                        AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
+                        Return
+                    End If
+
+                    BestPrice = BestAskPrice
+
+                    'If manual take profit textbox is not empty, use that
+                    If Decimal.Parse(txtManualTP.Text) > 0 Then
+                        takeprofitprice = Decimal.Parse(txtManualTP.Text)
+                    Else
+                        takeprofitprice = BestPrice - Decimal.Parse(txtTakeProfit.Text)
+                    End If
+
+                    'If manual stop loss textbox is not empty, use that
+                    If Decimal.Parse(txtManualSL.Text) > 0 Then
+                        stoplossPrice = Decimal.Parse(txtManualSL.Text)
+                        stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) - Decimal.Parse(txtStopLoss.Text)
+                    Else
+                        stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
+                        stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                        'stoplossPrice = BestPrice + Decimal.Parse(txtTrigger.Text) - Decimal.Parse(txtStopLoss.Text)
+                    End If
+
+                    triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
+
+                    ordermethod = "private/sell"
+                    direction = "buy"
+                    ordertype = "limit"
+
+
+                Case "BuyNoSpread"
+
+                    ' Ensure BestBidPrice is valid
+                    If BestAskPrice <= 0 Then
+                        AppendColoredText(txtLogs, "Best bid price Is Not valid.", Color.Yellow)
+                        Return
+                    End If
+
+                    BestPrice = BestAskPrice - 0.5
+
+                    'If manual take profit textbox is not empty, use that
+                    If Decimal.Parse(txtManualTP.Text) > 0 Then
+                        takeprofitprice = Decimal.Parse(txtManualTP.Text)
+                    Else
+                        takeprofitprice = BestPrice + Decimal.Parse(txtTakeProfit.Text)
+                    End If
+
+                    'If manual stop loss textbox is not empty, use that
+                    If Decimal.Parse(txtManualSL.Text) > 0 Then
+                        stoplossPrice = Decimal.Parse(txtManualSL.Text)
+                        stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) + Decimal.Parse(txtStopLoss.Text)
+                    Else
+                        stoplossTriggerPrice = BestPrice - Decimal.Parse(txtTrigger.Text)
+                        stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                    End If
+
+                    triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
+
+                    ordermethod = "private/buy"
+                    direction = "sell"
+                    ordertype = "limit"
+
+
+                Case "SellNoSpread"
+
+                    ' Ensure BestAskPrice is valid
+                    If BestBidPrice <= 0 Then
+                        AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
+                        Return
+                    End If
+
+                    BestPrice = BestBidPrice + 0.5
+
+                    'If manual take profit textbox is not empty, use that
+                    If Decimal.Parse(txtManualTP.Text) > 0 Then
+                        takeprofitprice = Decimal.Parse(txtManualTP.Text)
+                    Else
+                        takeprofitprice = BestPrice - Decimal.Parse(txtTakeProfit.Text)
+                    End If
+
+                    'If manual stop loss textbox is not empty, use that
+                    If Decimal.Parse(txtManualSL.Text) > 0 Then
+                        stoplossPrice = Decimal.Parse(txtManualSL.Text)
+                        stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) - Decimal.Parse(txtStopLoss.Text)
+                    Else
+                        stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
+                        stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                    End If
+
+                    triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
+
+                    ordermethod = "private/sell"
+                    direction = "buy"
+                    ordertype = "limit"
+
+
+                Case "BuyMarket"
+
+                    MarketOrderType = True
+
+                    ' Ensure BestBidPrice is valid
+                    If BestAskPrice <= 0 Then
+                        AppendColoredText(txtLogs, "Best bid price Is Not valid.", Color.Yellow)
+                        Return
+                    End If
+
+                    BestPrice = BestAskPrice - 0.5
+
+                    'If manual take profit textbox is not empty, use that
+                    If Decimal.Parse(txtManualTP.Text) > 0 Then
+                        takeprofitprice = Decimal.Parse(txtManualTP.Text)
+                    Else
+                        takeprofitprice = BestPrice + Decimal.Parse(txtTakeProfit.Text)
+                    End If
+
+                    'If manual stop loss textbox is not empty, use that
+                    If Decimal.Parse(txtManualSL.Text) > 0 Then
+                        stoplossPrice = Decimal.Parse(txtManualSL.Text)
+                        stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) + Decimal.Parse(txtStopLoss.Text)
+                    Else
+                        stoplossTriggerPrice = BestPrice - Decimal.Parse(txtTrigger.Text)
+                        stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                    End If
+
+                    triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
+
+                    ordermethod = "private/buy"
+                    direction = "sell"
+                    ordertype = "market"
+
+                Case "SellMarket"
+
+                    MarketOrderType = True
+
+                    ' Ensure BestAskPrice is valid
+                    If BestBidPrice <= 0 Then
+                        AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
+                        Return
+                    End If
+
+                    BestPrice = BestBidPrice + 0.5
+
+                    'If manual take profit textbox is not empty, use that
+                    If Decimal.Parse(txtManualTP.Text) > 0 Then
+                        takeprofitprice = Decimal.Parse(txtManualTP.Text)
+                    Else
+                        takeprofitprice = BestPrice - Decimal.Parse(txtTakeProfit.Text)
+                    End If
+
+                    'If manual stop loss textbox is not empty, use that
+                    If Decimal.Parse(txtManualSL.Text) > 0 Then
+                        stoplossPrice = Decimal.Parse(txtManualSL.Text)
+                        stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) - Decimal.Parse(txtStopLoss.Text)
+                    Else
+                        stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
+                        stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                    End If
+
+                    triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
+
+                    ordermethod = "private/sell"
+                    direction = "buy"
+                    ordertype = "market"
+
+                Case Else
+                    ' Handle unexpected or unsupported order types
+                    AppendColoredText(txtLogs, "Unsupported order type specified.", Color.IndianRed)
                     Return
-                End If
-
-                BestPrice = BestBidPrice
-
-                'If manual take profit textbox is not empty, use that
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    takeprofitprice = Decimal.Parse(txtManualTP.Text)
-                Else
-                    takeprofitprice = BestPrice + Decimal.Parse(txtTakeProfit.Text)
-                End If
-
-                'If manual stop loss textbox is not empty, use that
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    stoplossPrice = Decimal.Parse(txtManualSL.Text)
-                    stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) + Decimal.Parse(txtStopLoss.Text)
-                Else
-                    stoplossTriggerPrice = BestPrice - Decimal.Parse(txtTrigger.Text)
-                    stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
-                End If
-
-                triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
-
-                ordermethod = "private/buy"
-                direction = "sell"
-                ordertype = "limit"
-
-
-            ElseIf TypeOfOrder = "SellLimit" Then
-
-                ' Ensure BestAskPrice is valid
-                If BestAskPrice <= 0 Then
-                    'txtLogs.AppendText("Best ask price Is Not valid." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
-                    Return
-                End If
-
-                BestPrice = BestAskPrice
-
-                'If manual take profit textbox is not empty, use that
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    takeprofitprice = Decimal.Parse(txtManualTP.Text)
-                Else
-                    takeprofitprice = BestPrice - Decimal.Parse(txtTakeProfit.Text)
-                End If
-
-                'If manual stop loss textbox is not empty, use that
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    stoplossPrice = Decimal.Parse(txtManualSL.Text)
-                    stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) - Decimal.Parse(txtStopLoss.Text)
-                Else
-                    stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
-                    stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
-                End If
-
-                triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
-
-                ordermethod = "private/sell"
-                direction = "buy"
-                ordertype = "limit"
-
-
-            ElseIf TypeOfOrder = "BuyNoSpread" Then
-
-                ' Ensure BestBidPrice is valid
-                If BestAskPrice <= 0 Then
-                    'txtLogs.AppendText("Best bid price Is Not valid." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "Best bid price Is Not valid.", Color.Yellow)
-                    Return
-                End If
-
-                BestPrice = BestAskPrice - 0.5
-
-                'If manual take profit textbox is not empty, use that
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    takeprofitprice = Decimal.Parse(txtManualTP.Text)
-                Else
-                    takeprofitprice = BestPrice + Decimal.Parse(txtTakeProfit.Text)
-                End If
-
-                'If manual stop loss textbox is not empty, use that
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    stoplossPrice = Decimal.Parse(txtManualSL.Text)
-                    stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) + Decimal.Parse(txtStopLoss.Text)
-                Else
-                    stoplossTriggerPrice = BestPrice - Decimal.Parse(txtTrigger.Text)
-                    stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
-                End If
-
-                triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
-
-                ordermethod = "private/buy"
-                direction = "sell"
-                ordertype = "limit"
-
-
-            ElseIf TypeOfOrder = "SellNoSpread" Then
-
-                ' Ensure BestAskPrice is valid
-                If BestBidPrice <= 0 Then
-                    'txtLogs.AppendText("Best ask price Is Not valid." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
-                    Return
-                End If
-
-                BestPrice = BestBidPrice + 0.5
-
-                'If manual take profit textbox is not empty, use that
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    takeprofitprice = Decimal.Parse(txtManualTP.Text)
-                Else
-                    takeprofitprice = BestPrice - Decimal.Parse(txtTakeProfit.Text)
-                End If
-
-                'If manual stop loss textbox is not empty, use that
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    stoplossPrice = Decimal.Parse(txtManualSL.Text)
-                    stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) - Decimal.Parse(txtStopLoss.Text)
-                Else
-                    stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
-                    stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
-                End If
-
-                triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
-
-                ordermethod = "private/sell"
-                direction = "buy"
-                ordertype = "limit"
-
-
-            ElseIf TypeOfOrder = "BuyMarket" Then
-
-                MarketOrderType = True
-
-                ' Ensure BestBidPrice is valid
-                If BestAskPrice <= 0 Then
-                    'txtLogs.AppendText("Best bid price Is Not valid." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "Best bid price Is Not valid.", Color.Yellow)
-                    Return
-                End If
-
-                BestPrice = BestAskPrice - 0.5
-
-                'If manual take profit textbox is not empty, use that
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    takeprofitprice = Decimal.Parse(txtManualTP.Text)
-                Else
-                    takeprofitprice = BestPrice + Decimal.Parse(txtTakeProfit.Text)
-                End If
-
-                'If manual stop loss textbox is not empty, use that
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    stoplossPrice = Decimal.Parse(txtManualSL.Text)
-                    stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) + Decimal.Parse(txtStopLoss.Text)
-                Else
-                    stoplossTriggerPrice = BestPrice - Decimal.Parse(txtTrigger.Text)
-                    stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
-                End If
-
-                triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
-
-                ordermethod = "private/buy"
-                direction = "sell"
-                ordertype = "market"
-
-            ElseIf TypeOfOrder = "SellMarket" Then
-
-                MarketOrderType = True
-
-                ' Ensure BestAskPrice is valid
-                If BestBidPrice <= 0 Then
-                    'txtLogs.AppendText("Best ask price Is Not valid." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
-                    Return
-                End If
-
-                BestPrice = BestBidPrice + 0.5
-
-                'If manual take profit textbox is not empty, use that
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    takeprofitprice = Decimal.Parse(txtManualTP.Text)
-                Else
-                    takeprofitprice = BestPrice - Decimal.Parse(txtTakeProfit.Text)
-                End If
-
-                'If manual stop loss textbox is not empty, use that
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    stoplossPrice = Decimal.Parse(txtManualSL.Text)
-                    stoplossTriggerPrice = Decimal.Parse(txtManualSL.Text) - Decimal.Parse(txtStopLoss.Text)
-                Else
-                    stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
-                    stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
-                End If
-
-                triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
-
-                ordermethod = "private/sell"
-                direction = "buy"
-                ordertype = "market"
-
-            Else
-                ' Handle unexpected or unsupported order types
-                'txtLogs.AppendText("Unsupported order type specified." + Environment.NewLine)
-                AppendColoredText(txtLogs, "Unsupported order type specified.", Color.IndianRed)
-                Return
-            End If
-
+            End Select
 
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
-             New JProperty("instrument_name", "BTC-PERPETUAL"),
+     New JProperty("instrument_name", "BTC-PERPETUAL"),
+        New JProperty("amount", amount),
+        New JProperty("type", ordertype),
+        New JProperty("label", If(MarketOrderType, "EntryMarketOrder", "EntryLimitOrder")),
+        New JProperty("time_in_force", "good_til_cancelled"),
+        New JProperty("linked_order_type", "one_triggers_one_cancels_other"),
+        New JProperty("trigger_fill_condition", "first_hit"),
+        New JProperty("reject_post_only", False),
+        New JProperty("otoco_config", New JArray(
+            New JObject(
                 New JProperty("amount", amount),
-                New JProperty("type", ordertype),
-                New JProperty("label", If(MarketOrderType, "EntryMarketOrder", "EntryLimitOrder")),
+                New JProperty("direction", direction),
+                New JProperty("type", "limit"),
+                New JProperty("label", "TakeLimitProfit"),
+                New JProperty("price", takeprofitprice),
                 New JProperty("time_in_force", "good_til_cancelled"),
-                New JProperty("linked_order_type", "one_triggers_one_cancels_other"),
-                New JProperty("trigger_fill_condition", "first_hit"),
-                New JProperty("reject_post_only", False),
-                New JProperty("otoco_config", New JArray(
-                    New JObject(
-                        New JProperty("amount", amount),
-                        New JProperty("direction", direction),
-                        New JProperty("type", "limit"),
-                        New JProperty("label", "TakeLimitProfit"),
-                        New JProperty("price", takeprofitprice),
-                        New JProperty("reduce_only", True),
-                        New JProperty("time_in_force", "good_til_cancelled"),
-                        New JProperty("post_only", True)
-                    ),
-                    New JObject(
-                    New JProperty("amount", amount),
-                    New JProperty("direction", direction),
-                    New JProperty("type", "stop_limit"),
-                    New JProperty("trigger_price", stoplossTriggerPrice), ' Base trigger price
-                    New JProperty("trigger_offset", triggeroffset), ' Offset for dynamic adjustment
-                    New JProperty("price", stoplossPrice), ' Stop loss limit price
-                    New JProperty("label", "StopLossOrder"),
-                    New JProperty("reduce_only", True),
-                    New JProperty("time_in_force", "good_til_cancelled"),
-                    New JProperty("post_only", True),
-                    New JProperty("trigger", "last_price")
-                    )
-                ))
+                New JProperty("post_only", True)
+            ),
+            New JObject(
+            New JProperty("amount", amount),
+            New JProperty("direction", direction),
+            New JProperty("type", "stop_limit"),
+            New JProperty("trigger_price", stoplossTriggerPrice), ' Base trigger price                    
+            New JProperty("price", stoplossPrice), ' Stop loss limit price
+            New JProperty("label", "StopLossOrder"),
+            New JProperty("time_in_force", "good_til_cancelled"),
+            New JProperty("trigger_offset", triggeroffset), ' Offset for dynamic adjustment
+            New JProperty("post_only", True),    'False guaranteed to work, but likely to become market order
+            New JProperty("reduce_only", True),
+            New JProperty("reject_post_only", False),
+            New JProperty("trigger", "last_price")
             )
+        ))
+    )
+
+            'Lines below taken out from stop loss order OTOCO code
+            'New JProperty("trigger_offset", triggeroffset), ' Offset for dynamic adjustment
+            'New JProperty("post_only", True)    'False guaranteed to work, but likely to become market order
+            'New JProperty("reject_post_only", False),
+
+            'New JProperty("reduce_only", True),                 
+            'NOTE: It seems putting reduce_only calls in take profit will cause cancellation of both take profit and stop loss orders when stop loss trigger is hit, leaving a position open with no stop loss.
+
 
             ' Add price property only for limit orders
             If Not MarketOrderType Then
@@ -1220,11 +1473,14 @@ Public Class frmMainPageV2
 
             ' Prepare the payload for the linked order
             Dim OrderPayload As New JObject(
-            New JProperty("jsonrpc", "2.0"),
-            New JProperty("id", 2),
-            New JProperty("method", ordermethod),
-            New JProperty("params", params)
-        )
+    New JProperty("jsonrpc", "2.0"),
+    New JProperty("id", 2),
+    New JProperty("method", ordermethod),
+    New JProperty("params", params)
+)
+
+            'AppendColoredText(txtLogs, OrderPayload.ToString(), Color.LightGray)
+
 
             ' Send the order and capture the server's response
             Await SendWebSocketMessageAsync(OrderPayload.ToString())
@@ -1237,32 +1493,26 @@ Public Class frmMainPageV2
 
             If TypeOfOrder = "BuyLimit" Then
                 ' Optional: Handle post-order logic (e.g., display confirmation)
-                '                txtLogs.AppendText($"Buy limit order placed For {amount} at {BestPrice}." + Environment.NewLine)
                 AppendColoredText(txtLogs, $"Buy limit order placed For {amount} at {BestPrice}.", Color.MediumSeaGreen)
             ElseIf TypeOfOrder = "SellLimit" Then
                 ' Optional: Handle post-order logic (e.g., display confirmation)
-                'txtLogs.AppendText($"Sell limit order placed For {amount} at {BestPrice}." + Environment.NewLine)
                 AppendColoredText(txtLogs, $"Sell limit order placed For {amount} at {BestPrice}.", Color.DarkRed)
             ElseIf TypeOfOrder = "BuyNoSpread" Then
-                'txtLogs.AppendText($"Buy limit no spread order placed For {amount} at {BestPrice}." + Environment.NewLine)
                 AppendColoredText(txtLogs, $"Buy limit no spread order placed For {amount} at {BestPrice}.", Color.MediumSeaGreen)
             ElseIf TypeOfOrder = "SellNoSpread" Then
-                'txtLogs.AppendText($"Sell limit no spread order placed For {amount} at {BestPrice}." + Environment.NewLine)
                 AppendColoredText(txtLogs, $"Sell limit no spread order placed For {amount} at {BestPrice}.", Color.DarkRed)
             ElseIf TypeOfOrder = "BuyMarket" Then
-                'txtLogs.AppendText($"Market buy order placed For {amount} starting at {BestPrice}." + Environment.NewLine)
                 AppendColoredText(txtLogs, $"Market buy order placed For {amount} starting at {BestPrice}.", Color.MediumSeaGreen)
             ElseIf TypeOfOrder = "SellMarket" Then
-                'txtLogs.AppendText($"Market sell order placed For {amount} starting at {BestPrice}." + Environment.NewLine)
                 AppendColoredText(txtLogs, $"Market sell order placed For {amount} starting at {BestPrice}.", Color.DarkRed)
             End If
 
         Catch ex As Exception
             ' Handle any errors
-            'txtLogs.AppendText("Error placing order: " & ex.Message + Environment.NewLine)
             AppendColoredText(txtLogs, "Error placing order: " & ex.Message, Color.Red)
         End Try
     End Function
+
 
     Private Async Function CancelOrderAsync() As Task
 
@@ -1346,22 +1596,36 @@ Public Class frmMainPageV2
     Private UpdateFlag As Boolean = False
     Private Async Function UpdateLimitOrderWithOTOCOAsync(newPrice As Decimal) As Task
         Try
+            ' Ensure rate limiter exists
+            If rateLimiter Is Nothing Then
+                AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter", Color.Yellow)
+                rateLimiter = New DeribitRateLimiter(1000, 200) ' Emergency conservative limiter
+            End If
+
+            ' Check rate limit before making API calls
+            If Not rateLimiter.CanMakeRequest() Then
+                Dim waitTime = rateLimiter.GetWaitTimeMs()
+                AppendColoredText(txtLogs, $"Rate limit reached, waiting {waitTime}ms", Color.Yellow)
+                Await Task.Delay(waitTime)
+            End If
+
+            ' Only proceed if we can consume credits for all 3 API calls needed
+            If Not (rateLimiter.ConsumeCredits() AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.CanMakeRequest()) Then
+                AppendColoredText(txtLogs, "Insufficient credits for order update - skipping", Color.Orange)
+                Return
+            End If
 
             Dim newTPprice, newTrigSLprice, newSLprice As Decimal
             Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
 
-            ' Calculate the new OTOCO order prices
-            'If Buy direction
+            ' Your existing price calculation logic remains the same
             If TradeMode = True Then
-
-                'If Manual TP textbox is not empty
                 If Decimal.Parse(txtManualTP.Text) > 0 Then
                     newTPprice = Decimal.Parse(txtManualTP.Text)
                 Else
                     newTPprice = newPrice + Decimal.Parse(txtTakeProfit.Text)
                 End If
 
-                'If Manual SL textbox is not empty
                 If Decimal.Parse(txtManualSL.Text) > 0 Then
                     newSLprice = Decimal.Parse(txtManualSL.Text)
                     newTrigSLprice = newSLprice + Decimal.Parse(txtStopLoss.Text)
@@ -1369,10 +1633,7 @@ Public Class frmMainPageV2
                     newTrigSLprice = newPrice - Decimal.Parse(txtTrigger.Text)
                     newSLprice = newTrigSLprice - Decimal.Parse(txtStopLoss.Text)
                 End If
-
-                'If Sell direction
             Else
-
                 If Decimal.Parse(txtManualTP.Text) > 0 Then
                     newTPprice = Decimal.Parse(txtManualTP.Text)
                 Else
@@ -1386,73 +1647,163 @@ Public Class frmMainPageV2
                     newTrigSLprice = newPrice + Decimal.Parse(txtTrigger.Text)
                     newSLprice = newTrigSLprice + Decimal.Parse(txtStopLoss.Text)
                 End If
-
             End If
 
-            ' Construct the payload for updating the main limit order
+            ' Send all three updates with rate limiting
+            Await SendRateLimitedUpdate("main", CurrentOpenOrderId, newPrice, amount)
+            rateLimiter.ConsumeCredits() ' Consume for second call
+            Await SendRateLimitedUpdate("takeprofit", CurrentTPOrderId, newTPprice, amount)
+            rateLimiter.ConsumeCredits() ' Consume for third call
+            Await SendRateLimitedUpdate("stoploss", CurrentSLOrderId, newSLprice, amount, newTrigSLprice)
+
+            UpdateFlag = True
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, "Error in rate-limited UpdateLimitOrderWithOTOCOAsync: " & ex.Message, Color.Red)
+        End Try
+    End Function
+
+    Private Async Function SendRateLimitedUpdate(orderType As String, orderId As String, price As Decimal, amount As Decimal, Optional triggerPrice As Decimal? = Nothing) As Task
+        Try
+            Dim updatePayload As JObject
+
+            If triggerPrice.HasValue Then
+                ' Stop loss order with trigger price
+                updatePayload = New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", 223346},
+                {"method", "private/edit"},
+                {"params", New JObject From {
+                    {"order_id", orderId},
+                    {"price", price},
+                    {"trigger_price", triggerPrice.Value},
+                    {"amount", amount}
+                }}
+            }
+            Else
+                ' Regular limit order
+                updatePayload = New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", 223344},
+                {"method", "private/edit"},
+                {"params", New JObject From {
+                    {"order_id", orderId},
+                    {"price", price},
+                    {"amount", amount}
+                }}
+            }
+            End If
+
+            Await SendWebSocketMessageAsync(updatePayload.ToString())
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in SendRateLimitedUpdate ({orderType}): {ex.Message}", Color.Red)
+        End Try
+    End Function
+
+
+    Private Async Function UpdateStopLossForTriggeredStopLossOrder(newPrice As Decimal) As Task
+        Try
+            ' Ensure rate limiter exists for critical operations
+            If rateLimiter Is Nothing Then
+                AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter for critical SL update", Color.Yellow)
+                rateLimiter = New DeribitRateLimiter(1000, 200) ' Emergency conservative limiter
+            End If
+
+            Dim maxWaitTime As Integer = 5000 ' Maximum 5 seconds wait
+            Dim waitStartTime As DateTime = DateTime.UtcNow
+
+            ' Wait for rate limit availability with timeout
+            While Not rateLimiter.CanMakeRequest()
+                If (DateTime.UtcNow - waitStartTime).TotalMilliseconds > maxWaitTime Then
+                    AppendColoredText(txtLogs, "CRITICAL SL update timed out - forcing execution", Color.Orange)
+                    Exit While
+                End If
+                Await Task.Delay(100)
+            End While
+
+            ' Force execution regardless of rate limit status
+            rateLimiter.ConsumeCredits()
+
+            ' Validate amount input
+            If String.IsNullOrEmpty(txtAmount.Text) OrElse Not IsNumeric(txtAmount.Text) Then
+                AppendColoredText(txtLogs, "Invalid amount for SL update - using default", Color.Yellow)
+                Return
+            End If
+
+            Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
+
+            ' Validate PositionSLOrderId
+            If String.IsNullOrEmpty(PositionSLOrderId) Then
+                AppendColoredText(txtLogs, "PositionSLOrderId is null or empty - cannot update SL", Color.Red)
+                Return
+            End If
+
+            ' Construct the payload for updating the triggered stop loss order
             Dim updateOrderPayload As New JObject From {
             {"jsonrpc", "2.0"},
-            {"id", 223344},
+            {"id", 223350},
             {"method", "private/edit"},
             {"params", New JObject From {
-                {"order_id", CurrentOpenOrderId},
+                {"order_id", PositionSLOrderId},
                 {"price", newPrice},
                 {"amount", amount}
             }}
         }
 
-            ' Send the payload to update the main limit order
-            Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
-
-            ' Construct the payload for updating the take profit order
-            Dim updateTakeProfitPayload As New JObject From {
-            {"jsonrpc", "2.0"},
-            {"id", 223345},
-            {"method", "private/edit"},
-            {"params", New JObject From {
-                {"order_id", CurrentTPOrderId}, ' Replace with the take profit order ID
-                {"price", newTPprice},
-                {"amount", amount}
-            }}
-        }
-
-            ' Send the payload to update the take profit order
-            Await SendWebSocketMessageAsync(updateTakeProfitPayload.ToString())
-
-            ' Construct the payload for updating the stop loss order
-            Dim updateStopLossPayload As New JObject From {
-            {"jsonrpc", "2.0"},
-            {"id", 223346},
-            {"method", "private/edit"},
-            {"params", New JObject From {
-                {"order_id", CurrentSLOrderId}, ' Replace with the stop loss order ID
-                {"price", newSLprice},
-                {"trigger_price", newTrigSLprice},
-                {"amount", amount}
-            }}
-        }
+            ' Validate WebSocket connection before sending
+            If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
+                AppendColoredText(txtLogs, "WebSocket not connected - cannot send critical SL update", Color.Red)
+                Return
+            End If
 
             ' Send the payload to update the stop loss order
-            Await SendWebSocketMessageAsync(updateStopLossPayload.ToString())
+            Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
 
             UpdateFlag = True
-            'AppendColoredText(txtLogs, $"Updated to: ${newPrice}", Color.Yellow)
+            AppendColoredText(txtLogs, $"CRITICAL SL repositioned to: ${newPrice}", Color.Red)
+
         Catch ex As Exception
-            txtLogs.AppendText("Error in UpdateLimitOrderWithOTOCOAsync: " & ex.Message & Environment.NewLine)
+            AppendColoredText(txtLogs, "Error in UpdateStopLossForTriggeredStopLossOrder: " & ex.Message, Color.Red)
+
+            ' Handle potential rate limit errors
+            If ex.Message.Contains("too_many_requests") OrElse ex.Message.Contains("10028") Then
+                HandleRateLimitError(ex.Message)
+            End If
         End Try
     End Function
+
+
+
 
     Private Async Function UpdateStopLossForTrailingOrder(newPrice As Decimal) As Task
         Try
 
+            ' Ensure rate limiter exists
+            If rateLimiter Is Nothing Then
+                AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter for trailing order", Color.Yellow)
+                rateLimiter = New DeribitRateLimiter(1000, 200) ' Emergency conservative limiter
+            End If
+
+            ' Check rate limit before making multiple API calls (this function makes 2 calls)
+            If Not rateLimiter.CanMakeRequest() Then
+                Dim waitTime = rateLimiter.GetWaitTimeMs()
+                AppendColoredText(txtLogs, $"Rate limit reached for trailing update, waiting {waitTime}ms", Color.Yellow)
+                Await Task.Delay(waitTime)
+            End If
+
+            ' Check if we have enough credits for both API calls (main order + stop loss)
+            If Not (rateLimiter.ConsumeCredits() AndAlso rateLimiter.CanMakeRequest()) Then
+                AppendColoredText(txtLogs, "Insufficient credits for trailing order update - skipping", Color.Orange)
+                Return
+            End If
+
             Dim newTrigSLprice, newSLprice As Decimal
             Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
 
-            ' Calculate the new OTOCO order prices
-            'If Buy direction
+            ' Calculate the new stop loss prices based on direction
             If TradeMode = True Then
-
-                'If Manual SL textbox is not empty
+                ' Buy direction
                 If Decimal.Parse(txtManualSL.Text) > 0 Then
                     newSLprice = Decimal.Parse(txtManualSL.Text)
                     newTrigSLprice = newSLprice + Decimal.Parse(txtStopLoss.Text)
@@ -1460,10 +1811,8 @@ Public Class frmMainPageV2
                     newTrigSLprice = newPrice - Decimal.Parse(txtTrigger.Text)
                     newSLprice = newTrigSLprice - Decimal.Parse(txtStopLoss.Text)
                 End If
-
-                'If Sell direction
             Else
-
+                ' Sell direction
                 If Decimal.Parse(txtManualSL.Text) > 0 Then
                     newSLprice = Decimal.Parse(txtManualSL.Text)
                     newTrigSLprice = newSLprice - Decimal.Parse(txtStopLoss.Text)
@@ -1471,10 +1820,9 @@ Public Class frmMainPageV2
                     newTrigSLprice = newPrice + Decimal.Parse(txtTrigger.Text)
                     newSLprice = newTrigSLprice + Decimal.Parse(txtStopLoss.Text)
                 End If
-
             End If
 
-            ' Construct the payload for updating the main limit order
+            ' Update main trailing order
             Dim updateOrderPayload As New JObject From {
             {"jsonrpc", "2.0"},
             {"id", 223347},
@@ -1486,31 +1834,35 @@ Public Class frmMainPageV2
             }}
         }
 
-            ' Send the payload to update the main limit order
             Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
 
-            ' Construct the payload for updating the stop loss order
+            ' Consume credits for second API call
+            rateLimiter.ConsumeCredits()
+
+            ' Update stop loss order
             Dim updateStopLossPayload As New JObject From {
             {"jsonrpc", "2.0"},
             {"id", 223348},
             {"method", "private/edit"},
             {"params", New JObject From {
-                {"order_id", CurrentSLOrderId}, ' Replace with the stop loss order ID
+                {"order_id", CurrentSLOrderId},
                 {"price", newSLprice},
                 {"trigger_price", newTrigSLprice},
                 {"amount", amount}
             }}
         }
 
-            ' Send the payload to update the stop loss order
             Await SendWebSocketMessageAsync(updateStopLossPayload.ToString())
 
             UpdateFlag = True
-            'AppendColoredText(txtLogs, $"Updated to: ${newPrice}", Color.Yellow)
+            AppendColoredText(txtLogs, $"Rate-limited trailing order updated to: ${newPrice}", Color.Cyan)
+
         Catch ex As Exception
-            txtLogs.AppendText("Error in UpdateStopLossForTrailingOrder: " & ex.Message & Environment.NewLine)
+            AppendColoredText(txtLogs, "Error in UpdateStopLossForTrailingOrder: " & ex.Message, Color.Red)
         End Try
     End Function
+
+
 
     Private Async Function StopLossForTrailingOrderAsync(TypeOfOrder As String) As Task
         Try
@@ -1773,6 +2125,57 @@ Public Class frmMainPageV2
     'Non-order execution functions below
     '------------------------------------------------
     ' Define a function to add colored text
+
+    Private Async Function GetAccountSummaryLimits() As Task(Of RateLimitInfo)
+        Try
+            ' Create a task completion source to wait for the response
+            accountSummaryTaskCompletionSource = New TaskCompletionSource(Of RateLimitInfo)()
+
+            ' Create the account summary request
+            Dim accountSummaryPayload = New JObject(
+            New JProperty("jsonrpc", "2.0"),
+            New JProperty("id", 999), ' Unique ID to identify this request
+            New JProperty("method", "private/get_account_summary"),
+            New JProperty("params", New JObject(
+                New JProperty("currency", "BTC"),
+                New JProperty("extended", True)
+            ))
+        )
+
+            ' Send the request via WebSocket
+            Await SendWebSocketMessageAsync(accountSummaryPayload.ToString())
+
+            ' Wait for the response (with timeout)
+            Dim timeoutTask = Task.Delay(5000) ' 5 second timeout
+            Dim completedTask = Await Task.WhenAny(accountSummaryTaskCompletionSource.Task, timeoutTask)
+
+            ' Use 'Is' operator instead of '=' for task comparison
+            If completedTask Is timeoutTask Then
+                ' Timeout occurred
+                AppendColoredText(txtLogs, "Account summary request timed out - using conservative defaults", Color.Yellow)
+                Return New RateLimitInfo With {
+                .MaxCredits = 1000,
+                .RefillRate = 10,
+                .BurstLimit = 10,
+                .CurrentEstimatedCredits = 1000
+            }
+            Else
+                ' Response received
+                Return Await accountSummaryTaskCompletionSource.Task
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error getting account limits: {ex.Message}", Color.Yellow)
+            ' Return very conservative defaults on error
+            Return New RateLimitInfo With {
+            .MaxCredits = 500,
+            .RefillRate = 10,
+            .BurstLimit = 5,
+            .CurrentEstimatedCredits = 500
+        }
+        End Try
+    End Function
+
     Private Sub AppendColoredText(rtb As RichTextBox, text As String, color As Color)
         Me.Invoke(Sub()
                       rtb.SelectionStart = rtb.TextLength
@@ -1812,19 +2215,49 @@ Public Class frmMainPageV2
 
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
         Try
-            Await WebSocketCalls()
-
             If btnConnect.Text = "Connect!" Then
-                AppendColoredText(txtLogs, "Connected." + Environment.NewLine, Color.DodgerBlue)
-                'ElseIf btnConnect.Text = "Update!" Then
-                '    AppendColoredText(txtLogs, "Balance Updated." + Environment.NewLine, Color.DodgerBlue)
-            End If
+                ' Initialize WebSocket connection first
+                Await WebSocketCalls()
 
+                ' Automatically initialize rate limits after successful connection
+                If btnConnect.Text = "ONLINE" Then
+                    Await InitializeRateLimits()
+                    'AppendColoredText(txtLogs, "Rate limiting initialized automatically after connection.", Color.LimeGreen)
+                End If
+
+                AppendColoredText(txtLogs, "Connected." + Environment.NewLine, Color.DodgerBlue)
+            ElseIf btnConnect.Text = "ONLINE" Then
+                ' Manual rate limit refresh when already connected
+                Await InitializeRateLimits()
+                AppendColoredText(txtLogs, "Rate limits manually refreshed.", Color.LimeGreen)
+            End If
 
         Catch ex As Exception
             AppendColoredText(txtLogs, "Connect failed." + Environment.NewLine, Color.Red)
         End Try
     End Sub
+
+
+
+    Private Async Function InitializeRateLimits() As Task
+        Try
+            AppendColoredText(txtLogs, "Initializing rate limits from account summary...", Color.DodgerBlue)
+
+            ' Get actual account limits
+            accountLimits = Await GetAccountSummaryLimits()
+
+            ' Initialize rate limiter with actual limits
+            rateLimiter = New DeribitRateLimiter(accountLimits.MaxCredits, 200)
+
+            AppendColoredText(txtLogs, $"Rate limits: {accountLimits.MaxCredits} max credits, sustainable rate: {accountLimits.MaxCredits / 200} req/sec", Color.LimeGreen)
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Rate limit initialization error: {ex.Message}", Color.Yellow)
+            ' Initialize with very conservative defaults
+            rateLimiter = New DeribitRateLimiter(1000, 200)
+        End Try
+    End Function
+
 
 
     Private Sub btnChangeForm_Click(sender As Object, e As EventArgs) Handles btnChangeForm.Click

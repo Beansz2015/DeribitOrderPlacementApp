@@ -8,4 +8,5 @@
   <AuthenticationMode>0</AuthenticationMode>
   <SaveMySettingsOnExit>true</SaveMySettingsOnExit>
   <HighDpiMode>3</HighDpiMode>
+  <SplashScreen></SplashScreen>
 </MyApplicationData>
