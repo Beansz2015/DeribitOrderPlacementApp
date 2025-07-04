@@ -755,10 +755,10 @@ Public Class frmMainPageV2
                               End Sub)
                 End If
 
-                'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
+                'For keeping current order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
                 If (CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
+                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 Await UpdateLimitOrderWithOTOCOAsync(bestBid)
@@ -773,7 +773,7 @@ Public Class frmMainPageV2
                             End If
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
+                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
                                 txtPlacedPrice.Text = bestAsk
@@ -788,16 +788,16 @@ Public Class frmMainPageV2
                     End If
                 End If
 
-                'For keeping triggered stop loss order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
+                'For keeping triggered stop loss order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
                 If (SLTriggered = True) And (PositionSLOrderId IsNot Nothing) Then
                     If TradeMode = True Then
-                        If bestAsk < ((Decimal.Parse(txtPlacedStopLossPrice.Text)) - 3) Then
+                        If bestAsk < ((Decimal.Parse(txtPlacedStopLossPrice.Text)) - 5) Then
                             ' ALL stop-loss updates are CRITICAL - no conditional logic needed
                             Await UpdateStopLossForTriggeredStopLossOrder(bestAsk)
                             txtPlacedStopLossPrice.Text = bestAsk
                         End If
                     Else
-                        If bestBid > ((Decimal.Parse(txtPlacedStopLossPrice.Text)) + 3) Then
+                        If bestBid > ((Decimal.Parse(txtPlacedStopLossPrice.Text)) + 5) Then
                             ' ALL stop-loss updates are CRITICAL - no conditional logic needed
                             Await UpdateStopLossForTriggeredStopLossOrder(bestBid)
                             txtPlacedStopLossPrice.Text = bestBid
@@ -806,10 +806,10 @@ Public Class frmMainPageV2
                 End If
 
 
-                'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
+                'For keeping current order at top of orderbook for trailing stop loss orders. +/- 5 leeway to reduce too many edit orders sent
                 If (CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
+                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 Await UpdateStopLossForTrailingOrder(bestBid)
@@ -824,7 +824,7 @@ Public Class frmMainPageV2
                             End If
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
+                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 Await UpdateStopLossForTrailingOrder(bestAsk)
                                 txtPlacedPrice.Text = bestAsk
@@ -2328,13 +2328,31 @@ Public Class frmMainPageV2
         End Try
     End Function
 
+    ' --- place in frmMainPageV2 (replace existing helper) -------------------
     Private Sub AppendColoredText(rtb As RichTextBox, text As String, color As Color)
+        Const RL_MSG As String = "Rate limiter not initialized - skipping order update"
+        Static skipNext As Boolean = False          ' <-- single persistent flag
+
+        'If several other types of repeating messages, use below code to suppress them and replace skipnext as Boolean
+        '        Static lastMsg As String = ""
+        '       If text.Equals(lastMsg, StringComparison.Ordinal) Then Exit Sub
+        '      lastMsg = text
+
+        ' 1. Decide whether this call should be written
+        If text.Equals(RL_MSG, StringComparison.Ordinal) Then
+            If skipNext Then Exit Sub               ' already shown → suppress
+            skipNext = True                         ' first time → show & arm flag
+        Else
+            skipNext = False                        ' any other message resets flag
+        End If
+
+        ' 2. Normal logging
         Me.Invoke(Sub()
                       rtb.SelectionStart = rtb.TextLength
                       rtb.SelectionLength = 0
                       rtb.SelectionColor = color
-                      rtb.AppendText(text + Environment.NewLine)
-                      rtb.SelectionColor = rtb.ForeColor ' Reset color back to default
+                      rtb.AppendText(text & Environment.NewLine)
+                      rtb.SelectionColor = rtb.ForeColor
                   End Sub)
     End Sub
 
@@ -2400,63 +2418,45 @@ Public Class frmMainPageV2
     End Function
 
 
-    Private Function CalculateDeribitInverseLiquidationPrice(positionSizeUSD As Decimal, leverage As Decimal, currentPrice As Decimal, isShort As Boolean) As Dictionary(Of String, Decimal)
-        Try
-            ' Get account balance in BTC
-            Dim accountBalanceBTC As Decimal = GetEquityBTC()
+    Private Function CalculateDeribitInverseLiquidationPrice(
+        positionSizeUSD As Decimal, leverage As Decimal,
+        entryPrice As Decimal, isShort As Boolean) _
+        As Dictionary(Of String, Decimal)
 
-            Dim posBTC As Decimal = positionSizeUSD / currentPrice
+        ' ---------------- basics ----------------
+        Dim equityBTC As Decimal = GetEquityBTC()
+        Dim posBTC As Decimal = positionSizeUSD / entryPrice        ' signed
+        Dim absPosBTC As Decimal = Math.Abs(posBTC)
 
-            ' For inverse perpetuals: position size in contracts = USD amount / index price
-            Dim positionSizeContracts As Decimal = positionSizeUSD / currentPrice
+        ' -------- Standard-Margin tier-0 IM/MM (BTC PERP) ----------
+        Const BASE_IM As Decimal = 0.02D   ' 2 %
+        Const BASE_MM As Decimal = 0.01D   ' 1 %
 
-            ' Deribit's margin requirements for BTC-PERPETUAL (inverse)
-            'Dim maintenanceMarginRate As Decimal = 0.005D ' 0.5%
-            Dim maintenanceMarginRate As Decimal = 0.01D + Math.Abs(posBTC) * 0.00005D
+        Dim initialMarginBTC = absPosBTC * BASE_IM
+        Dim maintenanceMarginBTC = absPosBTC * BASE_MM
 
-            'Dim initialMarginRate As Decimal = 1D / leverage
-            Dim initialMarginRate As Decimal = 0.02D + Math.Abs(posBTC) * 0.00005D   ' 2% + 0.005%/BTC
+        ' ------------- liquidation math -----------------------------
+        ' Δ  = (Equity – MM) / |posBTC|
+        Dim delta As Decimal = 0D
+        If absPosBTC > 0D Then _
+        delta = (equityBTC - maintenanceMarginBTC) / absPosBTC
 
-            ' Calculate margins in BTC (base currency for inverse contracts)
-            'Dim initialMarginBTC As Decimal = Math.Abs(positionSizeContracts) * initialMarginRate
-            'Dim maintenanceMarginBTC As Decimal = Math.Abs(positionSizeContracts) * maintenanceMarginRate
+        Dim liqPrice As Decimal
+        If isShort Then                     ' short → 1 – Δ
+            liqPrice = If(delta >= 1D, 0D, entryPrice / (1D - delta))
+        Else                                ' long  → 1 + Δ
+            liqPrice = entryPrice / (1D + delta)
+        End If
 
-            Dim initialMarginBTC As Decimal = Math.Abs(posBTC) * initialMarginRate
-            Dim maintenanceMarginBTC As Decimal = Math.Abs(posBTC) * maintenanceMarginRate
-
-
-            ' CORRECTED liquidation calculation for inverse perpetuals
-            Dim liquidationPrice As Decimal
-
-            If leverage <= 1.1 Then ' 1x leverage - no liquidation possible
-                liquidationPrice = 0 ' Return 0 to indicate N/A
-            Else
-                ' CORRECTED: For leveraged positions, liquidation occurs when unrealized loss = account balance - maintenance margin
-                Dim accountBalanceUSD As Decimal = accountBalanceBTC * currentPrice
-                Dim maintenanceMarginUSD As Decimal = maintenanceMarginBTC * currentPrice
-                Dim maxLossBeforeLiquidation As Decimal = accountBalanceUSD - maintenanceMarginUSD
-
-                If Not isShort Then ' Long position
-                    ' For long: liquidation when price drops by maxLoss per contract
-                    liquidationPrice = currentPrice - (maxLossBeforeLiquidation / Math.Abs(positionSizeContracts))
-                Else ' Short position
-                    ' For short: liquidation when price rises by maxLoss per contract
-                    liquidationPrice = currentPrice + (maxLossBeforeLiquidation / Math.Abs(positionSizeContracts))
-                End If
-            End If
-
-            Return New Dictionary(Of String, Decimal) From {
-                {"InitialMarginBTC", initialMarginBTC},
-                {"MaintenanceMarginBTC", maintenanceMarginBTC},
-                {"EstimatedLiquidationPrice", Math.Max(0, liquidationPrice)},
-                {"EffectiveLeverage", leverage}
-            }
-
-        Catch ex As Exception
-            AppendColoredText(txtLogs, $"Error in inverse perpetual calculation: {ex.Message}", Color.Red)
-            Return New Dictionary(Of String, Decimal)
-        End Try
+        Return New Dictionary(Of String, Decimal) From {
+        {"InitialMarginBTC", initialMarginBTC},
+        {"MaintenanceMarginBTC", maintenanceMarginBTC},
+        {"EstimatedLiquidationPrice", liqPrice},
+        {"EffectiveLeverage", leverage}
+    }
     End Function
+
+
 
 
     'Might need to delete if not used later for liquidation estimation with positions
@@ -3395,69 +3395,76 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Async Sub btnEstimateMargins_Click(sender As Object, e As EventArgs) Handles btnEstimateMargins.Click
+    Private Async Sub btnEstimateMargins_Click(sender As Object,
+                                           e As EventArgs) _
+                                           Handles btnEstimateMargins.Click
         Try
-            ' Validate inputs
-            If String.IsNullOrEmpty(txtAmount.Text) OrElse Not IsNumeric(txtAmount.Text) Then
+            '---------------------------  input validation  --------------------
+            If String.IsNullOrEmpty(txtAmount.Text) OrElse
+           Not IsNumeric(txtAmount.Text) Then
                 AppendColoredText(txtLogs, "Please enter a valid amount", Color.Yellow)
                 Return
             End If
 
             Dim positionSizeUSD As Decimal = Decimal.Parse(txtAmount.Text)
             Dim currentPrice As Decimal = If(TradeMode, BestBidPrice, BestAskPrice)
-            Dim accountBalanceUSD As Decimal = GetEquityBTC() * currentPrice
-
-            If currentPrice <= 0 Then
+            If currentPrice <= 0D Then
                 AppendColoredText(txtLogs, "Invalid market price for estimation", Color.Yellow)
                 Return
             End If
 
-            ' Calculate effective leverage
-            Dim effectiveLeverage As Decimal = positionSizeUSD / accountBalanceUSD
+            ' **Deribit equity = total BTC in account (lblBTCEquity)**
+            Dim accountBalanceBTC As Decimal = GetEquityBTC()
+            Dim accountBalanceUSD As Decimal = accountBalanceBTC * currentPrice
 
-            ' Use Deribit inverse perpetual calculation
-            Dim isShort As Boolean = Not TradeMode ' TradeMode=True means Long, so isShort=False
-            Dim margins = CalculateDeribitInverseLiquidationPrice(positionSizeUSD, effectiveLeverage, currentPrice, isShort)
+            '-----------------------  effective leverage  ----------------------
+            Dim effectiveLeverage As Decimal =
+            If(accountBalanceUSD = 0D, 0D, positionSizeUSD / accountBalanceUSD)
 
-            ' Update UI with calculated results
+            '----------------  call the corrected margin routine  --------------
+            Dim isShort As Boolean = Not TradeMode          ' True = short
+            Dim margins = CalculateDeribitInverseLiquidationPrice(
+                           positionSizeUSD,
+                           effectiveLeverage,
+                           currentPrice,
+                           isShort)
+
+            '--------------------  update GUI labels  --------------------------
             Me.Invoke(Sub()
-                          If margins.ContainsKey("EstimatedLiquidationPrice") Then
-                              If margins("EstimatedLiquidationPrice") = 0 Then
-                                  lblEstimatedLiquidation.Text = "Est.Liq: N/A"
-                                  lblEstimatedLiquidation.ForeColor = Color.Gray
-                              Else
-                                  lblEstimatedLiquidation.Text = $"Est.Liq: ${margins("EstimatedLiquidationPrice"):F2}"
-                                  lblEstimatedLiquidation.ForeColor = Color.Orange
-                              End If
+                          ' Liquidation price
+                          If margins("EstimatedLiquidationPrice") = 0D Then
+                              lblEstimatedLiquidation.Text = "Est.Liq: N/A"
+                              lblEstimatedLiquidation.ForeColor = Color.Gray
+                          Else
+                              lblEstimatedLiquidation.Text =
+                    $"Est.Liq: ${margins("EstimatedLiquidationPrice"):F2}"
+                              lblEstimatedLiquidation.ForeColor = Color.Orange
                           End If
 
-                          If margins.ContainsKey("InitialMarginBTC") Then
-                              lblInitialMargin.Text = $"IM: {margins("InitialMarginBTC"):F8}"
-                          End If
+                          ' Margins
+                          lblInitialMargin.Text = $"IM: {margins("InitialMarginBTC"):F8}"
+                          lblMaintenanceMargin.Text = $"MM: {margins("MaintenanceMarginBTC"):F8}"
 
-                          If margins.ContainsKey("MaintenanceMarginBTC") Then
-                              lblMaintenanceMargin.Text = $"MM: {margins("MaintenanceMarginBTC"):F8}"
-                          End If
-
-                          If margins.ContainsKey("EffectiveLeverage") Then
-                              lblEstimatedLeverage.Text = $"Lev: {margins("EffectiveLeverage"):F1}x"
-
-                              ' Color code leverage risk
-                              If margins("EffectiveLeverage") > 10 Then
-                                  lblEstimatedLeverage.ForeColor = Color.Red
-                              ElseIf margins("EffectiveLeverage") > 5 Then
-                                  lblEstimatedLeverage.ForeColor = Color.Orange
-                              Else
-                                  lblEstimatedLeverage.ForeColor = Color.LimeGreen
-                              End If
-                          End If
+                          ' Leverage & colour-coding
+                          lblEstimatedLeverage.Text = $"Lev: {margins("EffectiveLeverage"):F1}x"
+                          Select Case margins("EffectiveLeverage")
+                              Case > 10 : lblEstimatedLeverage.ForeColor = Color.Red
+                              Case > 5 : lblEstimatedLeverage.ForeColor = Color.Orange
+                              Case Else : lblEstimatedLeverage.ForeColor = Color.LimeGreen
+                          End Select
                       End Sub)
 
-            Dim liquidationText As String = If(margins("EstimatedLiquidationPrice") = 0, "N/A", "$" & margins("EstimatedLiquidationPrice").ToString("F2"))
-            AppendColoredText(txtLogs, $"Liq: {liquidationText}, Lev: {margins("EffectiveLeverage"):F1}x", Color.LimeGreen)
+            Dim liqTxt = If(margins("EstimatedLiquidationPrice") = 0D,
+                        "N/A",
+                        "$" & margins("EstimatedLiquidationPrice").ToString("F2"))
+            AppendColoredText(txtLogs,
+                          $"Liq: {liqTxt}, Lev: {margins("EffectiveLeverage"):F1}x",
+                          Color.LimeGreen)
 
         Catch ex As Exception
-            AppendColoredText(txtLogs, $"Error in Deribit inverse margin estimation: {ex.Message}", Color.Red)
+            AppendColoredText(txtLogs,
+                          $"Error in Deribit inverse margin estimation: {ex.Message}",
+                          Color.Red)
         End Try
     End Sub
 
