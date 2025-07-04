@@ -1,15 +1,17 @@
 ﻿Imports System.Globalization
+Imports System.IO
+Imports System.Net
 Imports System.Net.Http
 Imports System.Net.Http.Headers
-Imports Newtonsoft.Json.Linq
 Imports System.Net.WebSockets
-Imports System.Threading
-Imports System.Text
-Imports System.Net
 Imports System.Reflection
-Imports Microsoft.VisualBasic.ApplicationServices
 Imports System.Runtime
+Imports System.Text
+Imports System.Threading
+Imports System.Windows.Forms.VisualStyles
 Imports System.Xml
+Imports Microsoft.VisualBasic.ApplicationServices
+Imports Newtonsoft.Json.Linq
 
 Public Class frmMainPageV2
 
@@ -38,6 +40,14 @@ Public Class frmMainPageV2
     'For rate limiter
     Private rateLimiter As DeribitRateLimiter
     Private accountLimits As RateLimitInfo
+
+    'Database class calls
+    Private tradeDatabase As TradeDatabase
+    Private tradeAnalytics As TradeAnalytics
+
+    'To prevent duplicate API calls
+    Private isRequestingLiveData As Boolean = False
+    Private lastLiveDataRequest As DateTime = DateTime.MinValue
 
     Public Class RateLimitInfo
         Public Property MaxCredits As Integer
@@ -102,6 +112,35 @@ Public Class frmMainPageV2
             End SyncLock
         End Function
     End Class
+
+    Private Sub frmMainPageV2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        Try
+            ' Initialize trade database
+            tradeDatabase = New TradeDatabase()
+            tradeAnalytics = New TradeAnalytics(tradeDatabase.DatabasePath)
+
+            ' Subscribe to database events
+            AddHandler tradeDatabase.DatabaseError, AddressOf OnDatabaseError
+            AddHandler tradeDatabase.TradeRecorded, AddressOf OnTradeRecorded
+            AddHandler tradeDatabase.TradeDeleted, AddressOf OnTradeDeleted
+
+            'AppendColoredText(txtLogs, "Trade database initialized successfully", Color.LimeGreen)
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Failed to initialize trade database: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    ' Event handlers
+    Private Sub OnDatabaseError(message As String)
+        AppendColoredText(txtLogs, $"Database Error: {message}", Color.Red)
+    End Sub
+
+    Private Sub OnTradeRecorded(tradeId As Integer, trade As TradeRecord)
+        AppendColoredText(txtLogs, $"Trade #{tradeId} recorded in database", Color.Cyan)
+    End Sub
+    Private Sub OnTradeDeleted(tradeId As Integer)
+        AppendColoredText(txtLogs, $"Trade #{tradeId} deleted from database", Color.Yellow)
+    End Sub
 
     Private Async Function WebSocketCalls() As Task
 
@@ -306,6 +345,8 @@ Public Class frmMainPageV2
                 HandleAccountSummaryResponse(response)
                 ' NEW: Handle rate limit errors
                 HandleRateLimitError(response)
+                ' NEW: Handle margin estimates for liquidation price calculations
+                HandleMarginEstimationResponse(response)
 
                 ' Timeout check
                 If (DateTime.Now - lastMessageTime).TotalSeconds > 75 Then
@@ -870,6 +911,54 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+    'For margin calculations when in position
+    Private Async Function GetLivePositionData(instrumentName As String) As Task
+        If isRequestingLiveData Then Exit Function         ' secondary guard
+        isRequestingLiveData = True
+        Try
+            ' Check rate limit before making API call
+            If rateLimiter IsNot Nothing AndAlso Not rateLimiter.CanMakeRequest() Then
+                Dim waitTime = rateLimiter.GetWaitTimeMs()
+                AppendColoredText(txtLogs, $"Rate limit reached for position data, waiting {waitTime}ms", Color.Yellow)
+                Await Task.Delay(waitTime)
+            End If
+
+            ' Consume credits for the API call
+            If rateLimiter IsNot Nothing Then
+                rateLimiter.ConsumeCredits()
+            End If
+
+            ' Create the get_position request (using different ID from estimation)
+            Dim positionPayload = New JObject(
+            New JProperty("jsonrpc", "2.0"),
+            New JProperty("id", 777), ' Different ID for live position data
+            New JProperty("method", "private/get_position"),
+            New JProperty("params", New JObject(
+                New JProperty("instrument_name", instrumentName)
+            ))
+        )
+
+            Await SendWebSocketMessageAsync(positionPayload.ToString())
+
+            'AppendColoredText(txtLogs, $"Live position data requested for {instrumentName}", Color.Cyan)
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error requesting live position data: {ex.Message}", Color.Red)
+
+        Finally
+            isRequestingLiveData = False                ' unlock no matter what
+        End Try
+    End Function
+
+    Private Function GetEquityBTC() As Decimal
+        Dim eq As Decimal
+        If Decimal.TryParse(lblBTCEquity.Text,
+                        Globalization.NumberStyles.Any,
+                        Globalization.CultureInfo.InvariantCulture, eq) Then
+            Return eq
+        End If
+        Return 0D
+    End Function
 
 
     ' Variable to track the specific order ID of interest
@@ -898,6 +987,7 @@ Public Class frmMainPageV2
                         Dim OpenPositions As Boolean = False
                         Dim ExecPrice, PorLAmt As Decimal
                         Dim PorL As Boolean = True
+                        Dim label4DB As String = Nothing
 
                         For Each order In orders
                             ' Extract relevant fields
@@ -1036,6 +1126,8 @@ Public Class frmMainPageV2
                                         PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
                                         PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                         PorL = True
+                                        label4DB = label
+
                                     Case "StopLossOrder"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
@@ -1044,6 +1136,8 @@ Public Class frmMainPageV2
                                         PorL = False
                                         SLTriggered = False
                                         'Need to calculate PorL when trailing stop loss is triggered
+                                        label4DB = label
+
                                     Case "EntryTrailingOrder"
                                         lblOrderStatus.Text = "In Position"
                                         lblOrderStatus.ForeColor = Color.Yellow
@@ -1057,6 +1151,8 @@ Public Class frmMainPageV2
                                         PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
                                         PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                         PorL = True
+                                        label4DB = label
+
                                     Case "ReduceLimitOrder"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
@@ -1065,20 +1161,28 @@ Public Class frmMainPageV2
                                                 PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = True
+                                                label4DB = label
+
                                             Else
                                                 PorLAmt = (Decimal.Parse(txtPlacedPrice.Text) - ExecPrice) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = False
+                                                label4DB = label
+
                                             End If
                                         Else
                                             If ExecPrice > Decimal.Parse(txtPlacedPrice.Text) Then
                                                 PorLAmt = (Decimal.Parse(txtPlacedPrice.Text) - ExecPrice) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = False
+                                                label4DB = label
+
                                             Else
                                                 PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = True
+                                                label4DB = label
+
                                             End If
                                         End If
 
@@ -1119,6 +1223,26 @@ Public Class frmMainPageV2
                                 For Each position In positions
 
                                     Dim size = position.SelectToken("size")?.ToObject(Of Decimal)()
+
+                                    If size <> 0 Then
+                                        ' Prevent duplicate live data requests
+                                        If Not isRequestingLiveData AndAlso (DateTime.Now - lastLiveDataRequest).TotalSeconds > 2 Then
+                                            isRequestingLiveData = True
+                                            lastLiveDataRequest = DateTime.Now
+
+                                            Await GetLivePositionData("BTC-PERPETUAL")
+
+                                            ' Reset flag after a delay
+                                            Await Task.Delay(3000)
+                                            isRequestingLiveData = False
+                                        End If
+                                    Else
+                                        ' Position closed - reset flags
+                                        isRequestingLiveData = False
+                                        lastLiveDataRequest = DateTime.MinValue
+
+                                    End If
+
                                     If size = 0 Then ' Position has been closed
 
                                         'Reset all flags
@@ -1132,12 +1256,40 @@ Public Class frmMainPageV2
 
                                         Await CancelOrderAsync()
 
+                                        'Clearing margin displays
+                                        Me.Invoke(Sub()
+                                                      lblEstimatedLiquidation.Text = "L.Liq: N/A"
+                                                      lblInitialMargin.Text = "L.IM: N/A"
+                                                      lblMaintenanceMargin.Text = "L.MM: N/A"
+                                                      lblEstimatedLeverage.Text = "L.Lev: N/A"
+
+                                                      ' Reset colors
+                                                      lblEstimatedLiquidation.ForeColor = Color.Gray
+                                                      lblEstimatedLeverage.ForeColor = Color.Gray
+                                                  End Sub)
+
+
                                         If (PorL = True) And (PorLAmt > 0) Then
                                             AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.LimeGreen)
                                             AppendColoredText(txtLogs, $"Profit made: ${PorLAmt}.", Color.LimeGreen)
                                         ElseIf (PorL = False) And (PorLAmt > 0) Then
                                             AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Crimson)
                                             AppendColoredText(txtLogs, $"Loss of: ${PorLAmt}.", Color.Crimson)
+                                        End If
+
+                                        'To record to DB
+                                        If PorLAmt > 0 Then
+
+                                            Await RecordCompletedTrade(
+                                                                       Decimal.Parse(txtPlacedPrice.Text), ' Entry price
+                                                                       ExecPrice,                          ' Exit price  
+                                                                       Decimal.Parse(txtAmount.Text),      ' Order size USD
+                                                                       PorLAmt,                           ' Profit/Loss amount
+                                                                       PorL,                              ' Is profit boolean
+                                                                       TradeMode,                         ' Trade direction
+                                                                       label4DB           ' Order type
+                                                                       )
+
                                         End If
 
                                     Else
@@ -2210,6 +2362,224 @@ Public Class frmMainPageV2
 
     End Sub
 
+    Public Async Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal,
+                                          orderSizeUSD As Decimal, profitLossUSD As Decimal,
+                                          isProfit As Boolean, tradeMode As Boolean,
+                                          orderType As String) As Task(Of Integer)
+        Try
+            If tradeDatabase Is Nothing Then
+                AppendColoredText(txtLogs, "Trade database not initialized", Color.Red)
+                Return 0
+            End If
+
+            ' Create completed trade record
+            Dim completedTrade As New TradeRecord(
+            orderType,
+            If(tradeMode, "Long", "Short"),
+            entryPrice,
+            exitPrice,
+            orderSizeUSD,
+            profitLossUSD,
+            isProfit
+        )
+
+            ' Record the completed trade
+            Dim tradeId As Integer = tradeDatabase.RecordCompletedTrade(completedTrade)
+
+            Dim resultText As String = If(isProfit, "PROFIT", "LOSS")
+            Dim resultColor As Color = If(isProfit, Color.LimeGreen, Color.Crimson)
+
+            'AppendColoredText(txtLogs, $"Trade #{tradeId} recorded - {completedTrade.Direction} {orderType} - {resultText}: ${Math.Abs(profitLossUSD):F2}", resultColor)
+
+            Return tradeId
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error recording completed trade: {ex.Message}", Color.Red)
+            Return 0
+        End Try
+    End Function
+
+
+    Private Function CalculateDeribitInverseLiquidationPrice(positionSizeUSD As Decimal, leverage As Decimal, currentPrice As Decimal, isShort As Boolean) As Dictionary(Of String, Decimal)
+        Try
+            ' Get account balance in BTC
+            Dim accountBalanceBTC As Decimal = GetEquityBTC()
+
+            Dim posBTC As Decimal = positionSizeUSD / currentPrice
+
+            ' For inverse perpetuals: position size in contracts = USD amount / index price
+            Dim positionSizeContracts As Decimal = positionSizeUSD / currentPrice
+
+            ' Deribit's margin requirements for BTC-PERPETUAL (inverse)
+            'Dim maintenanceMarginRate As Decimal = 0.005D ' 0.5%
+            Dim maintenanceMarginRate As Decimal = 0.01D + Math.Abs(posBTC) * 0.00005D
+
+            'Dim initialMarginRate As Decimal = 1D / leverage
+            Dim initialMarginRate As Decimal = 0.02D + Math.Abs(posBTC) * 0.00005D   ' 2% + 0.005%/BTC
+
+            ' Calculate margins in BTC (base currency for inverse contracts)
+            'Dim initialMarginBTC As Decimal = Math.Abs(positionSizeContracts) * initialMarginRate
+            'Dim maintenanceMarginBTC As Decimal = Math.Abs(positionSizeContracts) * maintenanceMarginRate
+
+            Dim initialMarginBTC As Decimal = Math.Abs(posBTC) * initialMarginRate
+            Dim maintenanceMarginBTC As Decimal = Math.Abs(posBTC) * maintenanceMarginRate
+
+
+            ' CORRECTED liquidation calculation for inverse perpetuals
+            Dim liquidationPrice As Decimal
+
+            If leverage <= 1.1 Then ' 1x leverage - no liquidation possible
+                liquidationPrice = 0 ' Return 0 to indicate N/A
+            Else
+                ' CORRECTED: For leveraged positions, liquidation occurs when unrealized loss = account balance - maintenance margin
+                Dim accountBalanceUSD As Decimal = accountBalanceBTC * currentPrice
+                Dim maintenanceMarginUSD As Decimal = maintenanceMarginBTC * currentPrice
+                Dim maxLossBeforeLiquidation As Decimal = accountBalanceUSD - maintenanceMarginUSD
+
+                If Not isShort Then ' Long position
+                    ' For long: liquidation when price drops by maxLoss per contract
+                    liquidationPrice = currentPrice - (maxLossBeforeLiquidation / Math.Abs(positionSizeContracts))
+                Else ' Short position
+                    ' For short: liquidation when price rises by maxLoss per contract
+                    liquidationPrice = currentPrice + (maxLossBeforeLiquidation / Math.Abs(positionSizeContracts))
+                End If
+            End If
+
+            Return New Dictionary(Of String, Decimal) From {
+                {"InitialMarginBTC", initialMarginBTC},
+                {"MaintenanceMarginBTC", maintenanceMarginBTC},
+                {"EstimatedLiquidationPrice", Math.Max(0, liquidationPrice)},
+                {"EffectiveLeverage", leverage}
+            }
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in inverse perpetual calculation: {ex.Message}", Color.Red)
+            Return New Dictionary(Of String, Decimal)
+        End Try
+    End Function
+
+
+    'Might need to delete if not used later for liquidation estimation with positions
+    Private Sub HandleMarginEstimationResponse(response As String)
+        Try
+            Dim json = JObject.Parse(response)
+
+            ' Check if this is a margin estimation response (ID 890) OR live position data (ID 777)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
+
+            If messageId = 890 OrElse messageId = 777 Then
+
+                Dim errorField = json.SelectToken("error")
+                If errorField IsNot Nothing Then
+                    Dim errorType = If(messageId = 777, "Live position", "Margin estimation")
+                    AppendColoredText(txtLogs, $"{errorType} error: {errorField.ToString()}", Color.Yellow)
+                    Return
+                End If
+
+                Dim result = json.SelectToken("result")
+                If result IsNot Nothing Then
+
+                    If messageId = 777 Then
+                        ' Handle live position data (single position object)
+                        ProcessPositionData(result)
+                    Else
+                        ' Handle margin estimation data (your existing logic)
+                        ProcessEstimationData(result)
+                    End If
+                End If
+            End If
+
+        Catch ex As Exception
+            ' Ignore parsing errors for non-relevant responses
+        End Try
+    End Sub
+
+    Private Sub ProcessPositionData(positionData As JToken)
+        Try
+            ' Extract live position information from Deribit
+            Dim initialMargin = positionData.SelectToken("initial_margin")?.ToObject(Of Decimal?)()
+            Dim maintenanceMargin = positionData.SelectToken("maintenance_margin")?.ToObject(Of Decimal?)()
+            Dim estimatedLiquidation = positionData.SelectToken("estimated_liquidation_price")?.ToObject(Of Decimal?)()
+            Dim positionSize = positionData.SelectToken("size")?.ToObject(Of Decimal?)()
+            Dim markPrice = positionData.SelectToken("mark_price")?.ToObject(Of Decimal?)()
+            Dim averagePrice = positionData.SelectToken("average_price")?.ToObject(Of Decimal?)()
+
+            ' CORRECTED: For BTC-PERPETUAL, positionSize is in USD, not BTC
+            Dim effectiveLeverage As Decimal = 0
+
+            If positionSize.HasValue AndAlso markPrice.HasValue Then
+                ' Position value in USD is simply the absolute position size (already in USD)
+                Dim positionValueUSD As Decimal = Math.Abs(positionSize.Value)
+
+                ' Account balance in USD
+                Dim accountBalanceBTC As Decimal = GetEquityBTC()
+                Dim accountBalanceUSD As Decimal = accountBalanceBTC * markPrice.Value
+
+                ' Calculate leverage as position value / account balance
+                If accountBalanceUSD > 0 Then
+                    effectiveLeverage = positionValueUSD / accountBalanceUSD
+                End If
+
+                ' Debug logging with corrected values
+                'AppendColoredText(txtLogs, $"DEBUG CORRECTED: positionValueUSD={Math.Abs(positionSize.Value):F2}, accountBalanceUSD={accountBalanceUSD:F2}", Color.Gray)
+
+
+
+            End If
+
+            Me.Invoke(Sub()
+                          ' Update UI with LIVE Deribit data
+                          If estimatedLiquidation.HasValue AndAlso estimatedLiquidation.Value > 0 Then
+                              lblEstimatedLiquidation.Text = $"L.Liq: ${estimatedLiquidation.Value:F2}"
+                              lblEstimatedLiquidation.ForeColor = Color.Red
+                          Else
+                              lblEstimatedLiquidation.Text = "L.Liq: N/A"
+                              lblEstimatedLiquidation.ForeColor = Color.Gray
+                          End If
+
+                          If initialMargin.HasValue Then
+                              lblInitialMargin.Text = $"L.IM: {initialMargin.Value:F8} BTC"
+                          End If
+
+                          If maintenanceMargin.HasValue Then
+                              lblMaintenanceMargin.Text = $"L.MM: {maintenanceMargin.Value:F8} BTC"
+                          End If
+
+                          ' Display proper leverage based on account balance
+                          lblEstimatedLeverage.Text = $"L.Lev: {effectiveLeverage:F2}x"
+
+                          ' Color code leverage risk
+                          If effectiveLeverage > 10 Then
+                              lblEstimatedLeverage.ForeColor = Color.Red
+                          ElseIf effectiveLeverage > 5 Then
+                              lblEstimatedLeverage.ForeColor = Color.Orange
+                          Else
+                              lblEstimatedLeverage.ForeColor = Color.LimeGreen
+                          End If
+                      End Sub)
+
+            ' Improved logging with corrected calculation
+            Dim liquidationText As String = If(estimatedLiquidation.HasValue AndAlso estimatedLiquidation.Value > 0,
+                                          "$" & estimatedLiquidation.Value.ToString("F2"), "N/A")
+
+            AppendColoredText(txtLogs, $"LIVE position data - Liq: {liquidationText}, Leverage: {effectiveLeverage:F2}x", Color.Red)
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error processing live position data: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+
+
+
+
+    Private Sub ProcessEstimationData(estimationData As JToken)
+        ' Your existing estimation logic remains the same...
+        ' (Keep your current estimation processing code here)
+    End Sub
+
+
+
     'All button logic below
     '----------------------------------------------------------------------------------
 
@@ -2422,19 +2792,46 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnLimit_Click(sender As Object, e As EventArgs) Handles btnLimit.Click
-        If TradeMode = True Then
-            Await ExecuteOrderAsync("BuyLimit")
-        Else
-            Await ExecuteOrderAsync("SellLimit")
-        End If
+        Try
+            ' Get margin estimation before placing order
+            btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
+
+            ' Wait a moment for UI update
+            Await Task.Delay(500)
+
+            ' Then execute the order
+            If TradeMode = True Then
+                Await ExecuteOrderAsync("BuyLimit")
+            Else
+                Await ExecuteOrderAsync("SellLimit")
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in btnLimit_Click: {ex.Message}", Color.Red)
+        End Try
     End Sub
 
+
+
     Private Async Sub btnNoSpread_Click(sender As Object, e As EventArgs) Handles btnNoSpread.Click
-        If TradeMode = True Then
-            Await ExecuteOrderAsync("BuyNoSpread")
-        Else
-            Await ExecuteOrderAsync("SellNoSpread")
-        End If
+        Try
+            ' Get margin estimation before placing order
+            btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
+
+            ' Wait a moment for UI update
+            Await Task.Delay(500)
+
+            ' Then execute the order
+            If TradeMode = True Then
+                Await ExecuteOrderAsync("BuyNoSpread")
+            Else
+                Await ExecuteOrderAsync("SellNoSpread")
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in btnNoSpread_Click: {ex.Message}", Color.Red)
+        End Try
+
     End Sub
 
     Private Async Sub btnLCancelAllOpen_Click(sender As Object, e As EventArgs) Handles btnCancelAllOpen.Click
@@ -2451,11 +2848,23 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnMarket_Click(sender As Object, e As EventArgs) Handles btnMarket.Click
-        If TradeMode = True Then
-            Await ExecuteOrderAsync("BuyMarket")
-        Else
-            Await ExecuteOrderAsync("SellMarket")
-        End If
+        Try
+            ' Get margin estimation before placing order
+            btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
+
+            ' Wait a moment for UI update
+            Await Task.Delay(500)
+            ' Then execute the order
+            If TradeMode = True Then
+                Await ExecuteOrderAsync("BuyMarket")
+            Else
+                Await ExecuteOrderAsync("SellMarket")
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in btnMarket_Click: {ex.Message}", Color.Red)
+        End Try
+
     End Sub
 
     Private Async Sub btnReduceLimit_Click(sender As Object, e As EventArgs) Handles btnReduceLimit.Click
@@ -2541,7 +2950,7 @@ Public Class frmMainPageV2
                     End If
 
                 Else
-                        If TradeMode = True Then
+                    If TradeMode = True Then
                         txtPlacedTakeProfitPrice.Text = Decimal.Parse(txtPlacedPrice.Text) + (Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text))
                     Else
                         txtPlacedTakeProfitPrice.Text = Decimal.Parse(txtPlacedPrice.Text) - (Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text))
@@ -2653,11 +3062,417 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnTrail_Click(sender As Object, e As EventArgs) Handles btnTrail.Click
-        If TradeMode = True Then
-            Await StopLossForTrailingOrderAsync("BuyTrail")
-        Else
-            Await StopLossForTrailingOrderAsync("SellTrail")
-        End If
+        Try
+            ' Get margin estimation before placing order
+            btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
+
+            ' Wait a moment for UI update
+            Await Task.Delay(500)
+
+            ' Then execute the order
+            If TradeMode = True Then
+                Await StopLossForTrailingOrderAsync("BuyTrail")
+            Else
+                Await StopLossForTrailingOrderAsync("SellTrail")
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in btnTrail_Click: {ex.Message}", Color.Red)
+        End Try
+
+    End Sub
+
+    Private Sub btnViewTrades_Click(sender As Object, e As EventArgs) Handles btnViewTrades.Click
+        Try
+            If tradeDatabase Is Nothing Then
+                AppendColoredText(txtLogs, "Trade database not initialized", Color.Red)
+                Return
+            End If
+
+            Dim trades = tradeDatabase.GetAllTrades
+
+            If trades.Count > 0 Then
+                Dim viewForm As New Form
+                viewForm.Text = "Trade History - Right-click to Delete"
+                viewForm.Size = New Size(1000, 700)
+                viewForm.StartPosition = FormStartPosition.CenterScreen
+
+                Dim dataGrid As New DataGridView
+                dataGrid.Dock = DockStyle.Fill
+                dataGrid.AutoGenerateColumns = False
+                dataGrid.ReadOnly = True
+                dataGrid.AllowUserToAddRows = False
+                dataGrid.AllowUserToDeleteRows = False
+                dataGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect
+                dataGrid.MultiSelect = True ' Allow multiple row selection
+
+                ' Your existing column definitions here...
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "ID",
+                .DataPropertyName = "TradeId",
+                .Width = 50,
+                .DefaultCellStyle = New DataGridViewCellStyle With {.Alignment = DataGridViewContentAlignment.MiddleCenter}
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Date/Time",
+                .DataPropertyName = "Timestamp",
+                .Width = 140,
+                .DefaultCellStyle = New DataGridViewCellStyle With {.Format = "MM/dd/yyyy HH:mm:ss"}
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Type",
+                .DataPropertyName = "OrderType",
+                .Width = 70,
+                .DefaultCellStyle = New DataGridViewCellStyle With {.Alignment = DataGridViewContentAlignment.MiddleCenter}
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Direction",
+                .DataPropertyName = "Direction",
+                .Width = 70,
+                .DefaultCellStyle = New DataGridViewCellStyle With {.Alignment = DataGridViewContentAlignment.MiddleCenter}
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Entry Price",
+                .DataPropertyName = "EntryPrice",
+                .Width = 100,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Exit Price",
+                .DataPropertyName = "ExitPrice",
+                .Width = 100,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Size (USD)",
+                .DataPropertyName = "OrderSizeUSD",
+                .Width = 100,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "P/L (USD)",
+                .DataPropertyName = "ProfitLossUSD",
+                .Width = 100,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                ' Add result column
+                Dim resultColumn As New DataGridViewTextBoxColumn With {
+                .HeaderText = "Result",
+                .Name = "ResultColumn",
+                .Width = 70,
+                .DefaultCellStyle = New DataGridViewCellStyle With {.Alignment = DataGridViewContentAlignment.MiddleCenter}
+            }
+                dataGrid.Columns.Add(resultColumn)
+
+                ' Bind data and color code rows
+                dataGrid.DataSource = trades
+
+                For Each row As DataGridViewRow In dataGrid.Rows
+                    If row.DataBoundItem IsNot Nothing Then
+                        Dim trade = CType(row.DataBoundItem, TradeRecord)
+
+                        If trade.IsProfit Then
+                            row.Cells("ResultColumn").Value = "WIN"
+                            row.DefaultCellStyle.BackColor = Color.LightGreen
+                            row.DefaultCellStyle.ForeColor = Color.DarkGreen
+                        Else
+                            row.Cells("ResultColumn").Value = "LOSS"
+                            row.DefaultCellStyle.BackColor = Color.LightCoral
+                            row.DefaultCellStyle.ForeColor = Color.DarkRed
+                        End If
+                    End If
+                Next
+
+                ' Add context menu for deletion
+                Dim contextMenu As New ContextMenuStrip
+
+                Dim deleteSelectedItem As New ToolStripMenuItem("Delete Selected Trade(s)")
+                AddHandler deleteSelectedItem.Click, Sub()
+                                                         DeleteSelectedTrades(dataGrid, trades)
+                                                     End Sub
+
+                Dim deleteAllItem As New ToolStripMenuItem("Delete All Trades")
+                AddHandler deleteAllItem.Click, Sub()
+                                                    DeleteAllTrades(dataGrid, trades)
+                                                End Sub
+
+                contextMenu.Items.Add(deleteSelectedItem)
+                contextMenu.Items.Add(New ToolStripSeparator)
+                contextMenu.Items.Add(deleteAllItem)
+
+                dataGrid.ContextMenuStrip = contextMenu
+
+                ' Add summary panel (your existing code)
+                Dim summaryPanel As New Panel
+                summaryPanel.Height = 80
+                summaryPanel.Dock = DockStyle.Bottom
+                summaryPanel.BackColor = Color.LightGray
+
+                ' Calculate summary statistics
+                Dim totalTrades = trades.Count
+                Dim winningTrades = 0
+                Dim totalPnL As Decimal = 0
+
+                For Each trade In trades
+                    If trade.IsProfit Then
+                        winningTrades += 1
+                    End If
+                    totalPnL += trade.ProfitLossUSD
+                Next
+
+                Dim losingTrades = totalTrades - winningTrades
+                Dim winRate = If(totalTrades > 0, winningTrades / totalTrades * 100, 0)
+
+                Dim summaryLabel As New Label
+                summaryLabel.Text = $"Total Trades: {totalTrades} | " &
+                               $"Wins: {winningTrades} | " &
+                               $"Losses: {losingTrades} | " &
+                               $"Win Rate: {winRate:F1}% | " &
+                               $"Total P/L: ${totalPnL:F2}"
+                summaryLabel.Font = New Font("Calibri", 12, FontStyle.Bold)
+                summaryLabel.ForeColor = If(totalPnL >= 0, Color.DarkGreen, Color.DarkRed)
+                summaryLabel.AutoSize = True
+                summaryLabel.Location = New Point(10, 30)
+
+                summaryPanel.Controls.Add(summaryLabel)
+
+                viewForm.Controls.Add(dataGrid)
+                viewForm.Controls.Add(summaryPanel)
+                viewForm.Show()
+
+                AppendColoredText(txtLogs, $"Displaying {totalTrades} trades - Right-click to delete", Color.LimeGreen)
+
+            Else
+                AppendColoredText(txtLogs, "No trades found in database", Color.Yellow)
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error viewing trades: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    Private Sub DeleteSelectedTrades(dataGrid As DataGridView, trades As List(Of TradeRecord))
+        Try
+            If dataGrid.SelectedRows.Count = 0 Then
+                MessageBox.Show("Please select one or more trades to delete.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                Return
+            End If
+
+            Dim selectedTradeIds As New List(Of Integer)
+            For Each row As DataGridViewRow In dataGrid.SelectedRows
+                If row.DataBoundItem IsNot Nothing Then
+                    Dim trade = CType(row.DataBoundItem, TradeRecord)
+                    selectedTradeIds.Add(trade.TradeId)
+                End If
+            Next
+
+            Dim result = MessageBox.Show($"Are you sure you want to delete {selectedTradeIds.Count} selected trade(s)?",
+                                   "Confirm Deletion", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+
+            If result = DialogResult.Yes Then
+                Dim deletedCount = tradeDatabase.DeleteMultipleTrades(selectedTradeIds)
+
+                If deletedCount > 0 Then
+                    AppendColoredText(txtLogs, $"Successfully deleted {deletedCount} trade(s)", Color.LimeGreen)
+
+                    ' Refresh the data grid
+                    RefreshTradeGrid(dataGrid)
+                Else
+                    AppendColoredText(txtLogs, "No trades were deleted", Color.Yellow)
+                End If
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error deleting selected trades: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    Private Sub DeleteAllTrades(dataGrid As DataGridView, trades As List(Of TradeRecord))
+        Try
+            Dim result = MessageBox.Show($"Are you sure you want to delete ALL {trades.Count} trades? This action cannot be undone!",
+                                   "Confirm Delete All", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
+
+            If result = DialogResult.Yes Then
+                Dim allTradeIds = trades.Select(Function(t) t.TradeId).ToList()
+                Dim deletedCount = tradeDatabase.DeleteMultipleTrades(allTradeIds)
+
+                If deletedCount > 0 Then
+                    AppendColoredText(txtLogs, $"Successfully deleted all {deletedCount} trades", Color.LimeGreen)
+
+                    ' Refresh the data grid
+                    RefreshTradeGrid(dataGrid)
+                Else
+                    AppendColoredText(txtLogs, "No trades were deleted", Color.Yellow)
+                End If
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error deleting all trades: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    Private Sub RefreshTradeGrid(dataGrid As DataGridView)
+        Try
+            ' Get updated trade list
+            Dim updatedTrades = tradeDatabase.GetAllTrades()
+
+            ' Update the data source
+            dataGrid.DataSource = updatedTrades
+
+            ' Reapply color coding
+            For Each row As DataGridViewRow In dataGrid.Rows
+                If row.DataBoundItem IsNot Nothing Then
+                    Dim trade = CType(row.DataBoundItem, TradeRecord)
+
+                    If trade.IsProfit Then
+                        row.Cells("ResultColumn").Value = "WIN"
+                        row.DefaultCellStyle.BackColor = Color.LightGreen
+                        row.DefaultCellStyle.ForeColor = Color.DarkGreen
+                    Else
+                        row.Cells("ResultColumn").Value = "LOSS"
+                        row.DefaultCellStyle.BackColor = Color.LightCoral
+                        row.DefaultCellStyle.ForeColor = Color.DarkRed
+                    End If
+                End If
+            Next
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error refreshing trade grid: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+
+    Private Sub ExportTradesToCSV(trades As List(Of TradeRecord))
+        Try
+            Dim saveDialog As New SaveFileDialog()
+            saveDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+            saveDialog.FileName = $"TradingHistory_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+            saveDialog.Title = "Export Trade History"
+
+            If saveDialog.ShowDialog() = DialogResult.OK Then
+                Using writer As New StreamWriter(saveDialog.FileName)
+                    ' Write headers
+                    writer.WriteLine("TradeId,DateTime,OrderType,Direction,EntryPrice,ExitPrice,OrderSizeUSD,ProfitLossUSD,Result")
+
+                    ' Write data
+                    For Each trade In trades
+                        Dim result = If(trade.IsProfit, "WIN", "LOSS")
+                        writer.WriteLine($"{trade.TradeId},{trade.Timestamp:yyyy-MM-dd HH:mm:ss},{trade.OrderType},{trade.Direction},{trade.EntryPrice:F2},{trade.ExitPrice:F2},{trade.OrderSizeUSD:F2},{trade.ProfitLossUSD:F2},{result}")
+                    Next
+                End Using
+
+                AppendColoredText(txtLogs, $"Trade data exported to: {saveDialog.FileName}", Color.LimeGreen)
+
+                ' Optionally open the file
+                If MessageBox.Show("Export complete. Open file now?", "Export Success", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+                    Process.Start(saveDialog.FileName)
+                End If
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error exporting trades: {ex.Message}", Color.Red)
+            MessageBox.Show($"Error exporting data: {ex.Message}", "Export Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
+
+    Private Async Sub btnEstimateMargins_Click(sender As Object, e As EventArgs) Handles btnEstimateMargins.Click
+        Try
+            ' Validate inputs
+            If String.IsNullOrEmpty(txtAmount.Text) OrElse Not IsNumeric(txtAmount.Text) Then
+                AppendColoredText(txtLogs, "Please enter a valid amount", Color.Yellow)
+                Return
+            End If
+
+            Dim positionSizeUSD As Decimal = Decimal.Parse(txtAmount.Text)
+            Dim currentPrice As Decimal = If(TradeMode, BestBidPrice, BestAskPrice)
+            Dim accountBalanceUSD As Decimal = GetEquityBTC() * currentPrice
+
+            If currentPrice <= 0 Then
+                AppendColoredText(txtLogs, "Invalid market price for estimation", Color.Yellow)
+                Return
+            End If
+
+            ' Calculate effective leverage
+            Dim effectiveLeverage As Decimal = positionSizeUSD / accountBalanceUSD
+
+            ' Use Deribit inverse perpetual calculation
+            Dim isShort As Boolean = Not TradeMode ' TradeMode=True means Long, so isShort=False
+            Dim margins = CalculateDeribitInverseLiquidationPrice(positionSizeUSD, effectiveLeverage, currentPrice, isShort)
+
+            ' Update UI with calculated results
+            Me.Invoke(Sub()
+                          If margins.ContainsKey("EstimatedLiquidationPrice") Then
+                              If margins("EstimatedLiquidationPrice") = 0 Then
+                                  lblEstimatedLiquidation.Text = "Est.Liq: N/A"
+                                  lblEstimatedLiquidation.ForeColor = Color.Gray
+                              Else
+                                  lblEstimatedLiquidation.Text = $"Est.Liq: ${margins("EstimatedLiquidationPrice"):F2}"
+                                  lblEstimatedLiquidation.ForeColor = Color.Orange
+                              End If
+                          End If
+
+                          If margins.ContainsKey("InitialMarginBTC") Then
+                              lblInitialMargin.Text = $"IM: {margins("InitialMarginBTC"):F8}"
+                          End If
+
+                          If margins.ContainsKey("MaintenanceMarginBTC") Then
+                              lblMaintenanceMargin.Text = $"MM: {margins("MaintenanceMarginBTC"):F8}"
+                          End If
+
+                          If margins.ContainsKey("EffectiveLeverage") Then
+                              lblEstimatedLeverage.Text = $"Lev: {margins("EffectiveLeverage"):F1}x"
+
+                              ' Color code leverage risk
+                              If margins("EffectiveLeverage") > 10 Then
+                                  lblEstimatedLeverage.ForeColor = Color.Red
+                              ElseIf margins("EffectiveLeverage") > 5 Then
+                                  lblEstimatedLeverage.ForeColor = Color.Orange
+                              Else
+                                  lblEstimatedLeverage.ForeColor = Color.LimeGreen
+                              End If
+                          End If
+                      End Sub)
+
+            Dim liquidationText As String = If(margins("EstimatedLiquidationPrice") = 0, "N/A", "$" & margins("EstimatedLiquidationPrice").ToString("F2"))
+            AppendColoredText(txtLogs, $"Liq: {liquidationText}, Lev: {margins("EffectiveLeverage"):F1}x", Color.LimeGreen)
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in Deribit inverse margin estimation: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    Private Async Sub btnRefreshLiveData_Click(sender As Object, e As EventArgs) Handles btnRefreshLiveData.Click
+        Try
+            ' Only refresh if we have a position
+            If Decimal.Parse(txtPlacedPrice.Text) > 0 Then
+                Await GetLivePositionData("BTC-PERPETUAL")
+            Else
+                AppendColoredText(txtLogs, "No active position to refresh", Color.Yellow)
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error refreshing live data: {ex.Message}", Color.Red)
+        End Try
     End Sub
 
     Protected Overrides ReadOnly Property CreateParams As CreateParams
