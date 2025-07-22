@@ -101,6 +101,7 @@ Partial Class frmMainPageV2
         lblEstimatedLeverage = New CustomLabel()
         lblInitialMargin = New CustomLabel()
         lblMaintenanceMargin = New CustomLabel()
+        btnIndictors = New Button()
         GroupBox1.SuspendLayout()
         GroupBoxButtons.SuspendLayout()
         GroupBox5.SuspendLayout()
@@ -754,6 +755,7 @@ Partial Class frmMainPageV2
         ' 
         ' GroupBoxPlaced
         ' 
+        GroupBoxPlaced.Controls.Add(btnIndictors)
         GroupBoxPlaced.Controls.Add(btnTPOffset)
         GroupBoxPlaced.Controls.Add(btnEditSLPrice)
         GroupBoxPlaced.Controls.Add(btnEditTPPrice)
@@ -1094,6 +1096,19 @@ Partial Class frmMainPageV2
         lblMaintenanceMargin.TabIndex = 118
         lblMaintenanceMargin.Text = "MM: N/A"
         ' 
+        ' btnIndictors
+        ' 
+        btnIndictors.BackColor = Color.Orange
+        btnIndictors.Cursor = Cursors.Hand
+        btnIndictors.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnIndictors.ForeColor = Color.Black
+        btnIndictors.Location = New Point(378, 40)
+        btnIndictors.Name = "btnIndictors"
+        btnIndictors.Size = New Size(108, 46)
+        btnIndictors.TabIndex = 119
+        btnIndictors.Text = "Indicators"
+        btnIndictors.UseVisualStyleBackColor = False
+        ' 
         ' frmMainPageV2
         ' 
         AutoScaleMode = AutoScaleMode.None
@@ -1227,4 +1242,5 @@ Partial Class frmMainPageV2
     Friend WithEvents lblMaintenanceMargin As CustomLabel
     Friend WithEvents btnEstimateMargins As Button
     Friend WithEvents btnRefreshLiveData As Button
+    Friend WithEvents btnIndictors As Button
 End Class

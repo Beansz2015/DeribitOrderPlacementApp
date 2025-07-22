@@ -766,8 +766,19 @@ Public Class frmMainPageV2
                             Else
                                 ' Handle both null limiter and rate limiting scenarios
                                 If rateLimiter Is Nothing Then
-                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping order update", Color.Orange)
+                                    '-- First warn the log
+                                    AppendColoredText(txtLogs, "Rate limiter not initialized – creating skipping order update", Color.Orange)
+
+                                    '-- Fire-and-forget: get real limits without blocking the quote thread
+                                    Dim _ignore = Task.Run(Async Function()
+                                                               Await InitializeRateLimits()
+                                                           End Function)
+
+                                    '-- Install a conservative limiter so the very next tick can proceed
+                                    rateLimiter = New DeribitRateLimiter(1000, 200)
+
                                 Else
+                                    ' Limiter exists but credits are currently insufficient
                                     AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
                                 End If
                             End If
@@ -776,10 +787,16 @@ Public Class frmMainPageV2
                         If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
-                                txtPlacedPrice.Text = bestAsk
+                                txtPlacedPrice.Text = bestBid
                             Else
                                 If rateLimiter Is Nothing Then
                                     AppendColoredText(txtLogs, "Rate limiter not initialized - skipping order update", Color.Orange)
+                                    Dim _ignore = Task.Run(Async Function()
+                                                               Await InitializeRateLimits()
+                                                           End Function)
+
+                                    '-- Install a conservative limiter so the very next tick can proceed
+                                    rateLimiter = New DeribitRateLimiter(1000, 200)
                                 Else
                                     AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
                                 End If
@@ -818,6 +835,12 @@ Public Class frmMainPageV2
                                 ' Handle both null limiter and rate limiting scenarios
                                 If rateLimiter Is Nothing Then
                                     AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
+                                    Dim _ignore = Task.Run(Async Function()
+                                                               Await InitializeRateLimits()
+                                                           End Function)
+
+                                    '-- Install a conservative limiter so the very next tick can proceed
+                                    rateLimiter = New DeribitRateLimiter(1000, 200)
                                 Else
                                     AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
                                 End If
@@ -831,6 +854,12 @@ Public Class frmMainPageV2
                             Else
                                 If rateLimiter Is Nothing Then
                                     AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
+                                    Dim _ignore = Task.Run(Async Function()
+                                                               Await InitializeRateLimits()
+                                                           End Function)
+
+                                    '-- Install a conservative limiter so the very next tick can proceed
+                                    rateLimiter = New DeribitRateLimiter(1000, 200)
                                 Else
                                     AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
                                 End If
@@ -968,6 +997,7 @@ Public Class frmMainPageV2
     Private isTrailingPosition As Boolean = False
     Private PositionEmpty As Boolean = False
 
+
     Private Async Sub HandleOrderPositionUpdates(response As String)
         Try
             ' Parse the WebSocket response
@@ -1030,6 +1060,12 @@ Public Class frmMainPageV2
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
                                                       SLTriggered = True
+
+                                                      'This groups CRITICAL SL, Triggered SL messages together
+                                                      If orderId = lastSLId Then
+                                                          AppendColoredText(txtLogs, pendingLocalMsg, Color.Red)
+                                                          pendingLocalMsg = "" : lastSLId = ""
+                                                      End If
 
                                                       AppendColoredText(txtLogs, $"Triggered SL placed @ ${price}", Color.Red)
                                                       txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
@@ -1211,10 +1247,22 @@ Public Class frmMainPageV2
                                 'AppendColoredText(txtLogs, $"Trailing Position: ${isTrailingPosition}", Color.Yellow)
                             End If
 
+                            ' === keep IDs alive while the ENTRY order is still open ===
+                            'Dim entryStillPending As Boolean =
+                            'orders.Any(Function(o) o.SelectToken("label")?.ToString() = "EntryLimitOrder" _
+                            'AndAlso o.SelectToken("order_state")?.ToString() = "open")
+
                             'Stop autoplacement of orders at top of orderbook if position is found
+
+                            'Dim tpPresent = orders.Any(Function(o) o.SelectToken("label")?.ToString() = "TakeLimitProfit")
+                            'Dim slPresent = orders.Any(Function(o) o.SelectToken("label")?.ToString() = "StopLossOrder")
+
+                            'If tpPresent AndAlso slPresent AndAlso Not entryStillPending Then
+                            ' entry was filled/cancelled *and* both child legs are already on the book
                             CurrentOpenOrderId = Nothing
                             CurrentTPOrderId = Nothing
                             CurrentSLOrderId = Nothing
+                            'End If
 
                             ' No orders found, check for positions
                             Dim positions = orderData.SelectToken("positions")?.ToObject(Of List(Of JObject))()
@@ -1854,6 +1902,9 @@ Public Class frmMainPageV2
     End Function
 
 
+    Private lastSLId As String = ""
+    Private pendingLocalMsg As String = ""
+
     Private Async Function UpdateStopLossForTriggeredStopLossOrder(newPrice As Decimal) As Task
         Try
             ' Ensure rate limiter exists for critical operations
@@ -1913,7 +1964,11 @@ Public Class frmMainPageV2
             Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
 
             UpdateFlag = True
-            AppendColoredText(txtLogs, $"CRITICAL SL repositioned to: ${newPrice}", Color.Red)
+
+            pendingLocalMsg = $"CRITICAL SL repositioned to: ${newPrice}"
+            lastSLId = PositionSLOrderId            '  store the order_id you edited
+
+            'AppendColoredText(txtLogs, $"CRITICAL SL repositioned to: ${newPrice}", Color.Red)
 
         Catch ex As Exception
             AppendColoredText(txtLogs, "Error in UpdateStopLossForTriggeredStopLossOrder: " & ex.Message, Color.Red)
@@ -3480,6 +3535,11 @@ Public Class frmMainPageV2
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error refreshing live data: {ex.Message}", Color.Red)
         End Try
+    End Sub
+
+    Private Sub btnIndictors_Click(sender As Object, e As EventArgs) Handles btnIndictors.Click
+        Dim indForm As New FrmIndicators()
+        indForm.Show()    ' non-modal
     End Sub
 
     Protected Overrides ReadOnly Property CreateParams As CreateParams
