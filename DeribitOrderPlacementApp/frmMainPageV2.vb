@@ -15,6 +15,8 @@ Imports Newtonsoft.Json.Linq
 
 Public Class frmMainPageV2
 
+    Private _indicators As FrmIndicators
+
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
     Private lastMessageTime As DateTime
@@ -125,6 +127,10 @@ Public Class frmMainPageV2
             AddHandler tradeDatabase.TradeDeleted, AddressOf OnTradeDeleted
 
             'AppendColoredText(txtLogs, "Trade database initialized successfully", Color.LimeGreen)
+
+            _indicators = New FrmIndicators(Me)     ' pass “self” as host
+            _indicators.Show()                      ' non-modal; use .ShowDialog() if you prefer modal
+
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Failed to initialize trade database: {ex.Message}", Color.Red)
         End Try
@@ -1326,19 +1332,19 @@ Public Class frmMainPageV2
                                         End If
 
                                         'To record to DB
+                                        ' In HandleOrderPositionUpdates
                                         If PorLAmt > 0 Then
-
-                                            Await RecordCompletedTrade(
-                                                                       Decimal.Parse(txtPlacedPrice.Text), ' Entry price
-                                                                       ExecPrice,                          ' Exit price  
-                                                                       Decimal.Parse(txtAmount.Text),      ' Order size USD
-                                                                       PorLAmt,                           ' Profit/Loss amount
-                                                                       PorL,                              ' Is profit boolean
-                                                                       TradeMode,                         ' Trade direction
-                                                                       label4DB           ' Order type
-                                                                       )
-
+                                            Dim tradeId = RecordCompletedTrade(
+                                                Decimal.Parse(txtPlacedPrice.Text),
+                                                ExecPrice,
+                                                Decimal.Parse(txtAmount.Text),
+                                                PorLAmt,
+                                                PorL,
+                                                TradeMode,
+                                                label4DB
+                                            )
                                         End If
+
 
                                     Else
                                         OpenPositions = True
@@ -2435,10 +2441,10 @@ Public Class frmMainPageV2
 
     End Sub
 
-    Public Async Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal,
-                                          orderSizeUSD As Decimal, profitLossUSD As Decimal,
-                                          isProfit As Boolean, tradeMode As Boolean,
-                                          orderType As String) As Task(Of Integer)
+    Public Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal,
+                                   orderSizeUSD As Decimal, profitLossUSD As Decimal,
+                                   isProfit As Boolean, tradeMode As Boolean,
+                                   orderType As String) As Integer
         Try
             If tradeDatabase Is Nothing Then
                 AppendColoredText(txtLogs, "Trade database not initialized", Color.Red)
@@ -2456,13 +2462,8 @@ Public Class frmMainPageV2
             isProfit
         )
 
-            ' Record the completed trade
+            ' Record the completed trade (synchronous)
             Dim tradeId As Integer = tradeDatabase.RecordCompletedTrade(completedTrade)
-
-            Dim resultText As String = If(isProfit, "PROFIT", "LOSS")
-            Dim resultColor As Color = If(isProfit, Color.LimeGreen, Color.Crimson)
-
-            'AppendColoredText(txtLogs, $"Trade #{tradeId} recorded - {completedTrade.Direction} {orderType} - {resultText}: ${Math.Abs(profitLossUSD):F2}", resultColor)
 
             Return tradeId
 
@@ -2471,6 +2472,7 @@ Public Class frmMainPageV2
             Return 0
         End Try
     End Function
+
 
 
     Private Function CalculateDeribitInverseLiquidationPrice(
@@ -3450,7 +3452,7 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Async Sub btnEstimateMargins_Click(sender As Object,
+    Private Sub btnEstimateMargins_Click(sender As Object,
                                            e As EventArgs) _
                                            Handles btnEstimateMargins.Click
         Try
@@ -3537,9 +3539,9 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Sub btnIndictors_Click(sender As Object, e As EventArgs) Handles btnIndictors.Click
-        Dim indForm As New FrmIndicators()
-        indForm.Show()    ' non-modal
+    Private Sub btnIndictors_Click(sender As Object, e As EventArgs)
+        'Dim indForm As New FrmIndicators()
+        'indForm.Show()    ' non-modal
     End Sub
 
     Protected Overrides ReadOnly Property CreateParams As CreateParams
