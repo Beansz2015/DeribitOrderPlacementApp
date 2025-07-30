@@ -359,9 +359,6 @@ Public Class frmMainPageV2
         Next
     End Sub
 
-
-
-
     Private Async Function ReceiveWebSocketMessagesAsync() As Task
         Dim buffer = New Byte(1024 * 4) {}
         Dim reconnectNeeded As Boolean = False
@@ -428,6 +425,16 @@ Public Class frmMainPageV2
         'lblStatus.Text = "Reconnecting..."
         'txtLogs.AppendText("Reconnecting..." + Environment.NewLine)
         AppendColoredText(txtLogs, "Reconnecting...", Color.DodgerBlue)
+
+        ' Ensure stop-loss protection during reconnection
+        If SLTriggered AndAlso PositionSLOrderId IsNot Nothing AndAlso BestAskPrice > 0 Then
+            Try
+                Await ForceStopLossUpdate(If(TradeMode, BestAskPrice, BestBidPrice))
+            Catch ex As Exception
+                AppendColoredText(txtLogs, $"Failed to force SL update during reconnection: {ex.Message}", Color.Red)
+            End Try
+        End If
+
         If webSocketClient IsNot Nothing Then
             webSocketClient.Dispose()
         End If
@@ -770,6 +777,11 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+    'Modify below to control how often stop loss is repositioned
+    Private lastStopLossUpdate As DateTime = DateTime.MinValue
+    Private Const MinStopLossUpdateInterval As Integer = 333 ' 0.3 second minimum between updates
+    Private Const MinPriceMovementThreshold As Decimal = 5D ' Minimum $5 movement to trigger update
+
     'Handle best bid/asks updates from Websocket
     Private Async Sub HandleQuoteUpdates(response As String)
         Try
@@ -849,21 +861,84 @@ Public Class frmMainPageV2
                 End If
 
                 'For keeping triggered stop loss order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
-                If (SLTriggered = True) And (PositionSLOrderId IsNot Nothing) Then
-                    If TradeMode = True Then
-                        If bestAsk < ((Decimal.Parse(txtPlacedStopLossPrice.Text)) - 5) Then
-                            ' ALL stop-loss updates are CRITICAL - no conditional logic needed
-                            Await UpdateStopLossForTriggeredStopLossOrder(bestAsk)
-                            txtPlacedStopLossPrice.Text = bestAsk
+                If SLTriggered AndAlso PositionSLOrderId IsNot Nothing Then
+                    Dim currentTime As DateTime = DateTime.UtcNow
+
+                    ' Rate limiting: Only update if minimum time has passed
+                    If (currentTime - lastStopLossUpdate).TotalMilliseconds >= MinStopLossUpdateInterval Then
+
+                        ' Parse current stop loss price once to avoid multiple parsing
+                        Dim currentStopPrice As Decimal = 0D
+                        If Decimal.TryParse(txtPlacedStopLossPrice.Text, currentStopPrice) AndAlso currentStopPrice > 0 Then
+
+                            ' Emergency condition: Check if price moved beyond emergency threshold
+                            Dim emergencyThreshold As Decimal = Decimal.Parse(txtMarketStopLoss.Text)
+                            Dim priceMovement As Decimal = 0D
+
+                            If TradeMode Then
+                                priceMovement = StopLossTriggerOriginal - bestAsk
+                            Else
+                                priceMovement = bestBid - StopLossTriggerOriginal
+                            End If
+
+                            ' Call ForceStopLossUpdate if emergency conditions are met
+                            If priceMovement >= emergencyThreshold Then
+                                Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
+                                Return ' Exit early after emergency update
+                            End If
+
+                            'Normal conditions operation
+                            Dim shouldUpdate As Boolean = False
+                            Dim newStopPrice As Decimal = 0D
+
+                            If TradeMode Then
+                                ' Long position: Update when ask price moves significantly below current stop
+                                If bestAsk < (currentStopPrice - MinPriceMovementThreshold) Then
+                                    newStopPrice = bestAsk
+                                    shouldUpdate = True
+                                End If
+                            Else
+                                ' Short position: Update when bid price moves significantly above current stop
+                                If bestBid > (currentStopPrice + MinPriceMovementThreshold) Then
+                                    newStopPrice = bestBid
+                                    shouldUpdate = True
+                                End If
+                            End If
+
+                            ' Execute update if conditions are met
+                            If shouldUpdate Then
+                                Try
+                                    ' Check if we should use force update instead of normal rate-limited update
+                                    If priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
+                                        Await ForceStopLossUpdate(newStopPrice)
+                                    Else
+                                        Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
+                                    End If
+
+                                    txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2")
+                                    lastStopLossUpdate = currentTime
+
+                                    AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
+
+                                Catch ex As Exception
+                                    AppendColoredText(txtLogs, $"Critical SL update failed: {ex.Message}", Color.Red)
+
+                                    ' Emergency fallback: Reset timer to allow immediate retry
+                                    lastStopLossUpdate = DateTime.MinValue
+                                End Try
+                            End If
+                        Else
+                            AppendColoredText(txtLogs, "Invalid stop loss price for repositioning", Color.Yellow)
                         End If
                     Else
-                        If bestBid > ((Decimal.Parse(txtPlacedStopLossPrice.Text)) + 5) Then
-                            ' ALL stop-loss updates are CRITICAL - no conditional logic needed
-                            Await UpdateStopLossForTriggeredStopLossOrder(bestBid)
-                            txtPlacedStopLossPrice.Text = bestBid
+                        ' Log rate limiting (optional - can be removed to reduce noise)
+                        Dim remainingMs = MinStopLossUpdateInterval - (currentTime - lastStopLossUpdate).TotalMilliseconds
+                        If remainingMs > 1000 Then ' Only log if significant time remaining
+                            AppendColoredText(txtLogs, $"SL update rate limited: {remainingMs / 1000:F1}s remaining", Color.Gray)
                         End If
                     End If
                 End If
+
 
 
                 'For keeping current order at top of orderbook for trailing stop loss orders. +/- 5 leeway to reduce too many edit orders sent
@@ -1960,53 +2035,61 @@ Public Class frmMainPageV2
 
     Private Async Function UpdateStopLossForTriggeredStopLossOrder(newPrice As Decimal) As Task
         Try
-            ' Ensure rate limiter exists for critical operations
+            ' Your existing emergency market order logic first
+            If (TradeMode = True) And (StopLossTriggerOriginal - newPrice >= Decimal.Parse(txtMarketStopLoss.Text)) Then
+                Await CancelOrderAsync()
+                btnReduceMarket.PerformClick()
+                AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
+                Return ' Exit early after emergency execution
+            ElseIf (TradeMode = False) And (newPrice - StopLossTriggerOriginal >= Decimal.Parse(txtMarketStopLoss.Text)) Then
+                Await CancelOrderAsync()
+                btnReduceMarket.PerformClick()
+                AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
+                Return ' Exit early after emergency execution
+            End If
+
+            ' Enhanced rate limiter handling for critical operations
             If rateLimiter Is Nothing Then
-                AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter for critical SL update", Color.Yellow)
+                AppendColoredText(txtLogs, "CRITICAL: Rate limiter not initialized for SL update", Color.Red)
                 rateLimiter = New DeribitRateLimiter(1000, 200) ' Emergency conservative limiter
             End If
 
-            Dim maxWaitTime As Integer = 5000 ' Maximum 5 seconds wait
+            ' Force execution with timeout for critical stop loss updates
+            Dim maxWaitTime As Integer = 3000 ' Maximum 3 seconds wait for SL updates
             Dim waitStartTime As DateTime = DateTime.UtcNow
 
-            ' Wait for rate limit availability with timeout
             While Not rateLimiter.CanMakeRequest()
                 If (DateTime.UtcNow - waitStartTime).TotalMilliseconds > maxWaitTime Then
-                    AppendColoredText(txtLogs, "CRITICAL SL update timed out - forcing execution", Color.Orange)
+                    AppendColoredText(txtLogs, "CRITICAL SL: Forcing execution despite rate limits", Color.Orange)
                     Exit While
                 End If
                 Await Task.Delay(100)
             End While
 
-            ' Force execution regardless of rate limit status
+            ' Consume credits and proceed with update
             rateLimiter.ConsumeCredits()
 
             ' Validate amount input
-            If String.IsNullOrEmpty(txtAmount.Text) OrElse Not IsNumeric(txtAmount.Text) Then
-                AppendColoredText(txtLogs, "Invalid amount for SL update - using default", Color.Yellow)
+            Dim amount As Decimal = 0D
+            If Not Decimal.TryParse(txtAmount.Text, amount) OrElse amount <= 0 Then
+                AppendColoredText(txtLogs, "Invalid amount for SL update", Color.Red)
                 Return
             End If
 
-            Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
-
-            ' Validate PositionSLOrderId
+            ' Validate order ID
             If String.IsNullOrEmpty(PositionSLOrderId) Then
-                AppendColoredText(txtLogs, "PositionSLOrderId is null or empty - cannot update SL", Color.Red)
+                AppendColoredText(txtLogs, "PositionSLOrderId is null - cannot update SL", Color.Red)
                 Return
             End If
 
+            ' Validate WebSocket connection
+            If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
+                AppendColoredText(txtLogs, "WebSocket disconnected - cannot send critical SL update", Color.Red)
+                Return
+            End If
 
-            If (TradeMode = True) And (StopLossTriggerOriginal - newPrice >= Decimal.Parse(txtMarketStopLoss.Text)) Then 'Execute market order if current price is more than original stop loss by txtMarketStopLoss
-                Await CancelOrderAsync() 'Cancel all orders
-                btnReduceMarket.PerformClick()
-                AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
-            ElseIf (TradeMode = False) And (newPrice - StopLossTriggerOriginal >= Decimal.Parse(txtMarketStopLoss.Text)) Then 'Execute market order if current price is more than original stop loss by txtMarketStopLoss
-                Await CancelOrderAsync() 'Cancel all orders
-                btnReduceMarket.PerformClick()
-                AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
-            Else
-                ' Construct the payload for updating the triggered stop loss order
-                Dim updateOrderPayload As New JObject From {
+            ' Construct and send the update payload
+            Dim updateOrderPayload As New JObject From {
             {"jsonrpc", "2.0"},
             {"id", 223350},
             {"method", "private/edit"},
@@ -2017,36 +2100,24 @@ Public Class frmMainPageV2
             }}
         }
 
-                ' Validate WebSocket connection before sending
-                If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
-                    AppendColoredText(txtLogs, "WebSocket not connected - cannot send critical SL update", Color.Red)
-                    Return
-                End If
+            Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
+            UpdateFlag = True
 
-                ' Send the payload to update the stop loss order
-                Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
-
-                UpdateFlag = True
-
-                pendingLocalMsg = $"CRITICAL SL repositioned to: ${newPrice}"
-                lastSLId = PositionSLOrderId            '  store the order_id you edited
-
-                'AppendColoredText(txtLogs, $"CRITICAL SL repositioned to: ${newPrice}", Color.Red)
-
-            End If
+            ' Store pending message for confirmation
+            pendingLocalMsg = $"CRITICAL SL repositioned to: ${newPrice:F2}"
+            lastSLId = PositionSLOrderId
 
         Catch ex As Exception
-            AppendColoredText(txtLogs, "Error in UpdateStopLossForTriggeredStopLossOrder: " & ex.Message, Color.Red)
+            AppendColoredText(txtLogs, $"Error in UpdateStopLossForTriggeredStopLossOrder: {ex.Message}", Color.Red)
 
-            ' Handle potential rate limit errors
+            ' Handle rate limit errors specifically
             If ex.Message.Contains("too_many_requests") OrElse ex.Message.Contains("10028") Then
-                HandleRateLimitError(ex.Message)
+                AppendColoredText(txtLogs, "Rate limit hit during critical SL update - will retry", Color.Yellow)
+                ' Reset last update time to allow immediate retry
+                lastStopLossUpdate = DateTime.MinValue
             End If
         End Try
     End Function
-
-
-
 
     Private Async Function UpdateStopLossForTrailingOrder(newPrice As Decimal) As Task
         Try
@@ -2135,8 +2206,6 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "Error in UpdateStopLossForTrailingOrder: " & ex.Message, Color.Red)
         End Try
     End Function
-
-
 
     Private Async Function StopLossForTrailingOrderAsync(TypeOfOrder As String) As Task
         Try
@@ -2396,6 +2465,14 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, $"Error in TrailingStopLossOrderAsync: {ex.Message}", Color.Red)
         End Try
     End Function
+
+    Private Async Function ForceStopLossUpdate(newPrice As Decimal, Optional reason As String = "Emergency Update") As Task
+        ' Bypass all rate limiting for emergency situations
+        lastStopLossUpdate = DateTime.MinValue
+        AppendColoredText(txtLogs, $"EMERGENCY SL UPDATE: {reason}", Color.Red)
+        Await UpdateStopLossForTriggeredStopLossOrder(newPrice)
+    End Function
+
 
     'Non-order execution functions below
     '------------------------------------------------
