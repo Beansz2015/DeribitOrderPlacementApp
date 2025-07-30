@@ -1488,21 +1488,4 @@ Public Class FrmIndicators
 
     End Sub
 
-    Private Sub btnFormLoadInfo_Click(sender As Object, e As EventArgs) Handles btnFormLoadInfo.Click
-        If formLoadTimestamp = DateTime.MinValue Then
-            AppendLog("Form load timestamp not set", Color.Red)
-            Return
-        End If
-
-        Dim history = SyncLockCopy(ohlcList)
-        Dim currentBars = If(formLoadOHLCIndex >= 0, history.Count - formLoadOHLCIndex, 0)
-        Dim elapsed = DateTime.Now - formLoadTimestamp
-
-        AppendLog("═══ FORM LOAD STATUS ═══", Color.Cyan)
-        'AppendLog($"Load Time: {formLoadTimestamp:yyyy-MM-dd HH:mm:ss}", Color.Gray)
-        AppendLog($"Elapsed: {elapsed.TotalMinutes:F1} minutes", Color.Gray)
-        AppendLog($"Available Bars Since Load: {currentBars}", Color.Gray)
-        AppendLog($"Load Index: {formLoadOHLCIndex}/{history.Count - 1}", Color.Gray)
-    End Sub
-
 End Class

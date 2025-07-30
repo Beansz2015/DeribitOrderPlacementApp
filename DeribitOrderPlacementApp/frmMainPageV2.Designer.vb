@@ -27,6 +27,8 @@ Partial Class frmMainPageV2
         btnClose = New Button()
         btnClearLog = New Button()
         GroupBox1 = New GroupBox()
+        CustomLabel6 = New CustomLabel()
+        txtMarketStopLoss = New TextBox()
         btnRefreshLiveData = New Button()
         btnEstimateMargins = New Button()
         CustomLabel15 = New CustomLabel()
@@ -101,6 +103,8 @@ Partial Class frmMainPageV2
         lblEstimatedLeverage = New CustomLabel()
         lblInitialMargin = New CustomLabel()
         lblMaintenanceMargin = New CustomLabel()
+        btnMark = New Button()
+        CustomLabel7 = New CustomLabel()
         GroupBox1.SuspendLayout()
         GroupBoxButtons.SuspendLayout()
         GroupBox5.SuspendLayout()
@@ -132,7 +136,7 @@ Partial Class frmMainPageV2
         txtLogs.Location = New Point(759, 111)
         txtLogs.Name = "txtLogs"
         txtLogs.ScrollBars = RichTextBoxScrollBars.Vertical
-        txtLogs.Size = New Size(314, 248)
+        txtLogs.Size = New Size(314, 294)
         txtLogs.TabIndex = 82
         txtLogs.Text = ""
         ' 
@@ -162,6 +166,10 @@ Partial Class frmMainPageV2
         ' 
         ' GroupBox1
         ' 
+        GroupBox1.Controls.Add(CustomLabel7)
+        GroupBox1.Controls.Add(btnMark)
+        GroupBox1.Controls.Add(CustomLabel6)
+        GroupBox1.Controls.Add(txtMarketStopLoss)
         GroupBox1.Controls.Add(btnRefreshLiveData)
         GroupBox1.Controls.Add(btnEstimateMargins)
         GroupBox1.Controls.Add(CustomLabel15)
@@ -180,19 +188,42 @@ Partial Class frmMainPageV2
         GroupBox1.ForeColor = SystemColors.ButtonFace
         GroupBox1.Location = New Point(257, 171)
         GroupBox1.Name = "GroupBox1"
-        GroupBox1.Size = New Size(496, 189)
+        GroupBox1.Size = New Size(496, 234)
         GroupBox1.TabIndex = 97
         GroupBox1.TabStop = False
         GroupBox1.Text = "MARGINS"
+        ' 
+        ' CustomLabel6
+        ' 
+        CustomLabel6.AutoSize = True
+        CustomLabel6.Font = New Font("Calibri", 14F)
+        CustomLabel6.ForeColor = Color.Crimson
+        CustomLabel6.Location = New Point(6, 180)
+        CustomLabel6.Name = "CustomLabel6"
+        CustomLabel6.Size = New Size(79, 35)
+        CustomLabel6.TabIndex = 122
+        CustomLabel6.Text = "M.SL:"
+        ' 
+        ' txtMarketStopLoss
+        ' 
+        txtMarketStopLoss.BackColor = Color.Gainsboro
+        txtMarketStopLoss.BorderStyle = BorderStyle.FixedSingle
+        txtMarketStopLoss.Font = New Font("Calibri", 14F)
+        txtMarketStopLoss.Location = New Point(126, 180)
+        txtMarketStopLoss.Name = "txtMarketStopLoss"
+        txtMarketStopLoss.Size = New Size(64, 42)
+        txtMarketStopLoss.TabIndex = 121
+        txtMarketStopLoss.Text = "70"
+        txtMarketStopLoss.TextAlign = HorizontalAlignment.Center
         ' 
         ' btnRefreshLiveData
         ' 
         btnRefreshLiveData.BackColor = Color.LimeGreen
         btnRefreshLiveData.Cursor = Cursors.Hand
         btnRefreshLiveData.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnRefreshLiveData.Location = New Point(202, 98)
+        btnRefreshLiveData.Location = New Point(202, 87)
         btnRefreshLiveData.Name = "btnRefreshLiveData"
-        btnRefreshLiveData.Size = New Size(68, 50)
+        btnRefreshLiveData.Size = New Size(68, 45)
         btnRefreshLiveData.TabIndex = 120
         btnRefreshLiveData.Text = "Ref. L."
         btnRefreshLiveData.UseVisualStyleBackColor = False
@@ -204,7 +235,7 @@ Partial Class frmMainPageV2
         btnEstimateMargins.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         btnEstimateMargins.Location = New Point(202, 42)
         btnEstimateMargins.Name = "btnEstimateMargins"
-        btnEstimateMargins.Size = New Size(68, 50)
+        btnEstimateMargins.Size = New Size(68, 42)
         btnEstimateMargins.TabIndex = 119
         btnEstimateMargins.Text = "Est."
         btnEstimateMargins.UseVisualStyleBackColor = False
@@ -364,7 +395,7 @@ Partial Class frmMainPageV2
         GroupBoxButtons.Controls.Add(btnNoSpread)
         GroupBoxButtons.Font = New Font("Calibri", 18F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         GroupBoxButtons.ForeColor = SystemColors.ControlLight
-        GroupBoxButtons.Location = New Point(5, 357)
+        GroupBoxButtons.Location = New Point(5, 405)
         GroupBoxButtons.Name = "GroupBoxButtons"
         GroupBoxButtons.Size = New Size(533, 444)
         GroupBoxButtons.TabIndex = 98
@@ -697,7 +728,7 @@ Partial Class frmMainPageV2
         GroupBox4.Controls.Add(lblStatus)
         GroupBox4.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         GroupBox4.ForeColor = SystemColors.ButtonFace
-        GroupBox4.Location = New Point(5, 64)
+        GroupBox4.Location = New Point(5, 112)
         GroupBox4.Name = "GroupBox4"
         GroupBox4.Size = New Size(246, 164)
         GroupBox4.TabIndex = 106
@@ -771,7 +802,7 @@ Partial Class frmMainPageV2
         GroupBoxPlaced.Controls.Add(CustomLabel2)
         GroupBoxPlaced.Font = New Font("Calibri", 16F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         GroupBoxPlaced.ForeColor = Color.WhiteSmoke
-        GroupBoxPlaced.Location = New Point(544, 454)
+        GroupBoxPlaced.Location = New Point(544, 502)
         GroupBoxPlaced.Name = "GroupBoxPlaced"
         GroupBoxPlaced.Size = New Size(529, 347)
         GroupBoxPlaced.TabIndex = 109
@@ -972,7 +1003,7 @@ Partial Class frmMainPageV2
         GroupBox8.Controls.Add(txtAmount)
         GroupBox8.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         GroupBox8.ForeColor = SystemColors.ButtonFace
-        GroupBox8.Location = New Point(5, 234)
+        GroupBox8.Location = New Point(5, 280)
         GroupBox8.Name = "GroupBox8"
         GroupBox8.Size = New Size(246, 125)
         GroupBox8.TabIndex = 108
@@ -986,7 +1017,7 @@ Partial Class frmMainPageV2
         GroupBox2.Controls.Add(txtManualTP)
         GroupBox2.Controls.Add(CustomLabel4)
         GroupBox2.ForeColor = SystemColors.ControlLight
-        GroupBox2.Location = New Point(545, 365)
+        GroupBox2.Location = New Point(545, 413)
         GroupBox2.Name = "GroupBox2"
         GroupBox2.Size = New Size(528, 95)
         GroupBox2.TabIndex = 114
@@ -1094,17 +1125,40 @@ Partial Class frmMainPageV2
         lblMaintenanceMargin.TabIndex = 118
         lblMaintenanceMargin.Text = "MM: N/A"
         ' 
+        ' btnMark
+        ' 
+        btnMark.BackColor = Color.Crimson
+        btnMark.Cursor = Cursors.Hand
+        btnMark.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnMark.Location = New Point(202, 177)
+        btnMark.Name = "btnMark"
+        btnMark.Size = New Size(68, 45)
+        btnMark.TabIndex = 123
+        btnMark.Text = "Mark"
+        btnMark.UseVisualStyleBackColor = False
+        ' 
+        ' CustomLabel7
+        ' 
+        CustomLabel7.Font = New Font("Calibri", 10F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        CustomLabel7.ForeColor = Color.WhiteSmoke
+        CustomLabel7.Location = New Point(276, 187)
+        CustomLabel7.Name = "CustomLabel7"
+        CustomLabel7.Size = New Size(142, 33)
+        CustomLabel7.TabIndex = 124
+        CustomLabel7.Text = "Current SL Price"
+        ' 
         ' frmMainPageV2
         ' 
         AutoScaleMode = AutoScaleMode.None
         BackColor = SystemColors.Desktop
-        ClientSize = New Size(1080, 805)
+        ClientSize = New Size(1080, 856)
+        Controls.Add(GroupBoxButtons)
+        Controls.Add(GroupBox8)
         Controls.Add(lblMaintenanceMargin)
         Controls.Add(lblInitialMargin)
         Controls.Add(lblEstimatedLeverage)
         Controls.Add(lblEstimatedLiquidation)
         Controls.Add(btnViewTrades)
-        Controls.Add(GroupBox8)
         Controls.Add(GroupBoxPlaced)
         Controls.Add(lblIndexPrice)
         Controls.Add(Label2)
@@ -1115,7 +1169,6 @@ Partial Class frmMainPageV2
         Controls.Add(btnClearLog)
         Controls.Add(btnClose)
         Controls.Add(btnChangeForm)
-        Controls.Add(GroupBoxButtons)
         Controls.Add(GroupBox2)
         Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         FormBorderStyle = FormBorderStyle.FixedDialog
@@ -1227,4 +1280,8 @@ Partial Class frmMainPageV2
     Friend WithEvents lblMaintenanceMargin As CustomLabel
     Friend WithEvents btnEstimateMargins As Button
     Friend WithEvents btnRefreshLiveData As Button
+    Friend WithEvents CustomLabel6 As CustomLabel
+    Friend WithEvents txtMarketStopLoss As TextBox
+    Friend WithEvents btnMark As Button
+    Friend WithEvents CustomLabel7 As CustomLabel
 End Class

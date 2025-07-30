@@ -32,6 +32,7 @@ Public Class frmMainPageV2
 
     'Public Variables
     Public BestBidPrice, BestAskPrice, TPTrailprice As Decimal
+    Public StopLossTriggerOriginal As Decimal = 0 ' Original stop loss price
 
     Private TradeMode As Boolean = True ' Tracks if Buy or Sell mode
     Private isTrailingStopLossPlaced As Boolean = False 'Tracks if trailing stop loss already placed once
@@ -316,6 +317,8 @@ Public Class frmMainPageV2
         Catch ex As WebSocketException
             ' Log WebSocket-specific errors
             AppendColoredText(txtLogs, "WebSocket Error: " & ex.Message, Color.Red)
+            HandleWebSocketDisconnect()
+
         Catch ex As OperationCanceledException
             ' Log if operation was canceled (e.g., during shutdown)
             AppendColoredText(txtLogs, "Operation Canceled: " & ex.Message, Color.Orange)
@@ -324,6 +327,40 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "Error sending message: " & ex.Message, Color.Red)
         End Try
     End Function
+
+    Private Async Sub HandleWebSocketDisconnect()
+        AppendColoredText(txtLogs, "WebSocket disconnected - implementing reconnection strategy", Color.Orange)
+
+        ' Wait for rate limits to reset
+        Await Task.Delay(10000) ' 10 second cooldown
+
+        ' Attempt reconnection with exponential backoff
+        Dim maxRetries = 5
+        For attempt = 1 To maxRetries
+            Dim reconnectionSucceeded As Boolean = False
+
+            Try
+                btnConnect.PerformClick()
+                AppendColoredText(txtLogs, "WebSocket reconnected successfully", Color.Green)
+                reconnectionSucceeded = True
+            Catch ex As Exception
+                Dim delayMs = 1000 * Math.Pow(2, attempt)
+                AppendColoredText(txtLogs, $"Reconnection attempt {attempt} failed. Retrying in {delayMs}ms", Color.Yellow)
+            End Try
+
+            ' If successful, exit early
+            If reconnectionSucceeded Then Return
+
+            ' Apply delay outside of Try-Catch (async-friendly)
+            If attempt < maxRetries Then
+                Dim delayMs = 1000 * Math.Pow(2, attempt)
+                Await Task.Delay(CInt(delayMs))
+            End If
+        Next
+    End Sub
+
+
+
 
     Private Async Function ReceiveWebSocketMessagesAsync() As Task
         Dim buffer = New Byte(1024 * 4) {}
@@ -1305,6 +1342,7 @@ Public Class frmMainPageV2
                                         isTrailingPosition = False
                                         isTrailingStopLossPlaced = False
                                         SLTriggered = False
+                                        StopLossTriggerOriginal = 0
 
                                         PositionEmpty = True
 
@@ -1625,6 +1663,8 @@ Public Class frmMainPageV2
                     Return
             End Select
 
+            StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
+
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
      New JProperty("instrument_name", "BTC-PERPETUAL"),
@@ -1742,6 +1782,7 @@ Public Class frmMainPageV2
                   End Sub)
         lblOrderStatus.Text = "Awaiting Orders"
         lblOrderStatus.ForeColor = Color.DeepSkyBlue
+        StopLossTriggerOriginal = 0
 
         If PositionEmpty = False Then
             AppendColoredText(txtLogs, $"Cancelled all open orders", Color.Yellow)
@@ -1759,6 +1800,10 @@ Public Class frmMainPageV2
 
             ' Determine the order type (limit or market)
             Dim orderType As String = If(isMarketOrder, "market", "limit")
+
+            If isMarketOrder Then
+                StopLossTriggerOriginal = 0
+            End If
 
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
@@ -1855,6 +1900,8 @@ Public Class frmMainPageV2
                 End If
             End If
 
+            StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
+
             ' Send all three updates with rate limiting
             Await SendRateLimitedUpdate("main", CurrentOpenOrderId, newPrice, amount)
             rateLimiter.ConsumeCredits() ' Consume for second call
@@ -1948,8 +1995,18 @@ Public Class frmMainPageV2
                 Return
             End If
 
-            ' Construct the payload for updating the triggered stop loss order
-            Dim updateOrderPayload As New JObject From {
+
+            If (TradeMode = True) And (StopLossTriggerOriginal - newPrice >= Decimal.Parse(txtMarketStopLoss.Text)) Then 'Execute market order if current price is more than original stop loss by txtMarketStopLoss
+                Await CancelOrderAsync() 'Cancel all orders
+                btnReduceMarket.PerformClick()
+                AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
+            ElseIf (TradeMode = False) And (newPrice - StopLossTriggerOriginal >= Decimal.Parse(txtMarketStopLoss.Text)) Then 'Execute market order if current price is more than original stop loss by txtMarketStopLoss
+                Await CancelOrderAsync() 'Cancel all orders
+                btnReduceMarket.PerformClick()
+                AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
+            Else
+                ' Construct the payload for updating the triggered stop loss order
+                Dim updateOrderPayload As New JObject From {
             {"jsonrpc", "2.0"},
             {"id", 223350},
             {"method", "private/edit"},
@@ -1960,21 +2017,23 @@ Public Class frmMainPageV2
             }}
         }
 
-            ' Validate WebSocket connection before sending
-            If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
-                AppendColoredText(txtLogs, "WebSocket not connected - cannot send critical SL update", Color.Red)
-                Return
+                ' Validate WebSocket connection before sending
+                If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
+                    AppendColoredText(txtLogs, "WebSocket not connected - cannot send critical SL update", Color.Red)
+                    Return
+                End If
+
+                ' Send the payload to update the stop loss order
+                Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
+
+                UpdateFlag = True
+
+                pendingLocalMsg = $"CRITICAL SL repositioned to: ${newPrice}"
+                lastSLId = PositionSLOrderId            '  store the order_id you edited
+
+                'AppendColoredText(txtLogs, $"CRITICAL SL repositioned to: ${newPrice}", Color.Red)
+
             End If
-
-            ' Send the payload to update the stop loss order
-            Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
-
-            UpdateFlag = True
-
-            pendingLocalMsg = $"CRITICAL SL repositioned to: ${newPrice}"
-            lastSLId = PositionSLOrderId            '  store the order_id you edited
-
-            'AppendColoredText(txtLogs, $"CRITICAL SL repositioned to: ${newPrice}", Color.Red)
 
         Catch ex As Exception
             AppendColoredText(txtLogs, "Error in UpdateStopLossForTriggeredStopLossOrder: " & ex.Message, Color.Red)
@@ -2034,6 +2093,8 @@ Public Class frmMainPageV2
                     newSLprice = newTrigSLprice + Decimal.Parse(txtStopLoss.Text)
                 End If
             End If
+
+            StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
 
             ' Update main trailing order
             Dim updateOrderPayload As New JObject From {
@@ -2185,6 +2246,7 @@ Public Class frmMainPageV2
 
             End Select
 
+            StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
 
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
@@ -3539,9 +3601,8 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Sub btnIndictors_Click(sender As Object, e As EventArgs)
-        'Dim indForm As New FrmIndicators()
-        'indForm.Show()    ' non-modal
+    Private Sub btnMark_Click(sender As Object, e As EventArgs) Handles btnMark.Click
+        StopLossTriggerOriginal = Decimal.Parse(txtPlacedTrigStopPrice.Text)
     End Sub
 
     Protected Overrides ReadOnly Property CreateParams As CreateParams

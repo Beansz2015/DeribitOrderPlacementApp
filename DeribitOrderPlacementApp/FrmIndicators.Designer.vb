@@ -60,7 +60,7 @@ Partial Class FrmIndicators
         Label6 = New Label()
         btnATR = New Button()
         txtATRLimit = New TextBox()
-        btnFormLoadInfo = New Button()
+        lblATRLimit = New Label()
         SuspendLayout()
         ' 
         ' lblDMI
@@ -259,9 +259,9 @@ Partial Class FrmIndicators
         btnBacktest.BackColor = Color.DodgerBlue
         btnBacktest.Cursor = Cursors.Hand
         btnBacktest.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnBacktest.Location = New Point(289, 719)
+        btnBacktest.Location = New Point(161, 719)
         btnBacktest.Name = "btnBacktest"
-        btnBacktest.Size = New Size(104, 74)
+        btnBacktest.Size = New Size(232, 74)
         btnBacktest.TabIndex = 132
         btnBacktest.Text = "TEST!"
         btnBacktest.UseVisualStyleBackColor = False
@@ -353,7 +353,7 @@ Partial Class FrmIndicators
         txtATR.Name = "txtATR"
         txtATR.Size = New Size(64, 42)
         txtATR.TabIndex = 142
-        txtATR.Text = "14"
+        txtATR.Text = "7"
         txtATR.TextAlign = HorizontalAlignment.Center
         ' 
         ' txtTP
@@ -366,7 +366,7 @@ Partial Class FrmIndicators
         txtTP.Name = "txtTP"
         txtTP.Size = New Size(64, 42)
         txtTP.TabIndex = 143
-        txtTP.Text = "2.0"
+        txtTP.Text = "3.0"
         txtTP.TextAlign = HorizontalAlignment.Center
         ' 
         ' txtSL
@@ -379,7 +379,7 @@ Partial Class FrmIndicators
         txtSL.Name = "txtSL"
         txtSL.Size = New Size(64, 42)
         txtSL.TabIndex = 144
-        txtSL.Text = "1.5"
+        txtSL.Text = "3.0"
         txtSL.TextAlign = HorizontalAlignment.Center
         ' 
         ' txtTestTime
@@ -392,7 +392,7 @@ Partial Class FrmIndicators
         txtTestTime.Name = "txtTestTime"
         txtTestTime.Size = New Size(64, 42)
         txtTestTime.TabIndex = 145
-        txtTestTime.Text = "1024"
+        txtTestTime.Text = "4300"
         txtTestTime.TextAlign = HorizontalAlignment.Center
         ' 
         ' Label2
@@ -438,7 +438,7 @@ Partial Class FrmIndicators
         txtLScore.Name = "txtLScore"
         txtLScore.Size = New Size(64, 42)
         txtLScore.TabIndex = 149
-        txtLScore.Text = "10"
+        txtLScore.Text = "11"
         txtLScore.TextAlign = HorizontalAlignment.Center
         ' 
         ' txtSScore
@@ -451,7 +451,7 @@ Partial Class FrmIndicators
         txtSScore.Name = "txtSScore"
         txtSScore.Size = New Size(64, 42)
         txtSScore.TabIndex = 150
-        txtSScore.Text = "-10"
+        txtSScore.Text = "-11"
         txtSScore.TextAlign = HorizontalAlignment.Center
         ' 
         ' Label5
@@ -501,17 +501,16 @@ Partial Class FrmIndicators
         txtATRLimit.Text = "70"
         txtATRLimit.TextAlign = HorizontalAlignment.Center
         ' 
-        ' btnFormLoadInfo
+        ' lblATRLimit
         ' 
-        btnFormLoadInfo.BackColor = Color.DodgerBlue
-        btnFormLoadInfo.Cursor = Cursors.Hand
-        btnFormLoadInfo.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnFormLoadInfo.Location = New Point(179, 719)
-        btnFormLoadInfo.Name = "btnFormLoadInfo"
-        btnFormLoadInfo.Size = New Size(104, 74)
-        btnFormLoadInfo.TabIndex = 155
-        btnFormLoadInfo.Text = "Check"
-        btnFormLoadInfo.UseVisualStyleBackColor = False
+        lblATRLimit.AutoSize = True
+        lblATRLimit.Font = New Font("Calibri", 14F)
+        lblATRLimit.ForeColor = SystemColors.ControlLight
+        lblATRLimit.Location = New Point(19, 719)
+        lblATRLimit.Name = "lblATRLimit"
+        lblATRLimit.Size = New Size(40, 35)
+        lblATRLimit.TabIndex = 155
+        lblATRLimit.Text = "SL"
         ' 
         ' FrmIndicators
         ' 
@@ -519,7 +518,7 @@ Partial Class FrmIndicators
         AutoScaleMode = AutoScaleMode.Font
         BackColor = SystemColors.ActiveCaptionText
         ClientSize = New Size(484, 805)
-        Controls.Add(btnFormLoadInfo)
+        Controls.Add(lblATRLimit)
         Controls.Add(txtATRLimit)
         Controls.Add(btnATR)
         Controls.Add(Label6)
@@ -604,5 +603,5 @@ Partial Class FrmIndicators
     Friend WithEvents Label6 As Label
     Friend WithEvents btnATR As Button
     Friend WithEvents txtATRLimit As TextBox
-    Friend WithEvents btnFormLoadInfo As Button
+    Friend WithEvents lblATRLimit As Label
 End Class
