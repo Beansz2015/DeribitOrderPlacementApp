@@ -61,6 +61,7 @@ Partial Class FrmIndicators
         btnATR = New Button()
         txtATRLimit = New TextBox()
         lblATRLimit = New Label()
+        btnAutoTrade = New Button()
         SuspendLayout()
         ' 
         ' lblDMI
@@ -259,9 +260,9 @@ Partial Class FrmIndicators
         btnBacktest.BackColor = Color.DodgerBlue
         btnBacktest.Cursor = Cursors.Hand
         btnBacktest.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnBacktest.Location = New Point(161, 719)
+        btnBacktest.Location = New Point(280, 719)
         btnBacktest.Name = "btnBacktest"
-        btnBacktest.Size = New Size(232, 74)
+        btnBacktest.Size = New Size(113, 74)
         btnBacktest.TabIndex = 132
         btnBacktest.Text = "TEST!"
         btnBacktest.UseVisualStyleBackColor = False
@@ -282,11 +283,11 @@ Partial Class FrmIndicators
         lblTestATR.AutoSize = True
         lblTestATR.Font = New Font("Calibri", 14F)
         lblTestATR.ForeColor = SystemColors.ControlLight
-        lblTestATR.Location = New Point(16, 572)
+        lblTestATR.Location = New Point(8, 572)
         lblTestATR.Name = "lblTestATR"
-        lblTestATR.Size = New Size(58, 35)
+        lblTestATR.Size = New Size(81, 35)
         lblTestATR.TabIndex = 134
-        lblTestATR.Text = "ATR"
+        lblTestATR.Text = "ATR P."
         ' 
         ' lblTestLScore
         ' 
@@ -506,11 +507,23 @@ Partial Class FrmIndicators
         lblATRLimit.AutoSize = True
         lblATRLimit.Font = New Font("Calibri", 14F)
         lblATRLimit.ForeColor = SystemColors.ControlLight
-        lblATRLimit.Location = New Point(19, 719)
+        lblATRLimit.Location = New Point(8, 719)
         lblATRLimit.Name = "lblATRLimit"
-        lblATRLimit.Size = New Size(40, 35)
+        lblATRLimit.Size = New Size(83, 35)
         lblATRLimit.TabIndex = 155
-        lblATRLimit.Text = "SL"
+        lblATRLimit.Text = "ATR L."
+        ' 
+        ' btnAutoTrade
+        ' 
+        btnAutoTrade.BackColor = Color.Red
+        btnAutoTrade.Cursor = Cursors.Hand
+        btnAutoTrade.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnAutoTrade.Location = New Point(161, 719)
+        btnAutoTrade.Name = "btnAutoTrade"
+        btnAutoTrade.Size = New Size(113, 74)
+        btnAutoTrade.TabIndex = 156
+        btnAutoTrade.Text = "AUTO: OFF"
+        btnAutoTrade.UseVisualStyleBackColor = False
         ' 
         ' FrmIndicators
         ' 
@@ -518,7 +531,7 @@ Partial Class FrmIndicators
         AutoScaleMode = AutoScaleMode.Font
         BackColor = SystemColors.ActiveCaptionText
         ClientSize = New Size(484, 805)
-        Controls.Add(lblATRLimit)
+        Controls.Add(btnAutoTrade)
         Controls.Add(txtATRLimit)
         Controls.Add(btnATR)
         Controls.Add(Label6)
@@ -537,7 +550,6 @@ Partial Class FrmIndicators
         Controls.Add(lblTestATRSL)
         Controls.Add(lblTestATRTP)
         Controls.Add(lblTestLScore)
-        Controls.Add(lblTestATR)
         Controls.Add(lblBacktestTitle)
         Controls.Add(btnBacktest)
         Controls.Add(lblATR)
@@ -557,6 +569,8 @@ Partial Class FrmIndicators
         Controls.Add(lblRSI)
         Controls.Add(lblMACD)
         Controls.Add(lblDMI)
+        Controls.Add(lblATRLimit)
+        Controls.Add(lblTestATR)
         Name = "FrmIndicators"
         Opacity = 0.75R
         Text = "Indicators"
@@ -604,4 +618,5 @@ Partial Class FrmIndicators
     Friend WithEvents btnATR As Button
     Friend WithEvents txtATRLimit As TextBox
     Friend WithEvents lblATRLimit As Label
+    Friend WithEvents btnAutoTrade As Button
 End Class

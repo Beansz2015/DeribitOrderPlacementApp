@@ -24,6 +24,7 @@ Public Class FrmIndicators
     Private startupFired As Boolean = False
     Private formLoadTimestamp As DateTime = DateTime.MinValue
     Private formLoadOHLCIndex As Integer = -1
+
     Public Sub New(host As Form)
         InitializeComponent()               ' designer code
         _host = host
@@ -222,7 +223,10 @@ Public Class FrmIndicators
                     If Not pollTimer.Enabled Then pollTimer.Start()
                 End SyncLock
 
-                Invoke(Sub() UpdateSignals())
+                Task.Run(Sub()
+                             Me.Invoke(Sub() UpdateSignals())
+                         End Sub)
+
                 Return
             End If
 
@@ -263,7 +267,9 @@ Public Class FrmIndicators
                         End If
                     End SyncLock
 
-                    Invoke(Sub() UpdateSignals())
+                    Task.Run(Sub()
+                                 Me.Invoke(Sub() UpdateSignals())
+                             End Sub)
                 End If
             End If
         Catch ex As JsonException
@@ -295,7 +301,99 @@ Public Class FrmIndicators
         startupFired = True
     End Sub
 
+    'AUTOMATED TRADING SYSTEM CODE BELOW
+    '------------------------------------------
 
+    Private Sub ProcessAutomatedSignal(currentScore As Integer, bias As Decimal)
+        Try
+            ' ATR Filter Check
+            Dim currentATR As Decimal = Decimal.Parse(lblATR.Text)
+            Dim atrLimit As Decimal = If(String.IsNullOrEmpty(txtATRLimit.Text), 0, Decimal.Parse(txtATRLimit.Text))
+
+            If atrLimit > 0 AndAlso currentATR < atrLimit Then
+                'AppendLog($"Auto-trade blocked: ATR {currentATR:F2} < limit {atrLimit:F2}", Color.Gray)
+                Return
+            End If
+
+            ' Signal Strength Validation
+            Dim longThreshold As Integer = Integer.Parse(txtLScore.Text)
+            Dim shortThreshold As Integer = Integer.Parse(txtSScore.Text)
+
+            If currentScore >= longThreshold Then
+                ExecuteAutomatedTrade("LONG", currentScore, currentATR)
+            ElseIf currentScore <= shortThreshold Then
+                ExecuteAutomatedTrade("SHORT", currentScore, currentATR)
+            End If
+
+        Catch ex As Exception
+            AppendLog($"Auto-trading error: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    Private enableAutoTrading As Boolean = False
+    Private lastAutoTradeTime As DateTime = DateTime.MinValue
+    Private Const AUTO_TRADE_COOLDOWN_MS As Integer = 120000 ' 2 minutes between trades
+
+    Private Function CanPlaceAutomatedOrder() As Boolean
+        ' Cooldown Check
+        If (DateTime.Now - lastAutoTradeTime).TotalMilliseconds < AUTO_TRADE_COOLDOWN_MS Then
+            Return False
+        End If
+
+        ' Market Hours Check (optional)
+        'Dim currentHour As Integer = DateTime.UtcNow.Hour
+        'If currentHour < 6 OrElse currentHour > 22 Then ' Avoid low-liquidity hours
+        ' Return False
+        ' End If
+
+        ' WebSocket Health Check
+        'If webSocketClient?.State <> WebSocketState.Open Then
+        If Not frmMainPageV2.IsWebSocketConnected Then
+            Return False
+        End If
+
+        Return enableAutoTrading
+    End Function
+
+    Private Sub UpdateLastAutoTradeTime()
+        lastAutoTradeTime = DateTime.Now
+    End Sub
+
+    Private Sub ExecuteAutomatedTrade(direction As String, score As Integer, atr As Decimal)
+        ' Rate Limiting Check
+        'If Not rateLimiter?.CanMakeRequest() Then
+        If Not frmMainPageV2.CanMakeAPIRequest Then
+            AppendLog("Auto-trade blocked: Rate limit active", Color.Orange)
+            Return
+        End If
+
+        ' Position Status Check
+        If Decimal.Parse(frmMainPageV2.txtPlacedPrice.Text) > 0 Then
+            AppendLog("Auto-trade blocked: Position already open", Color.Yellow)
+            Return
+        End If
+
+        Try
+            If direction = "LONG" Then
+                btnATR.PerformClick()
+                frmMainPageV2.btnBuy.PerformClick()
+                frmMainPageV2.btnLimit.PerformClick()
+            ElseIf direction = "SHORT" Then
+                btnATR.PerformClick()
+                frmMainPageV2.btnSell.PerformClick()
+                frmMainPageV2.btnLimit.PerformClick()
+            End If
+
+            AppendLog($"AUTO-TRADE: {direction} executed (Score: {score}, ATR: {atr:F2})", Color.Cyan)
+
+        Catch ex As Exception
+            AppendLog($"Auto-trade execution failed: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    '--------------------------------------------
+
+    'Start of live signal calls & updates
     Private Sub UpdateSignals()
         Dim quotes = SyncLockCopy(ohlcList)
         If quotes.Count < 14 Then Return
@@ -308,19 +406,31 @@ Public Class FrmIndicators
         UpdateATR(quotes)
 
         Dim signedBias As Decimal = (score / 21) * 100
-        score = 0
+
+        ' AUTO-TRADING INTEGRATION POINT
+        If enableAutoTrading AndAlso CanPlaceAutomatedOrder() Then
+            Try
+                ProcessAutomatedSignal(score, signedBias)
+            Catch ex As Exception
+                ' Handle exceptions on background thread
+                Me.Invoke(Sub()
+                              AppendLog($"Auto-trading error: {ex.Message}", Color.Red)
+                          End Sub)
+            End Try
+        End If
 
         If signedBias > 0 Then
 
             'lblOverall.ForeColor = Color.DodgerBlue
             lblScore.ForeColor = Color.DodgerBlue
-            lblScore.Text = $"BUY {Math.Abs(signedBias):F1}%"
+            lblScore.Text = $"BUY {Math.Abs(signedBias):F1}% - ({score}/21)"
         Else
             'lblOverall.ForeColor = Color.Crimson
             lblScore.ForeColor = Color.Crimson
-            lblScore.Text = $"SELL {Math.Abs(signedBias):F1}%"
+            lblScore.Text = $"SELL {Math.Abs(signedBias):F1}% - ({score}/21)"
         End If
 
+        score = 0
 
     End Sub
 
@@ -1210,7 +1320,9 @@ Public Class FrmIndicators
         'ATR
         ' ═══════════════════════════════════════════════════════════════════
         ' Compute 7‐period ATR using Skender
-        Dim atrSeries = quotes.GetAtr(7)
+
+        Dim textATR As Integer = Integer.Parse(txtATR.Text.Trim())
+        Dim atrSeries = quotes.GetAtr(textATR)
         Dim atrValue = atrSeries.LastOrDefault()?.Atr
 
         ' Only proceed if ATR exists
@@ -1486,6 +1598,21 @@ Public Class FrmIndicators
         AppendLog($"ATR Pasted: TP:{TPResult} SL:{SLResult}", Color.Cyan)
 
 
+    End Sub
+
+    ' Add to frmIndicators
+    Private Sub btnAutoTrade_Click(sender As Object, e As EventArgs) Handles btnAutoTrade.Click
+        enableAutoTrading = Not enableAutoTrading
+
+        If enableAutoTrading Then
+            btnAutoTrade.Text = "AUTO: ON"
+            btnAutoTrade.BackColor = Color.LimeGreen
+            AppendLog("Automated trading ENABLED", Color.Green)
+        Else
+            btnAutoTrade.Text = "AUTO: OFF"
+            btnAutoTrade.BackColor = Color.Red
+            AppendLog("Automated trading DISABLED", Color.Red)
+        End If
     End Sub
 
 End Class

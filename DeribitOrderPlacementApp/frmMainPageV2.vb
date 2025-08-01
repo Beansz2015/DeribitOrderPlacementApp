@@ -3,6 +3,7 @@ Imports System.IO
 Imports System.Net
 Imports System.Net.Http
 Imports System.Net.Http.Headers
+Imports System.Net.WebRequestMethods
 Imports System.Net.WebSockets
 Imports System.Reflection
 Imports System.Runtime
@@ -115,6 +116,42 @@ Public Class frmMainPageV2
             End SyncLock
         End Function
     End Class
+
+    'For AUTOMATED ORDER PLACEMENT
+    '----------------------------------------------------------------------------------------------
+    Public Async Function ExecuteAutomatedOrder(orderType As String) As Task
+        Await ExecuteOrderAsync(orderType)
+    End Function
+
+    Public Function GetTradeMode() As Boolean
+        Return TradeMode
+    End Function
+
+    Public ReadOnly Property WebSocketConnection As ClientWebSocket
+        Get
+            Return webSocketClient
+        End Get
+    End Property
+
+    Public ReadOnly Property RateLimitManager As DeribitRateLimiter
+        Get
+            Return rateLimiter
+        End Get
+    End Property
+
+    Public ReadOnly Property IsWebSocketConnected As Boolean
+        Get
+            Return webSocketClient IsNot Nothing AndAlso webSocketClient.State = WebSocketState.Open
+        End Get
+    End Property
+
+    ' Optional: Add rate limit status check
+    Public ReadOnly Property CanMakeAPIRequest As Boolean
+        Get
+            Return rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest()
+        End Get
+    End Property
+    '----------------------------------------------------------------------------------------------
 
     Private Sub frmMainPageV2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Try
