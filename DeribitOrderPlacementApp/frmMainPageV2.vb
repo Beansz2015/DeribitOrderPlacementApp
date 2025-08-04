@@ -53,6 +53,13 @@ Public Class frmMainPageV2
     Private isRequestingLiveData As Boolean = False
     Private lastLiveDataRequest As DateTime = DateTime.MinValue
 
+    Public ReadOnly Property RateLimiterInstance As DeribitRateLimiter
+        Get
+            Return rateLimiter
+        End Get
+    End Property
+
+
     Public Class RateLimitInfo
         Public Property MaxCredits As Integer
         Public Property RefillRate As Integer
@@ -62,8 +69,8 @@ Public Class frmMainPageV2
 
     Public Class DeribitRateLimiter
         Private ReadOnly _maxCredits As Integer
-        Private ReadOnly _refillRate As Integer = 10 ' Credits per millisecond
-        Private ReadOnly _costPerRequest As Integer = 200 ' Conservative estimate
+        Private ReadOnly _refillRate As Integer = 20 ' Credits per millisecond 'Conservative = 10 | Reasonable = 20
+        Private ReadOnly _costPerRequest As Integer = 50 ' Conservative estimate = 200 | Reasonable = 50
         Private _currentCredits As Integer
         Private _lastRefillTime As DateTime
         Private ReadOnly _lockObject As New Object()
@@ -115,6 +122,24 @@ Public Class frmMainPageV2
                 Return CInt(Math.Ceiling(creditsNeeded / _refillRate))
             End SyncLock
         End Function
+
+        Public Function GetDetailedStatus() As String
+            SyncLock _lockObject
+                RefillCredits()
+                Return $"Credits: {_currentCredits}/{_maxCredits} | " &
+                       $"Last Refill: {_lastRefillTime:HH:mm:ss.fff} | " &
+                       $"Can Request: {CanMakeRequest()}"
+            End SyncLock
+        End Function
+
+        Public Sub ForceRefillDebug()
+            ' Manual credit refill for testing
+            SyncLock _lockObject
+                _currentCredits = _maxCredits
+                _lastRefillTime = DateTime.UtcNow
+            End SyncLock
+        End Sub
+
     End Class
 
     'For AUTOMATED ORDER PLACEMENT
@@ -564,10 +589,10 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, $"Error extracting rate limits: {ex.Message}", Color.Yellow)
             ' Return very conservative defaults
             Return New RateLimitInfo With {
-            .MaxCredits = 1000,
-            .RefillRate = 10,
-            .BurstLimit = 10,
-            .CurrentEstimatedCredits = 1000
+            .MaxCredits = 2000,
+            .RefillRate = 20,
+            .BurstLimit = 20,
+            .CurrentEstimatedCredits = 2000
         }
         End Try
     End Function
@@ -867,7 +892,7 @@ Public Class frmMainPageV2
                                                            End Function)
 
                                     '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 200)
+                                    rateLimiter = New DeribitRateLimiter(1000, 50)
 
                                 Else
                                     ' Limiter exists but credits are currently insufficient
@@ -888,7 +913,7 @@ Public Class frmMainPageV2
                                                            End Function)
 
                                     '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 200)
+                                    rateLimiter = New DeribitRateLimiter(1000, 50)
                                 Else
                                     AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
                                 End If
@@ -995,7 +1020,7 @@ Public Class frmMainPageV2
                                                            End Function)
 
                                     '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 200)
+                                    rateLimiter = New DeribitRateLimiter(1000, 50)
                                 Else
                                     AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
                                 End If
@@ -1014,7 +1039,7 @@ Public Class frmMainPageV2
                                                            End Function)
 
                                     '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 200)
+                                    rateLimiter = New DeribitRateLimiter(1000, 50)
                                 Else
                                     AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
                                 End If
@@ -1962,7 +1987,7 @@ Public Class frmMainPageV2
             ' Ensure rate limiter exists
             If rateLimiter Is Nothing Then
                 AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter", Color.Yellow)
-                rateLimiter = New DeribitRateLimiter(1000, 200) ' Emergency conservative limiter
+                rateLimiter = New DeribitRateLimiter(1000, 50) ' Emergency conservative limiter
             End If
 
             ' Check rate limit before making API calls
@@ -2088,7 +2113,7 @@ Public Class frmMainPageV2
             ' Enhanced rate limiter handling for critical operations
             If rateLimiter Is Nothing Then
                 AppendColoredText(txtLogs, "CRITICAL: Rate limiter not initialized for SL update", Color.Red)
-                rateLimiter = New DeribitRateLimiter(1000, 200) ' Emergency conservative limiter
+                rateLimiter = New DeribitRateLimiter(1000, 50) ' Emergency conservative limiter
             End If
 
             ' Force execution with timeout for critical stop loss updates
@@ -2162,7 +2187,7 @@ Public Class frmMainPageV2
             ' Ensure rate limiter exists
             If rateLimiter Is Nothing Then
                 AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter for trailing order", Color.Yellow)
-                rateLimiter = New DeribitRateLimiter(1000, 200) ' Emergency conservative limiter
+                rateLimiter = New DeribitRateLimiter(1000, 50) ' Emergency conservative limiter
             End If
 
             ' Check rate limit before making multiple API calls (this function makes 2 calls)
@@ -2543,10 +2568,10 @@ Public Class frmMainPageV2
                 ' Timeout occurred
                 AppendColoredText(txtLogs, "Account summary request timed out - using conservative defaults", Color.Yellow)
                 Return New RateLimitInfo With {
-                .MaxCredits = 1000,
-                .RefillRate = 10,
-                .BurstLimit = 10,
-                .CurrentEstimatedCredits = 1000
+                .MaxCredits = 2000,
+                .RefillRate = 20,
+                .BurstLimit = 20,
+                .CurrentEstimatedCredits = 2000
             }
             Else
                 ' Response received
@@ -2842,7 +2867,7 @@ Public Class frmMainPageV2
 
 
 
-    Private Async Function InitializeRateLimits() As Task
+    Public Async Function InitializeRateLimits() As Task
         Try
             AppendColoredText(txtLogs, "Initializing rate limits from account summary...", Color.DodgerBlue)
 
@@ -2850,14 +2875,17 @@ Public Class frmMainPageV2
             accountLimits = Await GetAccountSummaryLimits()
 
             ' Initialize rate limiter with actual limits
-            rateLimiter = New DeribitRateLimiter(accountLimits.MaxCredits, 200)
+            rateLimiter = New DeribitRateLimiter(accountLimits.MaxCredits, 50) 'Conservative = 200 | Reasonable = 50
 
-            AppendColoredText(txtLogs, $"Rate limits: {accountLimits.MaxCredits} max credits, sustainable rate: {accountLimits.MaxCredits / 200} req/sec", Color.LimeGreen)
+            AppendColoredText(txtLogs, $"Rate limits: {accountLimits.MaxCredits} max credits, sustainable rate: {accountLimits.MaxCredits / 50} req/sec", Color.LimeGreen) 'Conservative = 200 | Reasonable = 50
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Rate limit initialization error: {ex.Message}", Color.Yellow)
             ' Initialize with very conservative defaults
-            rateLimiter = New DeribitRateLimiter(1000, 200)
+            'rateLimiter = New DeribitRateLimiter(1000, 200)
+
+            ' Initialize with more reasonable defaults
+            rateLimiter = New DeribitRateLimiter(2000, 50) ' Reduced cost per request
         End Try
     End Function
 

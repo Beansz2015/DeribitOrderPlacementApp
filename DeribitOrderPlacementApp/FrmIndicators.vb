@@ -306,29 +306,62 @@ Public Class FrmIndicators
 
     Private Sub ProcessAutomatedSignal(currentScore As Integer, bias As Decimal)
         Try
-            ' ATR Filter Check
-            Dim currentATR As Decimal = Decimal.Parse(lblATR.Text)
-            Dim atrLimit As Decimal = If(String.IsNullOrEmpty(txtATRLimit.Text), 0, Decimal.Parse(txtATRLimit.Text))
+            ' Log entry point
+            AppendLog($"ProcessAutomatedSignal: Score={currentScore}, Bias={bias:F1}%", Color.Cyan)
 
-            If atrLimit > 0 AndAlso currentATR < atrLimit Then
-                'AppendLog($"Auto-trade blocked: ATR {currentATR:F2} < limit {atrLimit:F2}", Color.Gray)
+            ' ATR Filter Check with logging
+            Dim currentATR As Decimal = 0
+            If Not Decimal.TryParse(lblATR.Text, currentATR) Then
+                AppendLog($"Auto-trade blocked: Invalid ATR value '{lblATR.Text}'", Color.Red)
                 Return
             End If
 
-            ' Signal Strength Validation
-            Dim longThreshold As Integer = Integer.Parse(txtLScore.Text)
-            Dim shortThreshold As Integer = Integer.Parse(txtSScore.Text)
+            Dim atrLimit As Decimal = 0
+            If Not String.IsNullOrEmpty(txtATRLimit.Text) Then
+                If Not Decimal.TryParse(txtATRLimit.Text, atrLimit) Then
+                    AppendLog($"Auto-trade blocked: Invalid ATR limit '{txtATRLimit.Text}'", Color.Red)
+                    Return
+                End If
+            End If
+
+            AppendLog($"ATR Check: Current={currentATR:F2}, Limit={atrLimit:F2}", Color.Gray)
+
+            If atrLimit > 0 AndAlso currentATR < atrLimit Then
+                AppendLog($"Auto-trade blocked: ATR {currentATR:F2} < limit {atrLimit:F2}", Color.Yellow)
+                Return
+            End If
+
+            ' Signal Strength Validation with logging
+            Dim longThreshold As Integer = 0
+            Dim shortThreshold As Integer = 0
+
+            If Not Integer.TryParse(txtLScore.Text, longThreshold) Then
+                AppendLog($"Auto-trade blocked: Invalid long threshold '{txtLScore.Text}'", Color.Red)
+                Return
+            End If
+
+            If Not Integer.TryParse(txtSScore.Text, shortThreshold) Then
+                AppendLog($"Auto-trade blocked: Invalid short threshold '{txtSScore.Text}'", Color.Red)
+                Return
+            End If
+
+            AppendLog($"Threshold Check: Score={currentScore}, Long≥{longThreshold}, Short≤{shortThreshold}", Color.Gray)
 
             If currentScore >= longThreshold Then
+                AppendLog($"LONG signal triggered: {currentScore} >= {longThreshold}", Color.Green)
                 ExecuteAutomatedTrade("LONG", currentScore, currentATR)
             ElseIf currentScore <= shortThreshold Then
+                AppendLog($"SHORT signal triggered: {currentScore} <= {shortThreshold}", Color.Green)
                 ExecuteAutomatedTrade("SHORT", currentScore, currentATR)
+            Else
+                AppendLog($"No signal: Score {currentScore} between thresholds ({shortThreshold} to {longThreshold})", Color.Gray)
             End If
 
         Catch ex As Exception
-            AppendLog($"Auto-trading error: {ex.Message}", Color.Red)
+            AppendLog($"Auto-trading error in ProcessAutomatedSignal: {ex.Message}", Color.Red)
         End Try
     End Sub
+
 
     Private enableAutoTrading As Boolean = False
     Private lastAutoTradeTime As DateTime = DateTime.MinValue
@@ -340,48 +373,78 @@ Public Class FrmIndicators
             Return False
         End If
 
-        ' Market Hours Check (optional)
-        'Dim currentHour As Integer = DateTime.UtcNow.Hour
-        'If currentHour < 6 OrElse currentHour > 22 Then ' Avoid low-liquidity hours
-        ' Return False
-        ' End If
+        ' WebSocket Health Check - use consistent reference
+        Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
 
-        ' WebSocket Health Check
-        'If webSocketClient?.State <> WebSocketState.Open Then
-        If Not frmMainPageV2.IsWebSocketConnected Then
+        ' Add diagnostic logging
+        AppendLog($"Auto-trade check: EnableAutoTrading={enableAutoTrading}", Color.Gray)
+        AppendLog($"Auto-trade check: WebSocket={mainForm.IsWebSocketConnected}", Color.Gray)
+        AppendLog($"Auto-trade check: RateLimiter initialized={mainForm.RateLimiterInstance IsNot Nothing}", Color.Gray)
+
+        If mainForm.RateLimiterInstance IsNot Nothing Then
+            AppendLog($"Auto-trade check: Can make request={mainForm.RateLimiterInstance.CanMakeRequest()}", Color.Gray)
+        End If
+
+        If Not mainForm.IsWebSocketConnected Then
+            Return False
+        End If
+
+        ' FIXED: Use the CanMakeAPIRequest property instead of direct rate limiter access
+        If Not mainForm.CanMakeAPIRequest Then
+            AppendLog("Auto-trade blocked: Rate limit active", Color.Orange)
+
+            ' Force rate limiter initialization if it's not ready
+            If mainForm.RateLimiterInstance Is Nothing Then
+                AppendLog("Rate limiter not initialized - triggering initialization", Color.Yellow)
+                ' Trigger initialization in main form
+                Task.Run(Async Function()
+                             Try
+                                 Await mainForm.InitializeRateLimits()
+                             Catch ex As Exception
+                                 AppendLog($"Failed to initialize rate limiter: {ex.Message}", Color.Red)
+                             End Try
+                             Return Nothing
+                         End Function)
+            End If
+
             Return False
         End If
 
         Return enableAutoTrading
     End Function
 
+
     Private Sub UpdateLastAutoTradeTime()
         lastAutoTradeTime = DateTime.Now
     End Sub
 
     Private Sub ExecuteAutomatedTrade(direction As String, score As Integer, atr As Decimal)
-        ' Rate Limiting Check
-        'If Not rateLimiter?.CanMakeRequest() Then
-        If Not frmMainPageV2.CanMakeAPIRequest Then
-            AppendLog("Auto-trade blocked: Rate limit active", Color.Orange)
-            Return
-        End If
-
-        ' Position Status Check
-        If Decimal.Parse(frmMainPageV2.txtPlacedPrice.Text) > 0 Then
-            AppendLog("Auto-trade blocked: Position already open", Color.Yellow)
-            Return
-        End If
-
         Try
+            Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
+
+            ' Check if we can make the request
+            If Not mainForm.CanMakeAPIRequest Then
+                AppendLog("Auto-trade execution blocked: Rate limit active", Color.Orange)
+                Return
+            End If
+
+            ' Position Status Check
+            If Decimal.Parse(mainForm.txtPlacedPrice.Text) > 0 Then
+                AppendLog("Auto-trade blocked: Position already open", Color.Yellow)
+                Return
+            End If
+
+            ' Update last trade time immediately to prevent multiple rapid executions
+            UpdateLastAutoTradeTime()
+
             If direction = "LONG" Then
                 btnATR.PerformClick()
-                frmMainPageV2.btnBuy.PerformClick()
-                frmMainPageV2.btnLimit.PerformClick()
+                mainForm.btnBuy.PerformClick()
+                mainForm.btnLimit.PerformClick()
             ElseIf direction = "SHORT" Then
                 btnATR.PerformClick()
-                frmMainPageV2.btnSell.PerformClick()
-                frmMainPageV2.btnLimit.PerformClick()
+                mainForm.btnSell.PerformClick()
+                mainForm.btnLimit.PerformClick()
             End If
 
             AppendLog($"AUTO-TRADE: {direction} executed (Score: {score}, ATR: {atr:F2})", Color.Cyan)
@@ -390,6 +453,7 @@ Public Class FrmIndicators
             AppendLog($"Auto-trade execution failed: {ex.Message}", Color.Red)
         End Try
     End Sub
+
 
     '--------------------------------------------
 
@@ -406,6 +470,9 @@ Public Class FrmIndicators
         UpdateATR(quotes)
 
         Dim signedBias As Decimal = (score / 21) * 100
+
+        ' Log current score for monitoring
+        AppendLog($"Current Signal Score: {score}/21 ({signedBias:F1}%)", Color.LightBlue)
 
         ' AUTO-TRADING INTEGRATION POINT
         If enableAutoTrading AndAlso CanPlaceAutomatedOrder() Then
