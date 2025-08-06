@@ -53,6 +53,9 @@ Public Class frmMainPageV2
     Private isRequestingLiveData As Boolean = False
     Private lastLiveDataRequest As DateTime = DateTime.MinValue
 
+    'For circuit breaker in auto-trading in frmindicators
+    Public USDPublicSession As Decimal
+
     Public ReadOnly Property RateLimiterInstance As DeribitRateLimiter
         Get
             Return rateLimiter
@@ -808,6 +811,7 @@ Public Class frmMainPageV2
                     Me.Invoke(Sub()
                                   lblBTCSession.Text = btcSession.ToString("F8")
                                   USDSession = Decimal.Parse(lblIndexPrice.Text.Trim) * Decimal.Parse(lblBTCSession.Text.Trim)
+                                  USDPublicSession = USDSession 'For circuitbreaker in auto trading in frmindicators
                                   lblUSDSession.Text = USDSession.ToString("C", CultureInfo.CreateSpecificCulture("en-US"))
                               End Sub)
 

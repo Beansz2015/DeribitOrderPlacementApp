@@ -1,16 +1,19 @@
 ﻿
 Imports System
 Imports System.Collections.Generic
+Imports System.IO
 Imports System.Net.WebSockets
 Imports System.Text
 Imports System.Threading
 Imports System.Timers
+Imports System.Windows.Forms.VisualStyles.VisualStyleElement
 Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 Imports Skender
 Imports Skender.Stock.Indicators
 Imports Windows.Win32.Storage
 Imports Windows.Win32.System
+
 Public Class FrmIndicators
     Private ReadOnly _host As Form          ' reference to frmMainPageV2
     Private client As ClientWebSocket
@@ -307,7 +310,21 @@ Public Class FrmIndicators
     Private Sub ProcessAutomatedSignal(currentScore As Integer, bias As Decimal)
         Try
             ' Log entry point
-            AppendLog($"ProcessAutomatedSignal: Score={currentScore}, Bias={bias:F1}%", Color.Cyan)
+            ' AppendLog($"ProcessAutomatedSignal: Score={currentScore}, Bias={bias:F1}%", Color.Cyan)
+
+            If (enableAutoTrading = True) Then
+                If frmMainPageV2.USDPublicSession < Decimal.TryParse(txtCircuitBreaker.Text, CircuitBreak) Then
+                    'LogTradeDecision("ANY", currentScore, "Circuit breaker active", False)
+
+                    enableAutoTrading = False
+                    btnAutoTrade.Text = "AUTO: STOPPED"
+                    btnAutoTrade.BackColor = Color.DarkRed
+                    AppendLog($"Circuit breaker triggered! Loss limit reached: ${CircuitBreak:F2}", Color.Red)
+                    LogTradeDecision("ANY", currentScore, "Circuit breaker triggered.", False)
+
+                    Return
+                End If
+            End If
 
             ' ATR Filter Check with logging
             Dim currentATR As Decimal = 0
@@ -324,10 +341,10 @@ Public Class FrmIndicators
                 End If
             End If
 
-            AppendLog($"ATR Check: Current={currentATR:F2}, Limit={atrLimit:F2}", Color.Gray)
+            'AppendLog($"ATR Check: Current={currentATR:F2}, Limit={atrLimit:F2}", Color.Gray)
 
             If atrLimit > 0 AndAlso currentATR < atrLimit Then
-                AppendLog($"Auto-trade blocked: ATR {currentATR:F2} < limit {atrLimit:F2}", Color.Yellow)
+                ' AppendLog($"Auto-trade blocked: ATR {currentATR:F2} < limit {atrLimit:F2}", Color.Yellow)
                 Return
             End If
 
@@ -345,16 +362,18 @@ Public Class FrmIndicators
                 Return
             End If
 
-            AppendLog($"Threshold Check: Score={currentScore}, Long≥{longThreshold}, Short≤{shortThreshold}", Color.Gray)
+            'AppendLog($"Threshold Check: Score={currentScore}, Long≥{longThreshold}, Short≤{shortThreshold}", Color.Gray)
 
             If currentScore >= longThreshold Then
                 AppendLog($"LONG signal triggered: {currentScore} >= {longThreshold}", Color.Green)
                 ExecuteAutomatedTrade("LONG", currentScore, currentATR)
+                LogTradeDecision("LONG", currentScore, "Signal threshold met", True)
             ElseIf currentScore <= shortThreshold Then
                 AppendLog($"SHORT signal triggered: {currentScore} <= {shortThreshold}", Color.Green)
                 ExecuteAutomatedTrade("SHORT", currentScore, currentATR)
-            Else
-                AppendLog($"No signal: Score {currentScore} between thresholds ({shortThreshold} to {longThreshold})", Color.Gray)
+                LogTradeDecision("SHORT", currentScore, "Signal threshold met", True)
+                'Else
+                '    AppendLog($"No signal: Score {currentScore} between thresholds ({shortThreshold} to {longThreshold})", Color.Gray)
             End If
 
         Catch ex As Exception
@@ -368,6 +387,19 @@ Public Class FrmIndicators
     Private Const AUTO_TRADE_COOLDOWN_MS As Integer = 120000 ' 2 minutes between trades
 
     Private Function CanPlaceAutomatedOrder() As Boolean
+
+        ' Time-based restriction check (FIRST PRIORITY)
+        If IsWithinRestrictedTimeRange() Then
+            ' Only log once per minute to avoid spam
+            ' Static lastRestrictedLog As DateTime = DateTime.MinValue
+            ' If (DateTime.Now - lastRestrictedLog).TotalMinutes >= 1 Then
+            ' Dim utc8Time As DateTime = DateTime.UtcNow.AddHours(8)
+            ' AppendLog($"Auto-trade blocked: Restricted time period (Current: {utc8Time:HH:mm})", Color.Orange)
+            ' lastRestrictedLog = DateTime.Now
+            ' End If
+            Return False
+        End If
+
         ' Cooldown Check
         If (DateTime.Now - lastAutoTradeTime).TotalMilliseconds < AUTO_TRADE_COOLDOWN_MS Then
             Return False
@@ -377,13 +409,13 @@ Public Class FrmIndicators
         Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
 
         ' Add diagnostic logging
-        AppendLog($"Auto-trade check: EnableAutoTrading={enableAutoTrading}", Color.Gray)
-        AppendLog($"Auto-trade check: WebSocket={mainForm.IsWebSocketConnected}", Color.Gray)
-        AppendLog($"Auto-trade check: RateLimiter initialized={mainForm.RateLimiterInstance IsNot Nothing}", Color.Gray)
+        'AppendLog($"Auto-trade check: EnableAutoTrading={enableAutoTrading}", Color.Gray)
+        'AppendLog($"Auto-trade check: WebSocket={mainForm.IsWebSocketConnected}", Color.Gray)
+        'AppendLog($"Auto-trade check: RateLimiter initialized={mainForm.RateLimiterInstance IsNot Nothing}", Color.Gray)
 
-        If mainForm.RateLimiterInstance IsNot Nothing Then
-            AppendLog($"Auto-trade check: Can make request={mainForm.RateLimiterInstance.CanMakeRequest()}", Color.Gray)
-        End If
+        'If mainForm.RateLimiterInstance IsNot Nothing Then
+        ' AppendLog($"Auto-trade check: Can make request={mainForm.RateLimiterInstance.CanMakeRequest()}", Color.Gray)
+        ' End If
 
         If Not mainForm.IsWebSocketConnected Then
             Return False
@@ -430,7 +462,7 @@ Public Class FrmIndicators
 
             ' Position Status Check
             If Decimal.Parse(mainForm.txtPlacedPrice.Text) > 0 Then
-                AppendLog("Auto-trade blocked: Position already open", Color.Yellow)
+                '     AppendLog("Auto-trade blocked: Position already open", Color.Yellow)
                 Return
             End If
 
@@ -454,6 +486,84 @@ Public Class FrmIndicators
         End Try
     End Sub
 
+    'For checking if the current time is within the restricted time range for auto trading
+    Private Function IsWithinRestrictedTimeRange() As Boolean
+        Try
+            ' Get current time in UTC+8 (Singapore/Malaysia/Hong Kong time)
+            Dim utc8Time As DateTime = DateTime.UtcNow.AddHours(8)
+            Dim currentTime As TimeSpan = utc8Time.TimeOfDay
+
+            ' Check if textboxes are empty - if so, no time restrictions
+            If String.IsNullOrWhiteSpace(txtStartTime.Text) OrElse String.IsNullOrWhiteSpace(txtEndTime.Text) Then
+                Return False
+            End If
+
+            ' Parse start and end times from textboxes
+            Dim startTime As TimeSpan
+            Dim endTime As TimeSpan
+
+            If Not TimeSpan.TryParse(txtStartTime.Text.Trim(), startTime) Then
+                AppendLog($"Invalid start time format: '{txtStartTime.Text}'. Use HH:mm format (e.g., 21:30)", Color.Yellow)
+                Return False ' Invalid format means no restriction
+            End If
+
+            If Not TimeSpan.TryParse(txtEndTime.Text.Trim(), endTime) Then
+                AppendLog($"Invalid end time format: '{txtEndTime.Text}'. Use HH:mm format (e.g., 22:00)", Color.Yellow)
+                Return False ' Invalid format means no restriction
+            End If
+
+            ' Handle time ranges that span midnight
+            If startTime <= endTime Then
+                ' Normal range (e.g., 09:30 - 22:00)
+                Return currentTime >= startTime AndAlso currentTime <= endTime
+            Else
+                ' Range spans midnight (e.g., 22:00 - 02:00 next day)
+                Return currentTime >= startTime OrElse currentTime <= endTime
+            End If
+
+        Catch ex As Exception
+            AppendLog($"Error checking restricted time range: {ex.Message}", Color.Red)
+            Return False ' If error, don't restrict trading
+        End Try
+    End Function
+
+    Private Function GetCurrentUTC8TimeString() As String
+        Dim utc8Time As DateTime = DateTime.UtcNow.AddHours(8)
+        Return utc8Time.ToString("HH:mm:ss")
+    End Function
+
+    'For text file trade logging
+    Private Sub LogTradeDecision(signal As String, score As Integer, reason As String, executed As Boolean)
+
+        Dim placedPrice As Decimal = Convert.ToDecimal(frmMainPageV2.txtPlacedPrice.Text)
+        Dim TakeProfit As Decimal = Convert.ToDecimal(frmMainPageV2.txtTakeProfit.Text)
+        Dim triggerPrice As Decimal = Convert.ToDecimal(frmMainPageV2.txtTrigger.Text)
+
+        'Still not working
+        If placedPrice = 0 Then
+            Task.Delay(1000)
+            placedPrice = Convert.ToDecimal(frmMainPageV2.txtPlacedPrice.Text)
+        End If
+
+        Dim logEntry As String = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
+                           $"Signal: {signal} | Score: {score} | " &
+                           $"Reason: {reason} | Executed: {executed} | " &
+                           $"Placed Price: {placedPrice} | " &
+                           $"Take Profit: {TakeProfit} | " &
+                           $"Stop Loss Trigger: {triggerPrice} "
+
+        ' Write to file for later analysis
+        Try
+            File.AppendAllText("AutoTradeLog.txt", logEntry & Environment.NewLine)
+        Catch
+            AppendLog("Text file IO error", Color.Red) ' Handle file write errors
+        End Try
+
+        AppendLog(logEntry, If(executed, Color.Cyan, Color.Gray))
+    End Sub
+
+    Private USDPL As Decimal = 0
+    Private CircuitBreak As Decimal = 0
 
     '--------------------------------------------
 
@@ -472,7 +582,7 @@ Public Class FrmIndicators
         Dim signedBias As Decimal = (score / 21) * 100
 
         ' Log current score for monitoring
-        AppendLog($"Current Signal Score: {score}/21 ({signedBias:F1}%)", Color.LightBlue)
+        'AppendLog($"Current Signal Score: {score}/21 ({signedBias:F1}%)", Color.LightBlue)
 
         ' AUTO-TRADING INTEGRATION POINT
         If enableAutoTrading AndAlso CanPlaceAutomatedOrder() Then
@@ -1681,5 +1791,6 @@ Public Class FrmIndicators
             AppendLog("Automated trading DISABLED", Color.Red)
         End If
     End Sub
+
 
 End Class
