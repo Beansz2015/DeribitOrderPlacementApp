@@ -14,6 +14,7 @@ Imports System.Xml
 Imports Microsoft.VisualBasic.ApplicationServices
 Imports Newtonsoft.Json.Linq
 
+
 Public Class frmMainPageV2
 
     Private _indicators As FrmIndicators
@@ -34,6 +35,8 @@ Public Class frmMainPageV2
     'Public Variables
     Public BestBidPrice, BestAskPrice, TPTrailprice As Decimal
     Public StopLossTriggerOriginal As Decimal = 0 ' Original stop loss price
+    'For auto trading logging
+    Public AutoPlacedPrice, AutoTakeProfit, AutoStopLoss As Decimal
 
     Private TradeMode As Boolean = True ' Tracks if Buy or Sell mode
     Private isTrailingStopLossPlaced As Boolean = False 'Tracks if trailing stop loss already placed once
@@ -1468,9 +1471,14 @@ Public Class frmMainPageV2
                                             Await Task.Delay(3000)
                                             isRequestingLiveData = False
                                         End If
+
+                                        If _indicators.IsAutoTradingEnabled Then
+                                            LogTradeDecision("In Position", 0, 0) 'For autotrade log for when trade is in position
+                                        End If
+
                                     Else
-                                        ' Position closed - reset flags
-                                        isRequestingLiveData = False
+                                            ' Position closed - reset flags
+                                            isRequestingLiveData = False
                                         lastLiveDataRequest = DateTime.MinValue
 
                                     End If
@@ -1505,14 +1513,24 @@ Public Class frmMainPageV2
                                         If (PorL = True) And (PorLAmt > 0) Then
                                             AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.LimeGreen)
                                             AppendColoredText(txtLogs, $"Profit made: ${PorLAmt}.", Color.LimeGreen)
+
+                                            If _indicators.IsAutoTradingEnabled Then
+                                                LogTradeDecision("Exit Position - Profit", PorLAmt, ExecPrice) 'For autotrade log for when trade exit position
+                                            End If
+
                                         ElseIf (PorL = False) And (PorLAmt > 0) Then
-                                            AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Crimson)
+                                                AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Crimson)
                                             AppendColoredText(txtLogs, $"Loss of: ${PorLAmt}.", Color.Crimson)
+
+                                            If _indicators.IsAutoTradingEnabled Then
+                                                LogTradeDecision("Exit Position - Loss", PorLAmt, ExecPrice) 'For autotrade log for when trade exit position
+                                            End If
+
                                         End If
 
-                                        'To record to DB
-                                        ' In HandleOrderPositionUpdates
-                                        If PorLAmt > 0 Then
+                                            'To record to DB
+                                            ' In HandleOrderPositionUpdates
+                                            If PorLAmt > 0 Then
                                             Dim tradeId = RecordCompletedTrade(
                                                 Decimal.Parse(txtPlacedPrice.Text),
                                                 ExecPrice,
@@ -2832,14 +2850,50 @@ Public Class frmMainPageV2
     End Sub
 
 
+    'For text file trade logging
+    Private Sub LogTradeDecision(ordertype As String, PLAmt As Decimal, ExitP As Decimal)
 
+        Dim placedPrice As Decimal = Convert.ToDecimal(txtPlacedPrice.Text)
+        Dim TakeProfit As Decimal = Convert.ToDecimal(txtTakeProfit.Text)
+        Dim triggerPrice As Decimal = Convert.ToDecimal(txtTrigger.Text)
+        Dim logentry As String = String.Empty
+
+        If ordertype.Contains("Exit Position") Then
+
+            If ordertype.Contains("Exit Position - Profit") Then
+                logentry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
+                       $"Type: {ordertype} | " &
+                        $"Exit Price: {ExitP} | " &
+                       $"Profit: {PLAmt} | "
+            Else
+                logentry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
+                    $"Type: {ordertype} | " &
+                     $"Exit Price: {ExitP} | " &
+                    $"Loss: {PLAmt} | "
+            End If
+
+        Else
+                logentry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
+                       $"Type: {ordertype} | " &
+                        $"Placed Price: {placedPrice} | " &
+                       $"Take Profit: {TakeProfit} | " &
+                       $"Stop Loss Trigger: {triggerPrice} "
+        End If
+
+        ' Write to file for later analysis
+        Try
+            System.IO.File.AppendAllText("AutoTradeLog.txt", logEntry & Environment.NewLine)
+        Catch
+            AppendColoredText(txtLogs, "Text file IO error", Color.Red) ' Handle file write errors
+        End Try
+
+    End Sub
 
 
     Private Sub ProcessEstimationData(estimationData As JToken)
         ' Your existing estimation logic remains the same...
         ' (Keep your current estimation processing code here)
     End Sub
-
 
 
     'All button logic below

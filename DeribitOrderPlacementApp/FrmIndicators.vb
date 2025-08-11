@@ -33,6 +33,13 @@ Public Class FrmIndicators
         _host = host
     End Sub
 
+    Public ReadOnly Property IsAutoTradingEnabled As Boolean
+        Get
+            Return enableAutoTrading
+        End Get
+    End Property
+
+
     ' ── Form Load ───────────────────────────────────────────────────────────────
     Private Sub FrmIndicators_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         AddHandler heartbeatTimer.Tick, AddressOf heartbeatTimer_Tick
@@ -535,22 +542,25 @@ Public Class FrmIndicators
     'For text file trade logging
     Private Sub LogTradeDecision(signal As String, score As Integer, reason As String, executed As Boolean)
 
-        Dim placedPrice As Decimal = Convert.ToDecimal(frmMainPageV2.txtPlacedPrice.Text)
-        Dim TakeProfit As Decimal = Convert.ToDecimal(frmMainPageV2.txtTakeProfit.Text)
-        Dim triggerPrice As Decimal = Convert.ToDecimal(frmMainPageV2.txtTrigger.Text)
+        Dim topBidPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTopBid.Text)
+        Dim takeProfitprice As Decimal = Decimal.Parse(frmMainPageV2.txtTakeProfit.Text)
+        Dim triggerPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTrigger.Text)
 
-        'Still not working
-        If placedPrice = 0 Then
-            Task.Delay(1000)
-            placedPrice = Convert.ToDecimal(frmMainPageV2.txtPlacedPrice.Text)
+        Dim TPPrice, STPrice As Decimal
+
+        If signal = "LONG" Then
+            TPPrice = topBidPrice + takeProfitprice
+            STPrice = topBidPrice - triggerPrice
+        Else
+            TPPrice = topBidPrice - takeProfitprice
+            STPrice = topBidPrice + triggerPrice
         End If
 
         Dim logEntry As String = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
                            $"Signal: {signal} | Score: {score} | " &
                            $"Reason: {reason} | Executed: {executed} | " &
-                           $"Placed Price: {placedPrice} | " &
-                           $"Take Profit: {TakeProfit} | " &
-                           $"Stop Loss Trigger: {triggerPrice} "
+                           $"Init. Price: {topBidPrice} | Take Profit: {TPPrice} | " &
+                            $"Stop Loss: {STPrice} "
 
         ' Write to file for later analysis
         Try
