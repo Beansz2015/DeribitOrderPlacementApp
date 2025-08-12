@@ -1,17 +1,17 @@
 ﻿Imports System.Globalization
 Imports System.IO
 Imports System.Net
-Imports System.Net.Http
-Imports System.Net.Http.Headers
-Imports System.Net.WebRequestMethods
+'Imports System.Net.Http
+'Imports System.Net.Http.Headers
+'Imports System.Net.WebRequestMethods
 Imports System.Net.WebSockets
-Imports System.Reflection
-Imports System.Runtime
+'Imports System.Reflection
+'Imports System.Runtime
 Imports System.Text
 Imports System.Threading
-Imports System.Windows.Forms.VisualStyles
-Imports System.Xml
-Imports Microsoft.VisualBasic.ApplicationServices
+'Imports System.Windows.Forms.VisualStyles
+'Imports System.Xml
+'Imports Microsoft.VisualBasic.ApplicationServices
 Imports Newtonsoft.Json.Linq
 
 
@@ -850,6 +850,7 @@ Public Class frmMainPageV2
     Private lastStopLossUpdate As DateTime = DateTime.MinValue
     Private Const MinStopLossUpdateInterval As Integer = 333 ' 0.3 second minimum between updates
     Private Const MinPriceMovementThreshold As Decimal = 5D ' Minimum $5 movement to trigger update
+    Private newPricePublic As Decimal = 0 'For storing the price during emergency reduce market order for logging
 
     'Handle best bid/asks updates from Websocket
     Private Async Sub HandleQuoteUpdates(response As String)
@@ -996,8 +997,8 @@ Public Class frmMainPageV2
                                     lastStopLossUpdate = DateTime.MinValue
                                 End Try
                             End If
-                        Else
-                            AppendColoredText(txtLogs, "Invalid stop loss price for repositioning", Color.Yellow)
+                            'Else
+                            '    AppendColoredText(txtLogs, "Invalid stop loss price for repositioning", Color.Yellow)
                         End If
                     Else
                         ' Log rate limiting (optional - can be removed to reduce noise)
@@ -1183,10 +1184,12 @@ Public Class frmMainPageV2
     Private isTrailingStop As Boolean = False
     Private isTrailingPosition As Boolean = False
     Private PositionEmpty As Boolean = False
-
+    Private PositionLog As Boolean = False 'Flag to track if position log has been written
+    Private OrderLog As Boolean = False 'Flag to track if order log has been written
 
     Private Async Sub HandleOrderPositionUpdates(response As String)
         Try
+
             ' Parse the WebSocket response
             Dim json = JObject.Parse(response)
 
@@ -1409,6 +1412,14 @@ Public Class frmMainPageV2
                                             End If
                                         End If
 
+                                    Case "ReduceMarketOrder"
+                                        OpenPositions = True 'Actually no positions but flagged true to use code in openpositions segment for cleanup
+                                        If _indicators.IsAutoTradingEnabled Then
+                                            LogTradeDecision("Exit Position - Market Order Loss", 0, 0) 'For autotrade log for when trade exit position
+                                        End If
+                                        AppendColoredText(txtLogs, $"Position executed at {newPricePublic}.", Color.Crimson)
+                                        AppendColoredText(txtLogs, $"Loss: Check order history.", Color.Crimson)
+
                                 End Select
                             ElseIf orderState = "cancelled" Then
                                 Select Case label
@@ -1423,10 +1434,21 @@ Public Class frmMainPageV2
 
                         Next
 
+
+                        If _indicators.IsAutoTradingEnabled And OrderLog = False Then
+                            '    If Not (txtPlacedPrice.Text = "0") And (txtPlacedTrigStopPrice.Text = "0") And (txtPlacedTakeProfitPrice.Text = "0") Then
+                            If (OpenPositions = False) And (OpenOrderNo = True) Then
+                                LogTradeDecision("Order Placed", 0, 0) 'For autotrade log for when order is placed
+                                OrderLog = True
+                            End If
+                        End If
+
+
                         If OpenPositions = True Then
 
                             txtManualSL.Text = "0"
                             txtManualTP.Text = "0"
+
 
                             'If it is a trailing order, set flag that it is in position
                             If isTrailingStop = True Then
@@ -1472,13 +1494,14 @@ Public Class frmMainPageV2
                                             isRequestingLiveData = False
                                         End If
 
-                                        If _indicators.IsAutoTradingEnabled Then
+                                        If _indicators.IsAutoTradingEnabled And (PositionLog = False) Then
                                             LogTradeDecision("In Position", 0, 0) 'For autotrade log for when trade is in position
+                                            PositionLog = True ' Set flag to prevent duplicate logging
                                         End If
 
                                     Else
-                                            ' Position closed - reset flags
-                                            isRequestingLiveData = False
+                                        ' Position closed - reset flags
+                                        isRequestingLiveData = False
                                         lastLiveDataRequest = DateTime.MinValue
 
                                     End If
@@ -1494,6 +1517,8 @@ Public Class frmMainPageV2
                                         StopLossTriggerOriginal = 0
 
                                         PositionEmpty = True
+                                        PositionLog = False ' Reset position log flag so it can log next new position
+                                        OrderLog = False ' Reset order log flag so it can log next new order
 
                                         Await CancelOrderAsync()
 
@@ -1519,7 +1544,7 @@ Public Class frmMainPageV2
                                             End If
 
                                         ElseIf (PorL = False) And (PorLAmt > 0) Then
-                                                AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Crimson)
+                                            AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Crimson)
                                             AppendColoredText(txtLogs, $"Loss of: ${PorLAmt}.", Color.Crimson)
 
                                             If _indicators.IsAutoTradingEnabled Then
@@ -1528,9 +1553,9 @@ Public Class frmMainPageV2
 
                                         End If
 
-                                            'To record to DB
-                                            ' In HandleOrderPositionUpdates
-                                            If PorLAmt > 0 Then
+                                        'To record to DB
+                                        ' In HandleOrderPositionUpdates
+                                        If PorLAmt > 0 Then
                                             Dim tradeId = RecordCompletedTrade(
                                                 Decimal.Parse(txtPlacedPrice.Text),
                                                 ExecPrice,
@@ -1956,6 +1981,7 @@ Public Class frmMainPageV2
     Private Async Function SendReduceOrderAsync(price As Decimal?, amount As Decimal, direction As String, isMarketOrder As Boolean) As Task
         Try
             'Remember to do a cancel all orders here before sending reduce order
+            'Await CancelOrderAsync()
 
             ' Determine the order type (limit or market)
             Dim orderType As String = If(isMarketOrder, "market", "limit")
@@ -2122,11 +2148,13 @@ Public Class frmMainPageV2
             ' Your existing emergency market order logic first
             If (TradeMode = True) And (StopLossTriggerOriginal - newPrice >= Decimal.Parse(txtMarketStopLoss.Text)) Then
                 Await CancelOrderAsync()
+                newPricePublic = newPrice 'For storing reduce market order price for logging
                 btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
             ElseIf (TradeMode = False) And (newPrice - StopLossTriggerOriginal >= Decimal.Parse(txtMarketStopLoss.Text)) Then
                 Await CancelOrderAsync()
+                newPricePublic = newPrice 'For storing reduce market order price for logging
                 btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
@@ -2854,9 +2882,19 @@ Public Class frmMainPageV2
     Private Sub LogTradeDecision(ordertype As String, PLAmt As Decimal, ExitP As Decimal)
 
         Dim placedPrice As Decimal = Convert.ToDecimal(txtPlacedPrice.Text)
-        Dim TakeProfit As Decimal = Convert.ToDecimal(txtTakeProfit.Text)
-        Dim triggerPrice As Decimal = Convert.ToDecimal(txtTrigger.Text)
+        Dim TakeProfit As Decimal = Convert.ToDecimal(txtPlacedTakeProfitPrice.Text)
+        Dim triggerPrice As Decimal = Convert.ToDecimal(txtPlacedTrigStopPrice.Text)
         Dim logentry As String = String.Empty
+
+        'Dim TPPrice, SLPrice As Decimal
+
+        'If TradeMode Then
+        ' TPPrice = placedPrice + TakeProfit
+        ' SLPrice = placedPrice - triggerPrice
+        'Else
+        ' TPPrice = placedPrice - TakeProfit
+        'SLPrice = placedPrice + triggerPrice
+        'End If
 
         If ordertype.Contains("Exit Position") Then
 
@@ -2865,15 +2903,19 @@ Public Class frmMainPageV2
                        $"Type: {ordertype} | " &
                         $"Exit Price: {ExitP} | " &
                        $"Profit: {PLAmt} | "
-            Else
+            ElseIf ordertype.Contains("Exit Position - Loss") Then
                 logentry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
                     $"Type: {ordertype} | " &
                      $"Exit Price: {ExitP} | " &
                     $"Loss: {PLAmt} | "
+            ElseIf ordertype.Contains("Exit Position - Market Order Loss") Then
+                logentry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
+                    $"Type: {ordertype} | " &
+                     $"Exit Price: {newPricePublic} | Loss: Check Order History "
             End If
 
         Else
-                logentry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
+            logentry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
                        $"Type: {ordertype} | " &
                         $"Placed Price: {placedPrice} | " &
                        $"Take Profit: {TakeProfit} | " &

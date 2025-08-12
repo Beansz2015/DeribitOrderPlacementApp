@@ -6,13 +6,13 @@ Imports System.Net.WebSockets
 Imports System.Text
 Imports System.Threading
 Imports System.Timers
-Imports System.Windows.Forms.VisualStyles.VisualStyleElement
+'Imports System.Windows.Forms.VisualStyles.VisualStyleElement
 Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 Imports Skender
 Imports Skender.Stock.Indicators
-Imports Windows.Win32.Storage
-Imports Windows.Win32.System
+'Imports Windows.Win32.Storage
+'Imports Windows.Win32.System
 
 Public Class FrmIndicators
     Private ReadOnly _host As Form          ' reference to frmMainPageV2
@@ -319,6 +319,8 @@ Public Class FrmIndicators
             ' Log entry point
             ' AppendLog($"ProcessAutomatedSignal: Score={currentScore}, Bias={bias:F1}%", Color.Cyan)
 
+            Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
+
             If (enableAutoTrading = True) Then
                 If frmMainPageV2.USDPublicSession < Decimal.TryParse(txtCircuitBreaker.Text, CircuitBreak) Then
                     'LogTradeDecision("ANY", currentScore, "Circuit breaker active", False)
@@ -371,16 +373,18 @@ Public Class FrmIndicators
 
             'AppendLog($"Threshold Check: Score={currentScore}, Long≥{longThreshold}, Short≤{shortThreshold}", Color.Gray)
 
-            If currentScore >= longThreshold Then
-                AppendLog($"LONG signal triggered: {currentScore} >= {longThreshold}", Color.Green)
-                ExecuteAutomatedTrade("LONG", currentScore, currentATR)
-                LogTradeDecision("LONG", currentScore, "Signal threshold met", True)
-            ElseIf currentScore <= shortThreshold Then
-                AppendLog($"SHORT signal triggered: {currentScore} <= {shortThreshold}", Color.Green)
-                ExecuteAutomatedTrade("SHORT", currentScore, currentATR)
-                LogTradeDecision("SHORT", currentScore, "Signal threshold met", True)
-                'Else
-                '    AppendLog($"No signal: Score {currentScore} between thresholds ({shortThreshold} to {longThreshold})", Color.Gray)
+            If Decimal.Parse(mainForm.txtPlacedPrice.Text) = 0 Then
+                If currentScore >= longThreshold Then
+                    AppendLog($"LONG signal triggered: {currentScore} >= {longThreshold}", Color.Green)
+                    ExecuteAutomatedTrade("LONG", currentScore, currentATR)
+                    LogTradeDecision("LONG", currentScore, "Signal threshold met", True)
+                ElseIf currentScore <= shortThreshold Then
+                    AppendLog($"SHORT signal triggered: {currentScore} <= {shortThreshold}", Color.Green)
+                    ExecuteAutomatedTrade("SHORT", currentScore, currentATR)
+                    LogTradeDecision("SHORT", currentScore, "Signal threshold met", True)
+                    'Else
+                    '    AppendLog($"No signal: Score {currentScore} between thresholds ({shortThreshold} to {longThreshold})", Color.Gray)
+                End If
             End If
 
         Catch ex As Exception
@@ -542,25 +546,25 @@ Public Class FrmIndicators
     'For text file trade logging
     Private Sub LogTradeDecision(signal As String, score As Integer, reason As String, executed As Boolean)
 
-        Dim topBidPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTopBid.Text)
-        Dim takeProfitprice As Decimal = Decimal.Parse(frmMainPageV2.txtTakeProfit.Text)
-        Dim triggerPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTrigger.Text)
+        'Dim topBidPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTopBid.Text)
+        'Dim takeProfitprice As Decimal = Decimal.Parse(frmMainPageV2.txtTakeProfit.Text)
+        'Dim triggerPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTrigger.Text)
 
-        Dim TPPrice, STPrice As Decimal
+        'Dim TPPrice, STPrice As Decimal
 
-        If signal = "LONG" Then
-            TPPrice = topBidPrice + takeProfitprice
-            STPrice = topBidPrice - triggerPrice
-        Else
-            TPPrice = topBidPrice - takeProfitprice
-            STPrice = topBidPrice + triggerPrice
-        End If
+        'If signal = "LONG" Then
+        ' TPPrice = topBidPrice + takeProfitprice
+        'STPrice = topBidPrice - triggerPrice
+        'Else
+        'TPPrice = topBidPrice - takeProfitprice
+        'STPrice = topBidPrice + triggerPrice
+        'End If
 
         Dim logEntry As String = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
                            $"Signal: {signal} | Score: {score} | " &
-                           $"Reason: {reason} | Executed: {executed} | " &
-                           $"Init. Price: {topBidPrice} | Take Profit: {TPPrice} | " &
-                            $"Stop Loss: {STPrice} "
+                           $"Reason: {reason} | Executed: {executed} "
+        ' $"Init. Price: {topBidPrice} | Take Profit: {TPPrice} | " &
+        '  $"Stop Loss: {STPrice} "
 
         ' Write to file for later analysis
         Try
@@ -569,10 +573,10 @@ Public Class FrmIndicators
             AppendLog("Text file IO error", Color.Red) ' Handle file write errors
         End Try
 
-        AppendLog(logEntry, If(executed, Color.Cyan, Color.Gray))
+        'AppendLog(logEntry, If(executed, Color.Cyan, Color.Gray))
     End Sub
 
-    Private USDPL As Decimal = 0
+    'Private USDPL As Decimal = 0
     Private CircuitBreak As Decimal = 0
 
     '--------------------------------------------
