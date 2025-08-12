@@ -1567,6 +1567,8 @@ Public Class frmMainPageV2
                                             )
                                         End If
 
+                                        ' Update last trade time immediately to prevent multiple rapid executions
+                                        _indicators.lastAutoTradeTime = DateTime.Now
 
                                     Else
                                         OpenPositions = True

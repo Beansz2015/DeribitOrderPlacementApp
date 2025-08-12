@@ -394,7 +394,7 @@ Public Class FrmIndicators
 
 
     Private enableAutoTrading As Boolean = False
-    Private lastAutoTradeTime As DateTime = DateTime.MinValue
+    Public lastAutoTradeTime As DateTime = DateTime.MinValue
     Private Const AUTO_TRADE_COOLDOWN_MS As Integer = 120000 ' 2 minutes between trades
 
     Private Function CanPlaceAutomatedOrder() As Boolean
@@ -455,7 +455,6 @@ Public Class FrmIndicators
 
         Return enableAutoTrading
     End Function
-
 
     Private Sub UpdateLastAutoTradeTime()
         lastAutoTradeTime = DateTime.Now
