@@ -10,6 +10,7 @@ Imports System.Timers
 Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 Imports Skender
+Imports Skender.Stock
 Imports Skender.Stock.Indicators
 'Imports Windows.Win32.Storage
 'Imports Windows.Win32.System
@@ -55,6 +56,9 @@ Public Class FrmIndicators
         StickToHost()                           ' first positioning
         AddHandler _host.LocationChanged, AddressOf HostMovedOrResized
         AddHandler _host.SizeChanged, AddressOf HostMovedOrResized
+
+
+
     End Sub
 
     Private Sub HostMovedOrResized(sender As Object, e As EventArgs)
@@ -322,7 +326,7 @@ Public Class FrmIndicators
             Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
 
             If (enableAutoTrading = True) Then
-                If frmMainPageV2.USDPublicSession < Decimal.TryParse(txtCircuitBreaker.Text, CircuitBreak) Then
+                If frmMainPageV2.USDPublicSession < Decimal.TryParse(AutoTradeSettings.txtCircuitBreaker.Text, CircuitBreak) Then
                     'LogTradeDecision("ANY", currentScore, "Circuit breaker active", False)
 
                     enableAutoTrading = False
@@ -343,9 +347,9 @@ Public Class FrmIndicators
             End If
 
             Dim atrLimit As Decimal = 0
-            If Not String.IsNullOrEmpty(txtATRLimit.Text) Then
-                If Not Decimal.TryParse(txtATRLimit.Text, atrLimit) Then
-                    AppendLog($"Auto-trade blocked: Invalid ATR limit '{txtATRLimit.Text}'", Color.Red)
+            If Not String.IsNullOrEmpty(AutoTradeSettings.txtATRLimit.Text) Then
+                If Not Decimal.TryParse(AutoTradeSettings.txtATRLimit.Text, atrLimit) Then
+                    AppendLog($"Auto-trade blocked: Invalid ATR limit '{AutoTradeSettings.txtATRLimit.Text}'", Color.Red)
                     Return
                 End If
             End If
@@ -361,13 +365,13 @@ Public Class FrmIndicators
             Dim longThreshold As Integer = 0
             Dim shortThreshold As Integer = 0
 
-            If Not Integer.TryParse(txtLScore.Text, longThreshold) Then
-                AppendLog($"Auto-trade blocked: Invalid long threshold '{txtLScore.Text}'", Color.Red)
+            If Not Integer.TryParse(AutoTradeSettings.txtLScore.Text, longThreshold) Then
+                AppendLog($"Auto-trade blocked: Invalid long threshold '{AutoTradeSettings.txtLScore.Text}'", Color.Red)
                 Return
             End If
 
-            If Not Integer.TryParse(txtSScore.Text, shortThreshold) Then
-                AppendLog($"Auto-trade blocked: Invalid short threshold '{txtSScore.Text}'", Color.Red)
+            If Not Integer.TryParse(AutoTradeSettings.txtSScore.Text, shortThreshold) Then
+                AppendLog($"Auto-trade blocked: Invalid short threshold '{AutoTradeSettings.txtSScore.Text}'", Color.Red)
                 Return
             End If
 
@@ -395,7 +399,7 @@ Public Class FrmIndicators
 
     Private enableAutoTrading As Boolean = False
     Public lastAutoTradeTime As DateTime = DateTime.MinValue
-    Private Const AUTO_TRADE_COOLDOWN_MS As Integer = 120000 ' 2 minutes between trades
+    Private AUTO_TRADE_COOLDOWN_MS As Integer = 60000 * Integer.Parse(AutoTradeSettings.txtCooloff.Text) ' x minutes between trades
 
     Private Function CanPlaceAutomatedOrder() As Boolean
 
@@ -504,7 +508,7 @@ Public Class FrmIndicators
             Dim currentTime As TimeSpan = utc8Time.TimeOfDay
 
             ' Check if textboxes are empty - if so, no time restrictions
-            If String.IsNullOrWhiteSpace(txtStartTime.Text) OrElse String.IsNullOrWhiteSpace(txtEndTime.Text) Then
+            If String.IsNullOrWhiteSpace(AutoTradeSettings.txtStartTime.Text) OrElse String.IsNullOrWhiteSpace(AutoTradeSettings.txtEndTime.Text) Then
                 Return False
             End If
 
@@ -512,13 +516,13 @@ Public Class FrmIndicators
             Dim startTime As TimeSpan
             Dim endTime As TimeSpan
 
-            If Not TimeSpan.TryParse(txtStartTime.Text.Trim(), startTime) Then
-                AppendLog($"Invalid start time format: '{txtStartTime.Text}'. Use HH:mm format (e.g., 21:30)", Color.Yellow)
+            If Not TimeSpan.TryParse(AutoTradeSettings.txtStartTime.Text.Trim(), startTime) Then
+                AppendLog($"Invalid start time format: '{AutoTradeSettings.txtStartTime.Text}'. Use HH:mm format (e.g., 21:30)", Color.Yellow)
                 Return False ' Invalid format means no restriction
             End If
 
-            If Not TimeSpan.TryParse(txtEndTime.Text.Trim(), endTime) Then
-                AppendLog($"Invalid end time format: '{txtEndTime.Text}'. Use HH:mm format (e.g., 22:00)", Color.Yellow)
+            If Not TimeSpan.TryParse(AutoTradeSettings.txtEndTime.Text.Trim(), endTime) Then
+                AppendLog($"Invalid end time format: '{AutoTradeSettings.txtEndTime.Text}'. Use HH:mm format (e.g., 22:00)", Color.Yellow)
                 Return False ' Invalid format means no restriction
             End If
 
@@ -1511,7 +1515,7 @@ Public Class FrmIndicators
         ' ═══════════════════════════════════════════════════════════════════
         ' Compute 7‐period ATR using Skender
 
-        Dim textATR As Integer = Integer.Parse(txtATR.Text.Trim())
+        Dim textATR As Integer = Integer.Parse(AutoTradeSettings.txtATR.Text.Trim())
         Dim atrSeries = quotes.GetAtr(textATR)
         Dim atrValue = atrSeries.LastOrDefault()?.Atr
 
@@ -1611,8 +1615,7 @@ Public Class FrmIndicators
     '═══════════════════════════════════════════════════════════════════════
     ' 1. Button handler
     '═══════════════════════════════════════════════════════════════════════
-    Private Sub btnBacktest_Click(sender As Object, e As EventArgs) _
-            Handles btnBacktest.Click
+    Private Sub btnBacktest_Click(sender As Object, e As EventArgs) Handles btnBacktest.Click
         Task.Run(AddressOf BacktestSignals)   ' keep UI responsive
     End Sub
 
@@ -1622,29 +1625,29 @@ Public Class FrmIndicators
     Private Sub BacktestSignals()
         '──── parameters ────
 
-        Dim LScore As String = txtLScore.Text.Trim()
+        Dim LScore As String = AutoTradeSettings.txtLScore.Text.Trim()
         Dim longThreshold As Integer = 0
         Integer.TryParse(LScore, longThreshold)
 
-        Dim SScore As String = txtSScore.Text.Trim()
+        Dim SScore As String = AutoTradeSettings.txtSScore.Text.Trim()
         Dim shortThreshold As Integer = 0
         Integer.TryParse(SScore, shortThreshold)
 
-        Dim ATRString As String = txtATR.Text.Trim()
+        Dim ATRString As String = AutoTradeSettings.txtATR.Text.Trim()
         Dim atrPeriod As Integer = 0
         Integer.TryParse(ATRString, atrPeriod)
 
-        Dim ATRLimitString As String = txtATRLimit.Text.Trim
+        Dim ATRLimitString As String = AutoTradeSettings.txtATRLimit.Text.Trim
         Dim atrLimit As Decimal = 0
         If Not String.IsNullOrEmpty(ATRLimitString) Then
             Decimal.TryParse(ATRLimitString, atrLimit)
         End If
 
-        Dim tpATRString As String = txtTP.Text.Trim()
+        Dim tpATRString As String = AutoTradeSettings.txtTP.Text.Trim()
         Dim tpATR As Decimal = 0
         Decimal.TryParse(tpATRString, tpATR)
 
-        Dim slATRString As String = txtSL.Text.Trim()
+        Dim slATRString As String = AutoTradeSettings.txtSL.Text.Trim()
         Dim slATR As Decimal = 0
         Decimal.TryParse(slATRString, slATR)
 
@@ -1770,9 +1773,9 @@ Public Class FrmIndicators
     Private Sub btnATR_Click(sender As Object, e As EventArgs) Handles btnATR.Click
         Dim ATRInt, TPInt, SLInt As Decimal
         Dim TPResult, SLResult As Integer
-        Dim ATRString As String = lblATR.Text
-        Dim TPString As String = txtTP.Text
-        Dim SLString As String = txtSL.Text
+        Dim ATRString = lblATR.Text
+        Dim TPString = AutoTradeSettings.txtTP.Text
+        Dim SLString = AutoTradeSettings.txtSL.Text
 
         Decimal.TryParse(ATRString, ATRInt)
 
@@ -1782,8 +1785,8 @@ Public Class FrmIndicators
         Decimal.TryParse(SLString, SLInt)
         SLResult = CInt(ATRInt * SLInt)
 
-        frmMainPageV2.txtTakeProfit.Text = TPResult.ToString()
-        frmMainPageV2.txtTrigger.Text = SLResult.ToString()
+        frmMainPageV2.txtTakeProfit.Text = TPResult.ToString
+        frmMainPageV2.txtTrigger.Text = SLResult.ToString
 
         AppendLog($"ATR Pasted: TP:{TPResult} SL:{SLResult}", Color.Cyan)
 
@@ -1805,5 +1808,15 @@ Public Class FrmIndicators
         End If
     End Sub
 
+    Private Sub btnAutoTradeSettings_Click(sender As Object, e As EventArgs) Handles btnAutoTradeSettings.Click
+        If AutoTradeSettings.Visible Then
+            AutoTradeSettings.Hide()
+        Else
+            ' Position just left of indicator panel
+            AutoTradeSettings.Location = New Point(Me.Right + 6, Me.Top)
+            AutoTradeSettings.Show()
+            AutoTradeSettings.BringToFront()
+        End If
+    End Sub
 
 End Class

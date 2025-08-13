@@ -27,7 +27,8 @@ Partial Class frmMainPageV2
         btnClose = New Button()
         btnClearLog = New Button()
         GroupBox1 = New GroupBox()
-        CustomLabel6 = New CustomLabel()
+        CustomLabel7 = New CustomLabel()
+        btnMark = New Button()
         txtMarketStopLoss = New TextBox()
         btnRefreshLiveData = New Button()
         btnEstimateMargins = New Button()
@@ -103,8 +104,7 @@ Partial Class frmMainPageV2
         lblEstimatedLeverage = New CustomLabel()
         lblInitialMargin = New CustomLabel()
         lblMaintenanceMargin = New CustomLabel()
-        btnMark = New Button()
-        CustomLabel7 = New CustomLabel()
+        chkMarketStopLoss = New CheckBox()
         GroupBox1.SuspendLayout()
         GroupBoxButtons.SuspendLayout()
         GroupBox5.SuspendLayout()
@@ -166,9 +166,9 @@ Partial Class frmMainPageV2
         ' 
         ' GroupBox1
         ' 
+        GroupBox1.Controls.Add(chkMarketStopLoss)
         GroupBox1.Controls.Add(CustomLabel7)
         GroupBox1.Controls.Add(btnMark)
-        GroupBox1.Controls.Add(CustomLabel6)
         GroupBox1.Controls.Add(txtMarketStopLoss)
         GroupBox1.Controls.Add(btnRefreshLiveData)
         GroupBox1.Controls.Add(btnEstimateMargins)
@@ -193,16 +193,28 @@ Partial Class frmMainPageV2
         GroupBox1.TabStop = False
         GroupBox1.Text = "MARGINS"
         ' 
-        ' CustomLabel6
+        ' CustomLabel7
         ' 
-        CustomLabel6.AutoSize = True
-        CustomLabel6.Font = New Font("Calibri", 14F)
-        CustomLabel6.ForeColor = Color.Crimson
-        CustomLabel6.Location = New Point(6, 180)
-        CustomLabel6.Name = "CustomLabel6"
-        CustomLabel6.Size = New Size(79, 35)
-        CustomLabel6.TabIndex = 122
-        CustomLabel6.Text = "M.SL:"
+        CustomLabel7.AutoSize = True
+        CustomLabel7.Font = New Font("Calibri", 10F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        CustomLabel7.ForeColor = Color.WhiteSmoke
+        CustomLabel7.Location = New Point(276, 187)
+        CustomLabel7.Name = "CustomLabel7"
+        CustomLabel7.Size = New Size(141, 24)
+        CustomLabel7.TabIndex = 124
+        CustomLabel7.Text = "Current SL Price"
+        ' 
+        ' btnMark
+        ' 
+        btnMark.BackColor = Color.Crimson
+        btnMark.Cursor = Cursors.Hand
+        btnMark.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnMark.Location = New Point(202, 177)
+        btnMark.Name = "btnMark"
+        btnMark.Size = New Size(68, 45)
+        btnMark.TabIndex = 123
+        btnMark.Text = "Mark"
+        btnMark.UseVisualStyleBackColor = False
         ' 
         ' txtMarketStopLoss
         ' 
@@ -1125,27 +1137,20 @@ Partial Class frmMainPageV2
         lblMaintenanceMargin.TabIndex = 118
         lblMaintenanceMargin.Text = "MM: N/A"
         ' 
-        ' btnMark
+        ' chkMarketStopLoss
         ' 
-        btnMark.BackColor = Color.Crimson
-        btnMark.Cursor = Cursors.Hand
-        btnMark.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnMark.Location = New Point(202, 177)
-        btnMark.Name = "btnMark"
-        btnMark.Size = New Size(68, 45)
-        btnMark.TabIndex = 123
-        btnMark.Text = "Mark"
-        btnMark.UseVisualStyleBackColor = False
-        ' 
-        ' CustomLabel7
-        ' 
-        CustomLabel7.Font = New Font("Calibri", 10F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
-        CustomLabel7.ForeColor = Color.WhiteSmoke
-        CustomLabel7.Location = New Point(276, 187)
-        CustomLabel7.Name = "CustomLabel7"
-        CustomLabel7.Size = New Size(142, 33)
-        CustomLabel7.TabIndex = 124
-        CustomLabel7.Text = "Current SL Price"
+        chkMarketStopLoss.AutoSize = True
+        chkMarketStopLoss.BackColor = SystemColors.ActiveCaptionText
+        chkMarketStopLoss.Checked = True
+        chkMarketStopLoss.CheckState = CheckState.Checked
+        chkMarketStopLoss.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        chkMarketStopLoss.ForeColor = Color.Crimson
+        chkMarketStopLoss.Location = New Point(9, 178)
+        chkMarketStopLoss.Name = "chkMarketStopLoss"
+        chkMarketStopLoss.Size = New Size(111, 39)
+        chkMarketStopLoss.TabIndex = 196
+        chkMarketStopLoss.Text = "M. SL:"
+        chkMarketStopLoss.UseVisualStyleBackColor = False
         ' 
         ' frmMainPageV2
         ' 
@@ -1280,8 +1285,8 @@ Partial Class frmMainPageV2
     Friend WithEvents lblMaintenanceMargin As CustomLabel
     Friend WithEvents btnEstimateMargins As Button
     Friend WithEvents btnRefreshLiveData As Button
-    Friend WithEvents CustomLabel6 As CustomLabel
     Friend WithEvents txtMarketStopLoss As TextBox
     Friend WithEvents btnMark As Button
     Friend WithEvents CustomLabel7 As CustomLabel
+    Friend WithEvents chkMarketStopLoss As CheckBox
 End Class

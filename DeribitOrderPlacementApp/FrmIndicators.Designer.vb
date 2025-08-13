@@ -39,35 +39,15 @@ Partial Class FrmIndicators
         lblScore = New Label()
         lblATRTitle = New Label()
         lblATR = New Label()
-        btnBacktest = New Button()
-        lblBacktestTitle = New Label()
-        lblTestATR = New Label()
-        lblTestLScore = New Label()
-        lblTestATRTP = New Label()
-        lblTestATRSL = New Label()
-        lblTestSScore = New Label()
-        Label1 = New Label()
-        txtATR = New TextBox()
-        txtTP = New TextBox()
-        txtSL = New TextBox()
+        btnATR = New Button()
+        btnAutoTrade = New Button()
+        GroupBox1 = New GroupBox()
         txtTestTime = New TextBox()
         Label2 = New Label()
-        Label3 = New Label()
-        Label4 = New Label()
-        txtLScore = New TextBox()
-        txtSScore = New TextBox()
-        Label5 = New Label()
-        Label6 = New Label()
-        btnATR = New Button()
-        txtATRLimit = New TextBox()
-        lblATRLimit = New Label()
-        btnAutoTrade = New Button()
-        txtStartTime = New TextBox()
-        Label7 = New Label()
-        Label8 = New Label()
-        txtEndTime = New TextBox()
-        txtCircuitBreaker = New TextBox()
-        Label9 = New Label()
+        Label1 = New Label()
+        btnBacktest = New Button()
+        btnAutoTradeSettings = New Button()
+        GroupBox1.SuspendLayout()
         SuspendLayout()
         ' 
         ' lblDMI
@@ -166,9 +146,9 @@ Partial Class FrmIndicators
         txtIndLogs.Cursor = Cursors.IBeam
         txtIndLogs.Font = New Font("Calibri", 9F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         txtIndLogs.ForeColor = SystemColors.InactiveBorder
-        txtIndLogs.Location = New Point(13, 308)
+        txtIndLogs.Location = New Point(12, 312)
         txtIndLogs.Name = "txtIndLogs"
-        txtIndLogs.Size = New Size(485, 197)
+        txtIndLogs.Size = New Size(485, 247)
         txtIndLogs.TabIndex = 122
         txtIndLogs.Text = ""
         ' 
@@ -261,133 +241,44 @@ Partial Class FrmIndicators
         lblATR.TabIndex = 131
         lblATR.Text = "Neutral"
         ' 
-        ' btnBacktest
+        ' btnATR
         ' 
-        btnBacktest.BackColor = Color.DodgerBlue
-        btnBacktest.Cursor = Cursors.Hand
-        btnBacktest.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnBacktest.Location = New Point(12, 770)
-        btnBacktest.Name = "btnBacktest"
-        btnBacktest.Size = New Size(120, 74)
-        btnBacktest.TabIndex = 132
-        btnBacktest.Text = "TEST!"
-        btnBacktest.UseVisualStyleBackColor = False
+        btnATR.BackColor = Color.ForestGreen
+        btnATR.Cursor = Cursors.Hand
+        btnATR.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnATR.Location = New Point(409, 708)
+        btnATR.Name = "btnATR"
+        btnATR.Size = New Size(88, 136)
+        btnATR.TabIndex = 153
+        btnATR.Text = "Paste ATR"
+        btnATR.UseVisualStyleBackColor = False
         ' 
-        ' lblBacktestTitle
+        ' btnAutoTrade
         ' 
-        lblBacktestTitle.AutoSize = True
-        lblBacktestTitle.Font = New Font("Calibri", 18F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        lblBacktestTitle.ForeColor = SystemColors.ControlLight
-        lblBacktestTitle.Location = New Point(5, 518)
-        lblBacktestTitle.Name = "lblBacktestTitle"
-        lblBacktestTitle.Size = New Size(307, 44)
-        lblBacktestTitle.TabIndex = 133
-        lblBacktestTitle.Text = "Backtesting Section"
+        btnAutoTrade.BackColor = Color.Red
+        btnAutoTrade.Cursor = Cursors.Hand
+        btnAutoTrade.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnAutoTrade.Location = New Point(13, 708)
+        btnAutoTrade.Name = "btnAutoTrade"
+        btnAutoTrade.Size = New Size(217, 136)
+        btnAutoTrade.TabIndex = 156
+        btnAutoTrade.Text = "AUTO: OFF"
+        btnAutoTrade.UseVisualStyleBackColor = False
         ' 
-        ' lblTestATR
+        ' GroupBox1
         ' 
-        lblTestATR.AutoSize = True
-        lblTestATR.Font = New Font("Calibri", 14F)
-        lblTestATR.ForeColor = SystemColors.ControlLight
-        lblTestATR.Location = New Point(8, 572)
-        lblTestATR.Name = "lblTestATR"
-        lblTestATR.Size = New Size(81, 35)
-        lblTestATR.TabIndex = 134
-        lblTestATR.Text = "ATR P."
-        ' 
-        ' lblTestLScore
-        ' 
-        lblTestLScore.AutoSize = True
-        lblTestLScore.Font = New Font("Calibri", 14F)
-        lblTestLScore.ForeColor = SystemColors.ControlLight
-        lblTestLScore.Location = New Point(262, 572)
-        lblTestLScore.Name = "lblTestLScore"
-        lblTestLScore.Size = New Size(104, 35)
-        lblTestLScore.TabIndex = 135
-        lblTestLScore.Text = "L. Score"
-        ' 
-        ' lblTestATRTP
-        ' 
-        lblTestATRTP.AutoSize = True
-        lblTestATRTP.Font = New Font("Calibri", 14F)
-        lblTestATRTP.ForeColor = SystemColors.ControlLight
-        lblTestATRTP.Location = New Point(16, 620)
-        lblTestATRTP.Name = "lblTestATRTP"
-        lblTestATRTP.Size = New Size(43, 35)
-        lblTestATRTP.TabIndex = 136
-        lblTestATRTP.Text = "TP"
-        ' 
-        ' lblTestATRSL
-        ' 
-        lblTestATRSL.AutoSize = True
-        lblTestATRSL.Font = New Font("Calibri", 14F)
-        lblTestATRSL.ForeColor = SystemColors.ControlLight
-        lblTestATRSL.Location = New Point(16, 671)
-        lblTestATRSL.Name = "lblTestATRSL"
-        lblTestATRSL.Size = New Size(40, 35)
-        lblTestATRSL.TabIndex = 137
-        lblTestATRSL.Text = "SL"
-        ' 
-        ' lblTestSScore
-        ' 
-        lblTestSScore.AutoSize = True
-        lblTestSScore.Font = New Font("Calibri", 14F)
-        lblTestSScore.ForeColor = SystemColors.ControlLight
-        lblTestSScore.Location = New Point(262, 620)
-        lblTestSScore.Name = "lblTestSScore"
-        lblTestSScore.Size = New Size(105, 35)
-        lblTestSScore.TabIndex = 138
-        lblTestSScore.Text = "S. Score"
-        ' 
-        ' Label1
-        ' 
-        Label1.AutoSize = True
-        Label1.Font = New Font("Calibri", 14F)
-        Label1.ForeColor = SystemColors.ControlLight
-        Label1.Location = New Point(262, 671)
-        Label1.Name = "Label1"
-        Label1.Size = New Size(95, 35)
-        Label1.TabIndex = 139
-        Label1.Text = "T. Time"
-        ' 
-        ' txtATR
-        ' 
-        txtATR.BackColor = Color.Black
-        txtATR.BorderStyle = BorderStyle.FixedSingle
-        txtATR.Font = New Font("Calibri", 14F)
-        txtATR.ForeColor = Color.White
-        txtATR.Location = New Point(91, 570)
-        txtATR.Name = "txtATR"
-        txtATR.Size = New Size(64, 42)
-        txtATR.TabIndex = 142
-        txtATR.Text = "14"
-        txtATR.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' txtTP
-        ' 
-        txtTP.BackColor = Color.Black
-        txtTP.BorderStyle = BorderStyle.FixedSingle
-        txtTP.Font = New Font("Calibri", 14F)
-        txtTP.ForeColor = Color.White
-        txtTP.Location = New Point(91, 618)
-        txtTP.Name = "txtTP"
-        txtTP.Size = New Size(64, 42)
-        txtTP.TabIndex = 143
-        txtTP.Text = "4.5"
-        txtTP.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' txtSL
-        ' 
-        txtSL.BackColor = Color.Black
-        txtSL.BorderStyle = BorderStyle.FixedSingle
-        txtSL.Font = New Font("Calibri", 14F)
-        txtSL.ForeColor = Color.White
-        txtSL.Location = New Point(91, 666)
-        txtSL.Name = "txtSL"
-        txtSL.Size = New Size(64, 42)
-        txtSL.TabIndex = 144
-        txtSL.Text = "1.5"
-        txtSL.TextAlign = HorizontalAlignment.Center
+        GroupBox1.Controls.Add(txtTestTime)
+        GroupBox1.Controls.Add(Label2)
+        GroupBox1.Controls.Add(Label1)
+        GroupBox1.Controls.Add(btnBacktest)
+        GroupBox1.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        GroupBox1.ForeColor = SystemColors.ButtonFace
+        GroupBox1.Location = New Point(12, 571)
+        GroupBox1.Name = "GroupBox1"
+        GroupBox1.Size = New Size(485, 131)
+        GroupBox1.TabIndex = 157
+        GroupBox1.TabStop = False
+        GroupBox1.Text = "Backtesting Section"
         ' 
         ' txtTestTime
         ' 
@@ -395,10 +286,10 @@ Partial Class FrmIndicators
         txtTestTime.BorderStyle = BorderStyle.FixedSingle
         txtTestTime.Font = New Font("Calibri", 14F)
         txtTestTime.ForeColor = Color.White
-        txtTestTime.Location = New Point(372, 671)
+        txtTestTime.Location = New Point(85, 76)
         txtTestTime.Name = "txtTestTime"
         txtTestTime.Size = New Size(64, 42)
-        txtTestTime.TabIndex = 145
+        txtTestTime.TabIndex = 149
         txtTestTime.Text = "1440"
         txtTestTime.TextAlign = HorizontalAlignment.Center
         ' 
@@ -407,233 +298,57 @@ Partial Class FrmIndicators
         Label2.AutoSize = True
         Label2.Font = New Font("Calibri", 14F)
         Label2.ForeColor = SystemColors.ControlLight
-        Label2.Location = New Point(434, 673)
+        Label2.Location = New Point(149, 78)
         Label2.Name = "Label2"
         Label2.Size = New Size(69, 35)
-        Label2.TabIndex = 146
+        Label2.TabIndex = 150
         Label2.Text = "mins"
         ' 
-        ' Label3
+        ' Label1
         ' 
-        Label3.AutoSize = True
-        Label3.Font = New Font("Calibri", 14F)
-        Label3.ForeColor = SystemColors.ControlLight
-        Label3.Location = New Point(157, 620)
-        Label3.Name = "Label3"
-        Label3.Size = New Size(76, 35)
-        Label3.TabIndex = 147
-        Label3.Text = "x ATR"
+        Label1.AutoSize = True
+        Label1.Font = New Font("Calibri", 14F)
+        Label1.ForeColor = SystemColors.ControlLight
+        Label1.Location = New Point(32, 38)
+        Label1.Name = "Label1"
+        Label1.Size = New Size(237, 35)
+        Label1.TabIndex = 148
+        Label1.Text = "Time Range to Test:"
         ' 
-        ' Label4
+        ' btnBacktest
         ' 
-        Label4.AutoSize = True
-        Label4.Font = New Font("Calibri", 14F)
-        Label4.ForeColor = SystemColors.ControlLight
-        Label4.Location = New Point(157, 668)
-        Label4.Name = "Label4"
-        Label4.Size = New Size(76, 35)
-        Label4.TabIndex = 148
-        Label4.Text = "x ATR"
+        btnBacktest.BackColor = Color.DodgerBlue
+        btnBacktest.Cursor = Cursors.Hand
+        btnBacktest.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnBacktest.Location = New Point(319, 24)
+        btnBacktest.Name = "btnBacktest"
+        btnBacktest.Size = New Size(160, 99)
+        btnBacktest.TabIndex = 147
+        btnBacktest.Text = "TEST!"
+        btnBacktest.UseVisualStyleBackColor = False
         ' 
-        ' txtLScore
+        ' btnAutoTradeSettings
         ' 
-        txtLScore.BackColor = Color.Black
-        txtLScore.BorderStyle = BorderStyle.FixedSingle
-        txtLScore.Font = New Font("Calibri", 14F)
-        txtLScore.ForeColor = Color.White
-        txtLScore.Location = New Point(372, 570)
-        txtLScore.Name = "txtLScore"
-        txtLScore.Size = New Size(64, 42)
-        txtLScore.TabIndex = 149
-        txtLScore.Text = "12"
-        txtLScore.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' txtSScore
-        ' 
-        txtSScore.BackColor = Color.Black
-        txtSScore.BorderStyle = BorderStyle.FixedSingle
-        txtSScore.Font = New Font("Calibri", 14F)
-        txtSScore.ForeColor = Color.White
-        txtSScore.Location = New Point(372, 620)
-        txtSScore.Name = "txtSScore"
-        txtSScore.Size = New Size(64, 42)
-        txtSScore.TabIndex = 150
-        txtSScore.Text = "-12"
-        txtSScore.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' Label5
-        ' 
-        Label5.AutoSize = True
-        Label5.Font = New Font("Calibri", 10F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
-        Label5.ForeColor = SystemColors.ControlLight
-        Label5.Location = New Point(443, 580)
-        Label5.Name = "Label5"
-        Label5.Size = New Size(55, 24)
-        Label5.TabIndex = 151
-        Label5.Text = "1 : 21"
-        ' 
-        ' Label6
-        ' 
-        Label6.AutoSize = True
-        Label6.Font = New Font("Calibri", 10F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
-        Label6.ForeColor = SystemColors.ControlLight
-        Label6.Location = New Point(437, 628)
-        Label6.Name = "Label6"
-        Label6.Size = New Size(67, 24)
-        Label6.TabIndex = 152
-        Label6.Text = "-1 : -21"
-        ' 
-        ' btnATR
-        ' 
-        btnATR.BackColor = Color.ForestGreen
-        btnATR.Cursor = Cursors.Hand
-        btnATR.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnATR.Location = New Point(378, 770)
-        btnATR.Name = "btnATR"
-        btnATR.Size = New Size(120, 74)
-        btnATR.TabIndex = 153
-        btnATR.Text = "Paste ATR"
-        btnATR.UseVisualStyleBackColor = False
-        ' 
-        ' txtATRLimit
-        ' 
-        txtATRLimit.BackColor = Color.Black
-        txtATRLimit.BorderStyle = BorderStyle.FixedSingle
-        txtATRLimit.Font = New Font("Calibri", 14F)
-        txtATRLimit.ForeColor = Color.White
-        txtATRLimit.Location = New Point(91, 714)
-        txtATRLimit.Name = "txtATRLimit"
-        txtATRLimit.Size = New Size(64, 42)
-        txtATRLimit.TabIndex = 154
-        txtATRLimit.Text = "50"
-        txtATRLimit.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' lblATRLimit
-        ' 
-        lblATRLimit.AutoSize = True
-        lblATRLimit.Font = New Font("Calibri", 14F)
-        lblATRLimit.ForeColor = SystemColors.ControlLight
-        lblATRLimit.Location = New Point(8, 719)
-        lblATRLimit.Name = "lblATRLimit"
-        lblATRLimit.Size = New Size(83, 35)
-        lblATRLimit.TabIndex = 155
-        lblATRLimit.Text = "ATR L."
-        ' 
-        ' btnAutoTrade
-        ' 
-        btnAutoTrade.BackColor = Color.Red
-        btnAutoTrade.Cursor = Cursors.Hand
-        btnAutoTrade.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnAutoTrade.Location = New Point(138, 770)
-        btnAutoTrade.Name = "btnAutoTrade"
-        btnAutoTrade.Size = New Size(234, 74)
-        btnAutoTrade.TabIndex = 156
-        btnAutoTrade.Text = "AUTO: OFF"
-        btnAutoTrade.UseVisualStyleBackColor = False
-        ' 
-        ' txtStartTime
-        ' 
-        txtStartTime.BackColor = Color.Black
-        txtStartTime.BorderStyle = BorderStyle.FixedSingle
-        txtStartTime.Font = New Font("Calibri", 14F)
-        txtStartTime.ForeColor = Color.White
-        txtStartTime.Location = New Point(257, 717)
-        txtStartTime.Name = "txtStartTime"
-        txtStartTime.Size = New Size(82, 42)
-        txtStartTime.TabIndex = 157
-        txtStartTime.Text = "21:30"
-        txtStartTime.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' Label7
-        ' 
-        Label7.AutoSize = True
-        Label7.Font = New Font("Calibri", 14F)
-        Label7.ForeColor = SystemColors.ControlLight
-        Label7.Location = New Point(339, 721)
-        Label7.Name = "Label7"
-        Label7.Size = New Size(91, 35)
-        Label7.TabIndex = 159
-        Label7.Text = "End T.:"
-        ' 
-        ' Label8
-        ' 
-        Label8.AutoSize = True
-        Label8.Font = New Font("Calibri", 14F)
-        Label8.ForeColor = SystemColors.ControlLight
-        Label8.Location = New Point(182, 721)
-        Label8.Name = "Label8"
-        Label8.Size = New Size(79, 35)
-        Label8.TabIndex = 160
-        Label8.Text = "Srt T.:"
-        ' 
-        ' txtEndTime
-        ' 
-        txtEndTime.BackColor = Color.Black
-        txtEndTime.BorderStyle = BorderStyle.FixedSingle
-        txtEndTime.Font = New Font("Calibri", 14F)
-        txtEndTime.ForeColor = Color.White
-        txtEndTime.Location = New Point(422, 717)
-        txtEndTime.Name = "txtEndTime"
-        txtEndTime.Size = New Size(82, 42)
-        txtEndTime.TabIndex = 161
-        txtEndTime.Text = "22:00"
-        txtEndTime.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' txtCircuitBreaker
-        ' 
-        txtCircuitBreaker.BackColor = Color.Black
-        txtCircuitBreaker.BorderStyle = BorderStyle.FixedSingle
-        txtCircuitBreaker.Font = New Font("Calibri", 14F)
-        txtCircuitBreaker.ForeColor = Color.White
-        txtCircuitBreaker.Location = New Point(372, 520)
-        txtCircuitBreaker.Name = "txtCircuitBreaker"
-        txtCircuitBreaker.Size = New Size(64, 42)
-        txtCircuitBreaker.TabIndex = 162
-        txtCircuitBreaker.Text = "-1"
-        txtCircuitBreaker.TextAlign = HorizontalAlignment.Center
-        ' 
-        ' Label9
-        ' 
-        Label9.AutoSize = True
-        Label9.Font = New Font("Calibri", 10F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
-        Label9.ForeColor = SystemColors.ControlLight
-        Label9.Location = New Point(437, 528)
-        Label9.Name = "Label9"
-        Label9.Size = New Size(73, 24)
-        Label9.TabIndex = 163
-        Label9.Text = "Cir. Brk."
+        btnAutoTradeSettings.BackColor = Color.Chocolate
+        btnAutoTradeSettings.Cursor = Cursors.Hand
+        btnAutoTradeSettings.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnAutoTradeSettings.Location = New Point(236, 708)
+        btnAutoTradeSettings.Name = "btnAutoTradeSettings"
+        btnAutoTradeSettings.Size = New Size(167, 136)
+        btnAutoTradeSettings.TabIndex = 158
+        btnAutoTradeSettings.Text = "Auto Trade Settings"
+        btnAutoTradeSettings.UseVisualStyleBackColor = False
         ' 
         ' FrmIndicators
         ' 
         AutoScaleDimensions = New SizeF(10F, 25F)
         AutoScaleMode = AutoScaleMode.Font
         BackColor = SystemColors.ActiveCaptionText
-        ClientSize = New Size(510, 856)
-        Controls.Add(Label9)
-        Controls.Add(txtCircuitBreaker)
-        Controls.Add(txtEndTime)
-        Controls.Add(txtStartTime)
+        ClientSize = New Size(512, 856)
+        Controls.Add(btnAutoTradeSettings)
+        Controls.Add(GroupBox1)
         Controls.Add(btnAutoTrade)
-        Controls.Add(txtATRLimit)
         Controls.Add(btnATR)
-        Controls.Add(Label6)
-        Controls.Add(Label5)
-        Controls.Add(txtSScore)
-        Controls.Add(txtLScore)
-        Controls.Add(Label4)
-        Controls.Add(Label3)
-        Controls.Add(txtTestTime)
-        Controls.Add(Label2)
-        Controls.Add(txtSL)
-        Controls.Add(txtTP)
-        Controls.Add(txtATR)
-        Controls.Add(Label1)
-        Controls.Add(lblTestSScore)
-        Controls.Add(lblTestATRSL)
-        Controls.Add(lblTestATRTP)
-        Controls.Add(lblTestLScore)
-        Controls.Add(lblBacktestTitle)
-        Controls.Add(btnBacktest)
         Controls.Add(lblATR)
         Controls.Add(lblATRTitle)
         Controls.Add(lblScore)
@@ -651,14 +366,12 @@ Partial Class FrmIndicators
         Controls.Add(lblRSI)
         Controls.Add(lblMACD)
         Controls.Add(lblDMI)
-        Controls.Add(lblATRLimit)
-        Controls.Add(lblTestATR)
-        Controls.Add(Label7)
-        Controls.Add(Label8)
         Name = "FrmIndicators"
         Opacity = 0.75R
         Text = "Indicators"
         TopMost = True
+        GroupBox1.ResumeLayout(False)
+        GroupBox1.PerformLayout()
         ResumeLayout(False)
         PerformLayout()
     End Sub
@@ -680,33 +393,12 @@ Partial Class FrmIndicators
     Friend WithEvents lblScore As Label
     Friend WithEvents lblATRTitle As Label
     Friend WithEvents lblATR As Label
-    Friend WithEvents btnBacktest As Button
-    Friend WithEvents lblBacktestTitle As Label
-    Friend WithEvents lblTestATR As Label
-    Friend WithEvents lblTestLScore As Label
-    Friend WithEvents lblTestATRTP As Label
-    Friend WithEvents lblTestATRSL As Label
-    Friend WithEvents lblTestSScore As Label
-    Friend WithEvents Label1 As Label
-    Friend WithEvents txtATR As TextBox
-    Friend WithEvents txtTP As TextBox
-    Friend WithEvents txtSL As TextBox
+    Friend WithEvents btnATR As Button
+    Friend WithEvents btnAutoTrade As Button
+    Friend WithEvents GroupBox1 As GroupBox
     Friend WithEvents txtTestTime As TextBox
     Friend WithEvents Label2 As Label
-    Friend WithEvents Label3 As Label
-    Friend WithEvents Label4 As Label
-    Friend WithEvents txtLScore As TextBox
-    Friend WithEvents txtSScore As TextBox
-    Friend WithEvents Label5 As Label
-    Friend WithEvents Label6 As Label
-    Friend WithEvents btnATR As Button
-    Friend WithEvents txtATRLimit As TextBox
-    Friend WithEvents lblATRLimit As Label
-    Friend WithEvents btnAutoTrade As Button
-    Friend WithEvents txtStartTime As TextBox
-    Friend WithEvents Label7 As Label
-    Friend WithEvents Label8 As Label
-    Friend WithEvents txtEndTime As TextBox
-    Friend WithEvents txtCircuitBreaker As TextBox
-    Friend WithEvents Label9 As Label
+    Friend WithEvents Label1 As Label
+    Friend WithEvents btnBacktest As Button
+    Friend WithEvents btnAutoTradeSettings As Button
 End Class
