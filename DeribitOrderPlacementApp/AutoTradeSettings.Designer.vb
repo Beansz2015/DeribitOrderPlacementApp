@@ -223,7 +223,7 @@ Partial Class AutoTradeSettings
         txtTP.Name = "txtTP"
         txtTP.Size = New Size(64, 42)
         txtTP.TabIndex = 184
-        txtTP.Text = "4.5"
+        txtTP.Text = "2.0"
         txtTP.TextAlign = HorizontalAlignment.Center
         ' 
         ' lblTestATRTP
@@ -247,7 +247,7 @@ Partial Class AutoTradeSettings
         txtATRLimit.Name = "txtATRLimit"
         txtATRLimit.Size = New Size(64, 42)
         txtATRLimit.TabIndex = 181
-        txtATRLimit.Text = "50"
+        txtATRLimit.Text = "70"
         txtATRLimit.TextAlign = HorizontalAlignment.Center
         ' 
         ' lblATRLimit
@@ -404,7 +404,7 @@ Partial Class AutoTradeSettings
         txtCooloff.Name = "txtCooloff"
         txtCooloff.Size = New Size(64, 42)
         txtCooloff.TabIndex = 198
-        txtCooloff.Text = "2"
+        txtCooloff.Text = "5"
         txtCooloff.TextAlign = HorizontalAlignment.Center
         ' 
         ' Label9
@@ -438,9 +438,9 @@ Partial Class AutoTradeSettings
         Label10.ForeColor = SystemColors.ControlLight
         Label10.Location = New Point(11, 577)
         Label10.Name = "Label10"
-        Label10.Size = New Size(263, 35)
+        Label10.Size = New Size(303, 35)
         Label10.TabIndex = 200
-        Label10.Text = "EMA Diff. Trend Filter:"
+        Label10.Text = "EMA Diff. Trend Strength:"
         ' 
         ' Label11
         ' 

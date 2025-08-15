@@ -74,8 +74,8 @@ Public Class frmMainPageV2
 
     Public Class DeribitRateLimiter
         Private ReadOnly _maxCredits As Integer
-        Private ReadOnly _refillRate As Integer = 20 ' Credits per millisecond 'Conservative = 10 | Reasonable = 20
-        Private ReadOnly _costPerRequest As Integer = 50 ' Conservative estimate = 200 | Reasonable = 50
+        Private ReadOnly _refillRate As Integer = 15 ' Credits per millisecond 'Conservative = 10 | Reasonable = 20
+        Private ReadOnly _costPerRequest As Integer = 83 ' Conservative estimate = 200 | Reasonable = 50
         Private _currentCredits As Integer
         Private _lastRefillTime As DateTime
         Private ReadOnly _lockObject As New Object()
