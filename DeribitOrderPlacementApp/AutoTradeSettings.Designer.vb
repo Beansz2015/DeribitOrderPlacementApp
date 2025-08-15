@@ -51,6 +51,9 @@ Partial Class AutoTradeSettings
         Label2 = New Label()
         txtCooloff = New TextBox()
         Label9 = New Label()
+        txtTrendStrength = New TextBox()
+        Label10 = New Label()
+        Label11 = New Label()
         GroupBox1.SuspendLayout()
         GroupBox2.SuspendLayout()
         GroupBox3.SuspendLayout()
@@ -62,7 +65,7 @@ Partial Class AutoTradeSettings
         txtCircuitBreaker.BorderStyle = BorderStyle.FixedSingle
         txtCircuitBreaker.Font = New Font("Calibri", 14F)
         txtCircuitBreaker.ForeColor = Color.White
-        txtCircuitBreaker.Location = New Point(414, 477)
+        txtCircuitBreaker.Location = New Point(350, 477)
         txtCircuitBreaker.Name = "txtCircuitBreaker"
         txtCircuitBreaker.Size = New Size(64, 42)
         txtCircuitBreaker.TabIndex = 185
@@ -397,7 +400,7 @@ Partial Class AutoTradeSettings
         txtCooloff.BorderStyle = BorderStyle.FixedSingle
         txtCooloff.Font = New Font("Calibri", 14F)
         txtCooloff.ForeColor = Color.White
-        txtCooloff.Location = New Point(414, 527)
+        txtCooloff.Location = New Point(350, 527)
         txtCooloff.Name = "txtCooloff"
         txtCooloff.Size = New Size(64, 42)
         txtCooloff.TabIndex = 198
@@ -409,11 +412,46 @@ Partial Class AutoTradeSettings
         Label9.AutoSize = True
         Label9.Font = New Font("Calibri", 10F)
         Label9.ForeColor = SystemColors.ControlLight
-        Label9.Location = New Point(422, 570)
+        Label9.Location = New Point(420, 535)
         Label9.Name = "Label9"
         Label9.Size = New Size(50, 24)
         Label9.TabIndex = 199
         Label9.Text = "mins"
+        ' 
+        ' txtTrendStrength
+        ' 
+        txtTrendStrength.BackColor = Color.Black
+        txtTrendStrength.BorderStyle = BorderStyle.FixedSingle
+        txtTrendStrength.Font = New Font("Calibri", 14F)
+        txtTrendStrength.ForeColor = Color.White
+        txtTrendStrength.Location = New Point(350, 577)
+        txtTrendStrength.Name = "txtTrendStrength"
+        txtTrendStrength.Size = New Size(64, 42)
+        txtTrendStrength.TabIndex = 201
+        txtTrendStrength.Text = "0.5"
+        txtTrendStrength.TextAlign = HorizontalAlignment.Center
+        ' 
+        ' Label10
+        ' 
+        Label10.AutoSize = True
+        Label10.Font = New Font("Calibri", 14F)
+        Label10.ForeColor = SystemColors.ControlLight
+        Label10.Location = New Point(11, 577)
+        Label10.Name = "Label10"
+        Label10.Size = New Size(263, 35)
+        Label10.TabIndex = 200
+        Label10.Text = "EMA Diff. Trend Filter:"
+        ' 
+        ' Label11
+        ' 
+        Label11.AutoSize = True
+        Label11.Font = New Font("Calibri", 10F)
+        Label11.ForeColor = SystemColors.ControlLight
+        Label11.Location = New Point(420, 587)
+        Label11.Name = "Label11"
+        Label11.Size = New Size(89, 24)
+        Label11.TabIndex = 202
+        Label11.Text = "0.3% - 1%"
         ' 
         ' AutoTradeSettings
         ' 
@@ -421,6 +459,9 @@ Partial Class AutoTradeSettings
         AutoScaleMode = AutoScaleMode.Font
         BackColor = SystemColors.ActiveCaptionText
         ClientSize = New Size(512, 856)
+        Controls.Add(Label11)
+        Controls.Add(txtTrendStrength)
+        Controls.Add(Label10)
         Controls.Add(Label9)
         Controls.Add(txtCooloff)
         Controls.Add(Label2)
@@ -472,4 +513,7 @@ Partial Class AutoTradeSettings
     Friend WithEvents Label2 As Label
     Friend WithEvents txtCooloff As TextBox
     Friend WithEvents Label9 As Label
+    Friend WithEvents txtTrendStrength As TextBox
+    Friend WithEvents Label10 As Label
+    Friend WithEvents Label11 As Label
 End Class

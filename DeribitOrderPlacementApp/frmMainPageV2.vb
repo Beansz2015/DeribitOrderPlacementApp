@@ -1,6 +1,5 @@
 ﻿Imports System.Globalization
 Imports System.IO
-Imports System.Net
 'Imports System.Net.Http
 'Imports System.Net.Http.Headers
 'Imports System.Net.WebRequestMethods
@@ -186,6 +185,17 @@ Public Class frmMainPageV2
 
     Private Sub frmMainPageV2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Try
+            _indicators = New FrmIndicators(Me)     ' pass “self” as host
+            _indicators.Show()                      ' non-modal; use .ShowDialog() if you prefer modal
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Startup Error: {ex.Message}{vbCrLf}{ex.StackTrace}", Color.Red)
+            'Application.Exit()
+        End Try
+    End Sub
+
+    Private Sub frmMainPageV2_Shown(sender As Object, e As EventArgs) Handles MyBase.Shown
+        Try
             ' Initialize trade database
             tradeDatabase = New TradeDatabase()
             tradeAnalytics = New TradeAnalytics(tradeDatabase.DatabasePath)
@@ -195,10 +205,7 @@ Public Class frmMainPageV2
             AddHandler tradeDatabase.TradeRecorded, AddressOf OnTradeRecorded
             AddHandler tradeDatabase.TradeDeleted, AddressOf OnTradeDeleted
 
-            'AppendColoredText(txtLogs, "Trade database initialized successfully", Color.LimeGreen)
-
-            _indicators = New FrmIndicators(Me)     ' pass “self” as host
-            _indicators.Show()                      ' non-modal; use .ShowDialog() if you prefer modal
+            AppendColoredText(txtLogs, "Trade database initialized successfully", Color.LimeGreen)
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Failed to initialize trade database: {ex.Message}", Color.Red)
@@ -952,55 +959,59 @@ Public Class frmMainPageV2
                             End If
 
                             ' Call ForceStopLossUpdate if emergency conditions are met
+
+
                             If priceMovement >= emergencyThreshold Then
-                                Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
-                                Return ' Exit early after emergency update
+                                If chkMarketStopLoss.Checked Then
+                                    Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
+                                    Return ' Exit early after emergency update
+                                End If
                             End If
 
                             'Normal conditions operation
                             Dim shouldUpdate As Boolean = False
-                            Dim newStopPrice As Decimal = 0D
+                                Dim newStopPrice As Decimal = 0D
 
-                            If TradeMode Then
-                                ' Long position: Update when ask price moves significantly below current stop
-                                If bestAsk < (currentStopPrice - MinPriceMovementThreshold) Then
-                                    newStopPrice = bestAsk
-                                    shouldUpdate = True
-                                End If
-                            Else
-                                ' Short position: Update when bid price moves significantly above current stop
-                                If bestBid > (currentStopPrice + MinPriceMovementThreshold) Then
-                                    newStopPrice = bestBid
-                                    shouldUpdate = True
-                                End If
-                            End If
-
-                            ' Execute update if conditions are met
-                            If shouldUpdate Then
-                                Try
-                                    ' Check if we should use force update instead of normal rate-limited update
-                                    If priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
-                                        Await ForceStopLossUpdate(newStopPrice)
-                                    Else
-                                        Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
+                                If TradeMode Then
+                                    ' Long position: Update when ask price moves significantly below current stop
+                                    If bestAsk < (currentStopPrice - MinPriceMovementThreshold) Then
+                                        newStopPrice = bestAsk
+                                        shouldUpdate = True
                                     End If
+                                Else
+                                    ' Short position: Update when bid price moves significantly above current stop
+                                    If bestBid > (currentStopPrice + MinPriceMovementThreshold) Then
+                                        newStopPrice = bestBid
+                                        shouldUpdate = True
+                                    End If
+                                End If
 
-                                    txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2")
-                                    lastStopLossUpdate = currentTime
+                                ' Execute update if conditions are met
+                                If shouldUpdate Then
+                                    Try
+                                        ' Check if we should use force update instead of normal rate-limited update
+                                        If priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
+                                            Await ForceStopLossUpdate(newStopPrice)
+                                        Else
+                                            Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
+                                        End If
 
-                                    AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
+                                        txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2")
+                                        lastStopLossUpdate = currentTime
 
-                                Catch ex As Exception
-                                    AppendColoredText(txtLogs, $"Critical SL update failed: {ex.Message}", Color.Red)
+                                        AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
 
-                                    ' Emergency fallback: Reset timer to allow immediate retry
-                                    lastStopLossUpdate = DateTime.MinValue
-                                End Try
+                                    Catch ex As Exception
+                                        AppendColoredText(txtLogs, $"Critical SL update failed: {ex.Message}", Color.Red)
+
+                                        ' Emergency fallback: Reset timer to allow immediate retry
+                                        lastStopLossUpdate = DateTime.MinValue
+                                    End Try
+                                End If
+                                'Else
+                                '    AppendColoredText(txtLogs, "Invalid stop loss price for repositioning", Color.Yellow)
                             End If
-                            'Else
-                            '    AppendColoredText(txtLogs, "Invalid stop loss price for repositioning", Color.Yellow)
-                        End If
-                    Else
+                        Else
                         ' Log rate limiting (optional - can be removed to reduce noise)
                         Dim remainingMs = MinStopLossUpdateInterval - (currentTime - lastStopLossUpdate).TotalMilliseconds
                         If remainingMs > 1000 Then ' Only log if significant time remaining
