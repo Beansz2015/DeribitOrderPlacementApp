@@ -897,7 +897,7 @@ Public Class frmMainPageV2
                                 'Stop if repositioned past ATR slippage threshold
                                 If IsATRSlippageExcessive(bestBid, "LONG") Then
                                     Await CancelOrderAsync()
-                                    Return
+                                    'Return
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestBid)
                                     txtPlacedPrice.Text = bestBid
@@ -927,7 +927,7 @@ Public Class frmMainPageV2
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
-                                    Return
+                                    'Return
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
                                     txtPlacedPrice.Text = bestAsk
@@ -1042,7 +1042,7 @@ Public Class frmMainPageV2
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If IsATRSlippageExcessive(bestAsk, "LONG") Then
                                     Await CancelOrderAsync()
-                                    Return
+                                    'Return
                                 Else
                                     Await UpdateStopLossForTrailingOrder(bestBid)
                                     txtPlacedPrice.Text = bestBid
@@ -1067,7 +1067,7 @@ Public Class frmMainPageV2
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
-                                    Return
+                                    'Return
                                 Else
                                     Await UpdateStopLossForTrailingOrder(bestAsk)
                                     txtPlacedPrice.Text = bestAsk
@@ -1450,6 +1450,7 @@ Public Class frmMainPageV2
                                         If _indicators.IsAutoTradingEnabled Then
                                             LogTradeDecision("Exit Position - Market Order Loss", 0, 0) 'For autotrade log for when trade exit position
                                         End If
+                                        ResetOrderAttempt() ' Reset ATR slippage tracking
                                         AppendColoredText(txtLogs, $"Position executed at {newPricePublic}.", Color.Crimson)
                                         AppendColoredText(txtLogs, $"Loss: Check order history.", Color.Crimson)
 
@@ -1677,8 +1678,11 @@ Public Class frmMainPageV2
         If actualSlippage > slippageLimit Then
             AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) exceeds limit ${slippageLimit:F2}", Color.Red)
 
+            ' Reset for next attempt
+            ResetOrderAttempt() 'Temp fix - suppose to call LogFailedEntry below which is giving an error
+
             ' Log failed attempt
-            LogFailedEntry("ATR slippage exceeded", slippageInATR)
+            'LogFailedEntry("ATR slippage exceeded", slippageInATR)
             Return True
         End If
 
@@ -2109,9 +2113,11 @@ Public Class frmMainPageV2
         SLTriggered = False
         StopLossTriggerOriginal = 0
 
-        PositionEmpty = True
+        'PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
         OrderLog = False ' Reset order log flag so it can log next new order
+
+        ResetOrderAttempt() ' Reset ATR slippage tracking
 
         'Clearing margin displays
         Me.Invoke(Sub()
