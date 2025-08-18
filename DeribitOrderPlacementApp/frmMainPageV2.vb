@@ -894,8 +894,14 @@ Public Class frmMainPageV2
                         If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                Await UpdateLimitOrderWithOTOCOAsync(bestBid)
-                                txtPlacedPrice.Text = bestBid
+                                'Stop if repositioned past ATR slippage threshold
+                                If IsATRSlippageExcessive(bestBid, "LONG") Then
+                                    Await CancelOrderAsync()
+                                    Return
+                                Else
+                                    Await UpdateLimitOrderWithOTOCOAsync(bestBid)
+                                    txtPlacedPrice.Text = bestBid
+                                End If
                             Else
                                 ' Handle both null limiter and rate limiting scenarios
                                 If rateLimiter Is Nothing Then
@@ -919,8 +925,13 @@ Public Class frmMainPageV2
                     Else
                         If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
-                                txtPlacedPrice.Text = bestBid
+                                If IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                    Await CancelOrderAsync()
+                                    Return
+                                Else
+                                    Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
+                                    txtPlacedPrice.Text = bestAsk
+                                End If
                             Else
                                 If rateLimiter Is Nothing Then
                                     AppendColoredText(txtLogs, "Rate limiter not initialized - skipping order update", Color.Orange)
@@ -1029,8 +1040,13 @@ Public Class frmMainPageV2
                         If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                Await UpdateStopLossForTrailingOrder(bestBid)
-                                txtPlacedPrice.Text = bestBid
+                                If IsATRSlippageExcessive(bestAsk, "LONG") Then
+                                    Await CancelOrderAsync()
+                                    Return
+                                Else
+                                    Await UpdateStopLossForTrailingOrder(bestBid)
+                                    txtPlacedPrice.Text = bestBid
+                                End If
                             Else
                                 ' Handle both null limiter and rate limiting scenarios
                                 If rateLimiter Is Nothing Then
@@ -1049,8 +1065,13 @@ Public Class frmMainPageV2
                     Else
                         If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                Await UpdateStopLossForTrailingOrder(bestAsk)
-                                txtPlacedPrice.Text = bestAsk
+                                If IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                    Await CancelOrderAsync()
+                                    Return
+                                Else
+                                    Await UpdateStopLossForTrailingOrder(bestAsk)
+                                    txtPlacedPrice.Text = bestAsk
+                                End If
                             Else
                                 If rateLimiter Is Nothing Then
                                     AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
@@ -1756,6 +1777,12 @@ Public Class frmMainPageV2
                         'stoplossPrice = BestPrice - Decimal.Parse(txtTrigger.Text) + Decimal.Parse(txtStopLoss.Text)
                     End If
 
+                    'For initiating ATR Slippage function
+                    direction = "LONG"
+                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                        Return
+                    End If
+
                     triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
 
                     ordermethod = "private/buy"
@@ -1788,6 +1815,12 @@ Public Class frmMainPageV2
                         stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
                         stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
                         'stoplossPrice = BestPrice + Decimal.Parse(txtTrigger.Text) - Decimal.Parse(txtStopLoss.Text)
+                    End If
+
+                    'For initiating ATR Slippage function
+                    direction = "SHORT"
+                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                        Return
                     End If
 
                     triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
@@ -1823,6 +1856,12 @@ Public Class frmMainPageV2
                         stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
                     End If
 
+                    'For initiating ATR Slippage function
+                    direction = "LONG"
+                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                        Return
+                    End If
+
                     triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
 
                     ordermethod = "private/buy"
@@ -1854,6 +1893,12 @@ Public Class frmMainPageV2
                     Else
                         stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
                         stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                    End If
+
+                    'For initiating ATR Slippage function
+                    direction = "SHORT"
+                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                        Return
                     End If
 
                     triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
@@ -2056,14 +2101,35 @@ Public Class frmMainPageV2
                   End Sub)
         lblOrderStatus.Text = "Awaiting Orders"
         lblOrderStatus.ForeColor = Color.DeepSkyBlue
+
+        'Reset all flags
+        isTrailingStop = False
+        isTrailingPosition = False
+        isTrailingStopLossPlaced = False
+        SLTriggered = False
         StopLossTriggerOriginal = 0
+
+        PositionEmpty = True
+        PositionLog = False ' Reset position log flag so it can log next new position
+        OrderLog = False ' Reset order log flag so it can log next new order
+
+        'Clearing margin displays
+        Me.Invoke(Sub()
+                      lblEstimatedLiquidation.Text = "L.Liq: N/A"
+                      lblInitialMargin.Text = "L.IM: N/A"
+                      lblMaintenanceMargin.Text = "L.MM: N/A"
+                      lblEstimatedLeverage.Text = "L.Lev: N/A"
+
+                      ' Reset colors
+                      lblEstimatedLiquidation.ForeColor = Color.Gray
+                      lblEstimatedLeverage.ForeColor = Color.Gray
+                  End Sub)
 
         If PositionEmpty = False Then
             AppendColoredText(txtLogs, $"Cancelled all open orders", Color.Yellow)
         Else
             PositionEmpty = False
         End If
-
 
     End Function
 
@@ -2469,6 +2535,12 @@ Public Class frmMainPageV2
                         stoplossPrice = BestPrice - (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
                     End If
 
+                    'For initiating ATR Slippage function
+                    direction = "LONG"
+                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                        Return
+                    End If
+
                     triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
 
                     ordermethod = "private/buy"
@@ -2502,6 +2574,12 @@ Public Class frmMainPageV2
                     Else
                         stoplossTriggerPrice = BestPrice + Decimal.Parse(txtTrigger.Text)
                         stoplossPrice = BestPrice + (Decimal.Parse(txtStopLoss.Text) + Decimal.Parse(txtTrigger.Text))
+                    End If
+
+                    'For initiating ATR Slippage function
+                    direction = "SHORT"
+                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                        Return
                     End If
 
                     triggeroffset = Decimal.Parse(txtTriggerOffset.Text)
