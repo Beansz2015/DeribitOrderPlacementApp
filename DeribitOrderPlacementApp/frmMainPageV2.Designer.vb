@@ -26,7 +26,8 @@ Partial Class frmMainPageV2
         txtLogs = New RichTextBox()
         btnClose = New Button()
         btnClearLog = New Button()
-        GroupBox1 = New GroupBox()
+        MarginControl = New GroupBox()
+        chkMarketStopLoss = New CheckBox()
         CustomLabel7 = New CustomLabel()
         btnMark = New Button()
         txtMarketStopLoss = New TextBox()
@@ -44,7 +45,7 @@ Partial Class frmMainPageV2
         txtStopLoss = New TextBox()
         txtTrigger = New TextBox()
         txtTakeProfit = New TextBox()
-        GroupBoxButtons = New GroupBox()
+        TradeButtons = New GroupBox()
         Label1 = New Label()
         ProgressBar1 = New ProgressBar()
         btnSell = New Button()
@@ -58,7 +59,7 @@ Partial Class frmMainPageV2
         btnLimit = New Button()
         btnReduceLimit = New Button()
         btnNoSpread = New Button()
-        GroupBox5 = New GroupBox()
+        AccountInfo = New GroupBox()
         CustomLabel1 = New CustomLabel()
         CustomLabel17 = New CustomLabel()
         CustomLabel16 = New CustomLabel()
@@ -71,12 +72,12 @@ Partial Class frmMainPageV2
         lblBalance = New Label()
         Label50 = New Label()
         lblIndexPrice = New Label()
-        GroupBox4 = New GroupBox()
+        ConnectionStatus = New GroupBox()
         radHeartBeat = New RadioButton()
         btnConnect = New Button()
         lblStatus = New Label()
         Label2 = New Label()
-        GroupBoxPlaced = New GroupBox()
+        PlacedOrders = New GroupBox()
         btnTPOffset = New Button()
         btnEditSLPrice = New Button()
         btnEditTPPrice = New Button()
@@ -93,8 +94,8 @@ Partial Class frmMainPageV2
         lblPnL = New CustomLabel()
         CustomLabel2 = New CustomLabel()
         txtAmount = New CustomTextBox()
-        GroupBox8 = New GroupBox()
-        GroupBox2 = New GroupBox()
+        OrderAmount = New GroupBox()
+        ManualTPSL = New GroupBox()
         CustomLabel5 = New CustomLabel()
         txtManualSL = New CustomTextBox()
         txtManualTP = New CustomTextBox()
@@ -104,14 +105,15 @@ Partial Class frmMainPageV2
         lblEstimatedLeverage = New CustomLabel()
         lblInitialMargin = New CustomLabel()
         lblMaintenanceMargin = New CustomLabel()
-        chkMarketStopLoss = New CheckBox()
-        GroupBox1.SuspendLayout()
-        GroupBoxButtons.SuspendLayout()
-        GroupBox5.SuspendLayout()
-        GroupBox4.SuspendLayout()
-        GroupBoxPlaced.SuspendLayout()
-        GroupBox8.SuspendLayout()
-        GroupBox2.SuspendLayout()
+        chkMaxSlippageATR = New CheckBox()
+        txtMaxSlippageATR = New TextBox()
+        MarginControl.SuspendLayout()
+        TradeButtons.SuspendLayout()
+        AccountInfo.SuspendLayout()
+        ConnectionStatus.SuspendLayout()
+        PlacedOrders.SuspendLayout()
+        OrderAmount.SuspendLayout()
+        ManualTPSL.SuspendLayout()
         SuspendLayout()
         ' 
         ' btnChangeForm
@@ -164,45 +166,62 @@ Partial Class frmMainPageV2
         btnClearLog.Text = "Clear"
         btnClearLog.UseVisualStyleBackColor = False
         ' 
-        ' GroupBox1
+        ' MarginControl
         ' 
-        GroupBox1.Controls.Add(chkMarketStopLoss)
-        GroupBox1.Controls.Add(CustomLabel7)
-        GroupBox1.Controls.Add(btnMark)
-        GroupBox1.Controls.Add(txtMarketStopLoss)
-        GroupBox1.Controls.Add(btnRefreshLiveData)
-        GroupBox1.Controls.Add(btnEstimateMargins)
-        GroupBox1.Controls.Add(CustomLabel15)
-        GroupBox1.Controls.Add(CustomLabel14)
-        GroupBox1.Controls.Add(CustomLabel11)
-        GroupBox1.Controls.Add(CustomLabel10)
-        GroupBox1.Controls.Add(CustomLabel9)
-        GroupBox1.Controls.Add(CustomLabel8)
-        GroupBox1.Controls.Add(txtComms)
-        GroupBox1.Controls.Add(txtTPOffset)
-        GroupBox1.Controls.Add(txtTriggerOffset)
-        GroupBox1.Controls.Add(txtStopLoss)
-        GroupBox1.Controls.Add(txtTrigger)
-        GroupBox1.Controls.Add(txtTakeProfit)
-        GroupBox1.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        GroupBox1.ForeColor = SystemColors.ButtonFace
-        GroupBox1.Location = New Point(257, 171)
-        GroupBox1.Name = "GroupBox1"
-        GroupBox1.Size = New Size(496, 234)
-        GroupBox1.TabIndex = 97
-        GroupBox1.TabStop = False
-        GroupBox1.Text = "MARGINS"
+        MarginControl.Controls.Add(txtMaxSlippageATR)
+        MarginControl.Controls.Add(chkMaxSlippageATR)
+        MarginControl.Controls.Add(chkMarketStopLoss)
+        MarginControl.Controls.Add(CustomLabel7)
+        MarginControl.Controls.Add(btnMark)
+        MarginControl.Controls.Add(txtMarketStopLoss)
+        MarginControl.Controls.Add(btnRefreshLiveData)
+        MarginControl.Controls.Add(btnEstimateMargins)
+        MarginControl.Controls.Add(CustomLabel15)
+        MarginControl.Controls.Add(CustomLabel14)
+        MarginControl.Controls.Add(CustomLabel11)
+        MarginControl.Controls.Add(CustomLabel10)
+        MarginControl.Controls.Add(CustomLabel9)
+        MarginControl.Controls.Add(CustomLabel8)
+        MarginControl.Controls.Add(txtComms)
+        MarginControl.Controls.Add(txtTPOffset)
+        MarginControl.Controls.Add(txtTriggerOffset)
+        MarginControl.Controls.Add(txtStopLoss)
+        MarginControl.Controls.Add(txtTrigger)
+        MarginControl.Controls.Add(txtTakeProfit)
+        MarginControl.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        MarginControl.ForeColor = SystemColors.ButtonFace
+        MarginControl.Location = New Point(257, 171)
+        MarginControl.Name = "MarginControl"
+        MarginControl.Size = New Size(496, 234)
+        MarginControl.TabIndex = 97
+        MarginControl.TabStop = False
+        MarginControl.Text = "MARGINS"
+        ' 
+        ' chkMarketStopLoss
+        ' 
+        chkMarketStopLoss.AutoSize = True
+        chkMarketStopLoss.BackColor = SystemColors.ActiveCaptionText
+        chkMarketStopLoss.Checked = True
+        chkMarketStopLoss.CheckState = CheckState.Checked
+        chkMarketStopLoss.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        chkMarketStopLoss.ForeColor = Color.Crimson
+        chkMarketStopLoss.Location = New Point(9, 178)
+        chkMarketStopLoss.Name = "chkMarketStopLoss"
+        chkMarketStopLoss.Size = New Size(111, 39)
+        chkMarketStopLoss.TabIndex = 196
+        chkMarketStopLoss.Text = "M. SL:"
+        chkMarketStopLoss.UseVisualStyleBackColor = False
         ' 
         ' CustomLabel7
         ' 
         CustomLabel7.AutoSize = True
         CustomLabel7.Font = New Font("Calibri", 10F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         CustomLabel7.ForeColor = Color.WhiteSmoke
-        CustomLabel7.Location = New Point(276, 187)
+        CustomLabel7.Location = New Point(201, 156)
         CustomLabel7.Name = "CustomLabel7"
-        CustomLabel7.Size = New Size(141, 24)
+        CustomLabel7.Size = New Size(72, 24)
         CustomLabel7.TabIndex = 124
-        CustomLabel7.Text = "Current SL Price"
+        CustomLabel7.Text = "SL Price"
         ' 
         ' btnMark
         ' 
@@ -323,7 +342,7 @@ Partial Class frmMainPageV2
         txtComms.BackColor = Color.Gainsboro
         txtComms.BorderStyle = BorderStyle.FixedSingle
         txtComms.Font = New Font("Calibri", 14F)
-        txtComms.Location = New Point(392, 90)
+        txtComms.Location = New Point(412, 90)
         txtComms.Name = "txtComms"
         txtComms.Size = New Size(74, 42)
         txtComms.TabIndex = 78
@@ -335,7 +354,7 @@ Partial Class frmMainPageV2
         txtTPOffset.BackColor = Color.Gainsboro
         txtTPOffset.BorderStyle = BorderStyle.FixedSingle
         txtTPOffset.Font = New Font("Calibri", 14F)
-        txtTPOffset.Location = New Point(392, 45)
+        txtTPOffset.Location = New Point(412, 45)
         txtTPOffset.Name = "txtTPOffset"
         txtTPOffset.Size = New Size(74, 42)
         txtTPOffset.TabIndex = 77
@@ -347,7 +366,7 @@ Partial Class frmMainPageV2
         txtTriggerOffset.BackColor = Color.Gainsboro
         txtTriggerOffset.BorderStyle = BorderStyle.FixedSingle
         txtTriggerOffset.Font = New Font("Calibri", 14F)
-        txtTriggerOffset.Location = New Point(392, 135)
+        txtTriggerOffset.Location = New Point(412, 135)
         txtTriggerOffset.Name = "txtTriggerOffset"
         txtTriggerOffset.Size = New Size(74, 42)
         txtTriggerOffset.TabIndex = 73
@@ -390,29 +409,29 @@ Partial Class frmMainPageV2
         txtTakeProfit.Text = "60"
         txtTakeProfit.TextAlign = HorizontalAlignment.Center
         ' 
-        ' GroupBoxButtons
+        ' TradeButtons
         ' 
-        GroupBoxButtons.Controls.Add(Label1)
-        GroupBoxButtons.Controls.Add(ProgressBar1)
-        GroupBoxButtons.Controls.Add(btnSell)
-        GroupBoxButtons.Controls.Add(btnBuy)
-        GroupBoxButtons.Controls.Add(txtTopAsk)
-        GroupBoxButtons.Controls.Add(txtTopBid)
-        GroupBoxButtons.Controls.Add(btnMarket)
-        GroupBoxButtons.Controls.Add(btnCancelAllOpen)
-        GroupBoxButtons.Controls.Add(btnTrail)
-        GroupBoxButtons.Controls.Add(btnReduceMarket)
-        GroupBoxButtons.Controls.Add(btnLimit)
-        GroupBoxButtons.Controls.Add(btnReduceLimit)
-        GroupBoxButtons.Controls.Add(btnNoSpread)
-        GroupBoxButtons.Font = New Font("Calibri", 18F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        GroupBoxButtons.ForeColor = SystemColors.ControlLight
-        GroupBoxButtons.Location = New Point(5, 405)
-        GroupBoxButtons.Name = "GroupBoxButtons"
-        GroupBoxButtons.Size = New Size(533, 444)
-        GroupBoxButtons.TabIndex = 98
-        GroupBoxButtons.TabStop = False
-        GroupBoxButtons.Text = "Long"
+        TradeButtons.Controls.Add(Label1)
+        TradeButtons.Controls.Add(ProgressBar1)
+        TradeButtons.Controls.Add(btnSell)
+        TradeButtons.Controls.Add(btnBuy)
+        TradeButtons.Controls.Add(txtTopAsk)
+        TradeButtons.Controls.Add(txtTopBid)
+        TradeButtons.Controls.Add(btnMarket)
+        TradeButtons.Controls.Add(btnCancelAllOpen)
+        TradeButtons.Controls.Add(btnTrail)
+        TradeButtons.Controls.Add(btnReduceMarket)
+        TradeButtons.Controls.Add(btnLimit)
+        TradeButtons.Controls.Add(btnReduceLimit)
+        TradeButtons.Controls.Add(btnNoSpread)
+        TradeButtons.Font = New Font("Calibri", 18F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        TradeButtons.ForeColor = SystemColors.ControlLight
+        TradeButtons.Location = New Point(5, 405)
+        TradeButtons.Name = "TradeButtons"
+        TradeButtons.Size = New Size(533, 444)
+        TradeButtons.TabIndex = 98
+        TradeButtons.TabStop = False
+        TradeButtons.Text = "Long"
         ' 
         ' Label1
         ' 
@@ -580,27 +599,27 @@ Partial Class frmMainPageV2
         btnNoSpread.Text = "No Sprd. Buy"
         btnNoSpread.UseVisualStyleBackColor = False
         ' 
-        ' GroupBox5
+        ' AccountInfo
         ' 
-        GroupBox5.Controls.Add(CustomLabel1)
-        GroupBox5.Controls.Add(CustomLabel17)
-        GroupBox5.Controls.Add(CustomLabel16)
-        GroupBox5.Controls.Add(lblUSDSession)
-        GroupBox5.Controls.Add(lblBTCSession)
-        GroupBox5.Controls.Add(lblUSDEquity)
-        GroupBox5.Controls.Add(lblBTCEquity)
-        GroupBox5.Controls.Add(lblEquiv)
-        GroupBox5.Controls.Add(Label3)
-        GroupBox5.Controls.Add(lblBalance)
-        GroupBox5.Controls.Add(Label50)
-        GroupBox5.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        GroupBox5.ForeColor = SystemColors.ButtonFace
-        GroupBox5.Location = New Point(257, 6)
-        GroupBox5.Name = "GroupBox5"
-        GroupBox5.Size = New Size(496, 166)
-        GroupBox5.TabIndex = 103
-        GroupBox5.TabStop = False
-        GroupBox5.Text = "ACCOUNT INFO"
+        AccountInfo.Controls.Add(CustomLabel1)
+        AccountInfo.Controls.Add(CustomLabel17)
+        AccountInfo.Controls.Add(CustomLabel16)
+        AccountInfo.Controls.Add(lblUSDSession)
+        AccountInfo.Controls.Add(lblBTCSession)
+        AccountInfo.Controls.Add(lblUSDEquity)
+        AccountInfo.Controls.Add(lblBTCEquity)
+        AccountInfo.Controls.Add(lblEquiv)
+        AccountInfo.Controls.Add(Label3)
+        AccountInfo.Controls.Add(lblBalance)
+        AccountInfo.Controls.Add(Label50)
+        AccountInfo.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        AccountInfo.ForeColor = SystemColors.ButtonFace
+        AccountInfo.Location = New Point(257, 6)
+        AccountInfo.Name = "AccountInfo"
+        AccountInfo.Size = New Size(496, 166)
+        AccountInfo.TabIndex = 103
+        AccountInfo.TabStop = False
+        AccountInfo.Text = "ACCOUNT INFO"
         ' 
         ' CustomLabel1
         ' 
@@ -733,19 +752,19 @@ Partial Class frmMainPageV2
         lblIndexPrice.TabIndex = 104
         lblIndexPrice.Text = "0"
         ' 
-        ' GroupBox4
+        ' ConnectionStatus
         ' 
-        GroupBox4.Controls.Add(radHeartBeat)
-        GroupBox4.Controls.Add(btnConnect)
-        GroupBox4.Controls.Add(lblStatus)
-        GroupBox4.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        GroupBox4.ForeColor = SystemColors.ButtonFace
-        GroupBox4.Location = New Point(5, 112)
-        GroupBox4.Name = "GroupBox4"
-        GroupBox4.Size = New Size(246, 164)
-        GroupBox4.TabIndex = 106
-        GroupBox4.TabStop = False
-        GroupBox4.Text = "Connection Status"
+        ConnectionStatus.Controls.Add(radHeartBeat)
+        ConnectionStatus.Controls.Add(btnConnect)
+        ConnectionStatus.Controls.Add(lblStatus)
+        ConnectionStatus.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        ConnectionStatus.ForeColor = SystemColors.ButtonFace
+        ConnectionStatus.Location = New Point(5, 112)
+        ConnectionStatus.Name = "ConnectionStatus"
+        ConnectionStatus.Size = New Size(246, 164)
+        ConnectionStatus.TabIndex = 106
+        ConnectionStatus.TabStop = False
+        ConnectionStatus.Text = "Connection Status"
         ' 
         ' radHeartBeat
         ' 
@@ -795,31 +814,31 @@ Partial Class frmMainPageV2
         Label2.TabIndex = 107
         Label2.Text = "$"
         ' 
-        ' GroupBoxPlaced
+        ' PlacedOrders
         ' 
-        GroupBoxPlaced.Controls.Add(btnTPOffset)
-        GroupBoxPlaced.Controls.Add(btnEditSLPrice)
-        GroupBoxPlaced.Controls.Add(btnEditTPPrice)
-        GroupBoxPlaced.Controls.Add(lblOrderStatus)
-        GroupBoxPlaced.Controls.Add(CustomLabel3)
-        GroupBoxPlaced.Controls.Add(txtPlacedStopLossPrice)
-        GroupBoxPlaced.Controls.Add(txtPlacedTrigStopPrice)
-        GroupBoxPlaced.Controls.Add(txtPlacedPrice)
-        GroupBoxPlaced.Controls.Add(txtPlacedTakeProfitPrice)
-        GroupBoxPlaced.Controls.Add(lblPlacedStopLossPrice)
-        GroupBoxPlaced.Controls.Add(lblPlacedTrigStopPrice)
-        GroupBoxPlaced.Controls.Add(lblPlacedPrice)
-        GroupBoxPlaced.Controls.Add(lblPlacedTakeProfitPrice)
-        GroupBoxPlaced.Controls.Add(lblPnL)
-        GroupBoxPlaced.Controls.Add(CustomLabel2)
-        GroupBoxPlaced.Font = New Font("Calibri", 16F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        GroupBoxPlaced.ForeColor = Color.WhiteSmoke
-        GroupBoxPlaced.Location = New Point(544, 502)
-        GroupBoxPlaced.Name = "GroupBoxPlaced"
-        GroupBoxPlaced.Size = New Size(529, 347)
-        GroupBoxPlaced.TabIndex = 109
-        GroupBoxPlaced.TabStop = False
-        GroupBoxPlaced.Text = "Placed Long"
+        PlacedOrders.Controls.Add(btnTPOffset)
+        PlacedOrders.Controls.Add(btnEditSLPrice)
+        PlacedOrders.Controls.Add(btnEditTPPrice)
+        PlacedOrders.Controls.Add(lblOrderStatus)
+        PlacedOrders.Controls.Add(CustomLabel3)
+        PlacedOrders.Controls.Add(txtPlacedStopLossPrice)
+        PlacedOrders.Controls.Add(txtPlacedTrigStopPrice)
+        PlacedOrders.Controls.Add(txtPlacedPrice)
+        PlacedOrders.Controls.Add(txtPlacedTakeProfitPrice)
+        PlacedOrders.Controls.Add(lblPlacedStopLossPrice)
+        PlacedOrders.Controls.Add(lblPlacedTrigStopPrice)
+        PlacedOrders.Controls.Add(lblPlacedPrice)
+        PlacedOrders.Controls.Add(lblPlacedTakeProfitPrice)
+        PlacedOrders.Controls.Add(lblPnL)
+        PlacedOrders.Controls.Add(CustomLabel2)
+        PlacedOrders.Font = New Font("Calibri", 16F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        PlacedOrders.ForeColor = Color.WhiteSmoke
+        PlacedOrders.Location = New Point(544, 502)
+        PlacedOrders.Name = "PlacedOrders"
+        PlacedOrders.Size = New Size(529, 347)
+        PlacedOrders.TabIndex = 109
+        PlacedOrders.TabStop = False
+        PlacedOrders.Text = "Placed Long"
         ' 
         ' btnTPOffset
         ' 
@@ -1010,30 +1029,30 @@ Partial Class frmMainPageV2
         txtAmount.Text = "10"
         txtAmount.TextAlign = HorizontalAlignment.Center
         ' 
-        ' GroupBox8
+        ' OrderAmount
         ' 
-        GroupBox8.Controls.Add(txtAmount)
-        GroupBox8.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        GroupBox8.ForeColor = SystemColors.ButtonFace
-        GroupBox8.Location = New Point(5, 280)
-        GroupBox8.Name = "GroupBox8"
-        GroupBox8.Size = New Size(246, 125)
-        GroupBox8.TabIndex = 108
-        GroupBox8.TabStop = False
-        GroupBox8.Text = "AMOUNT($)"
+        OrderAmount.Controls.Add(txtAmount)
+        OrderAmount.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        OrderAmount.ForeColor = SystemColors.ButtonFace
+        OrderAmount.Location = New Point(5, 280)
+        OrderAmount.Name = "OrderAmount"
+        OrderAmount.Size = New Size(246, 125)
+        OrderAmount.TabIndex = 108
+        OrderAmount.TabStop = False
+        OrderAmount.Text = "AMOUNT($)"
         ' 
-        ' GroupBox2
+        ' ManualTPSL
         ' 
-        GroupBox2.Controls.Add(CustomLabel5)
-        GroupBox2.Controls.Add(txtManualSL)
-        GroupBox2.Controls.Add(txtManualTP)
-        GroupBox2.Controls.Add(CustomLabel4)
-        GroupBox2.ForeColor = SystemColors.ControlLight
-        GroupBox2.Location = New Point(545, 413)
-        GroupBox2.Name = "GroupBox2"
-        GroupBox2.Size = New Size(528, 95)
-        GroupBox2.TabIndex = 114
-        GroupBox2.TabStop = False
+        ManualTPSL.Controls.Add(CustomLabel5)
+        ManualTPSL.Controls.Add(txtManualSL)
+        ManualTPSL.Controls.Add(txtManualTP)
+        ManualTPSL.Controls.Add(CustomLabel4)
+        ManualTPSL.ForeColor = SystemColors.ControlLight
+        ManualTPSL.Location = New Point(545, 413)
+        ManualTPSL.Name = "ManualTPSL"
+        ManualTPSL.Size = New Size(528, 95)
+        ManualTPSL.TabIndex = 114
+        ManualTPSL.TabStop = False
         ' 
         ' CustomLabel5
         ' 
@@ -1137,63 +1156,75 @@ Partial Class frmMainPageV2
         lblMaintenanceMargin.TabIndex = 118
         lblMaintenanceMargin.Text = "MM: N/A"
         ' 
-        ' chkMarketStopLoss
+        ' chkMaxSlippageATR
         ' 
-        chkMarketStopLoss.AutoSize = True
-        chkMarketStopLoss.BackColor = SystemColors.ActiveCaptionText
-        chkMarketStopLoss.Checked = True
-        chkMarketStopLoss.CheckState = CheckState.Checked
-        chkMarketStopLoss.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
-        chkMarketStopLoss.ForeColor = Color.Crimson
-        chkMarketStopLoss.Location = New Point(9, 178)
-        chkMarketStopLoss.Name = "chkMarketStopLoss"
-        chkMarketStopLoss.Size = New Size(111, 39)
-        chkMarketStopLoss.TabIndex = 196
-        chkMarketStopLoss.Text = "M. SL:"
-        chkMarketStopLoss.UseVisualStyleBackColor = False
+        chkMaxSlippageATR.AutoSize = True
+        chkMaxSlippageATR.BackColor = SystemColors.ActiveCaptionText
+        chkMaxSlippageATR.Checked = True
+        chkMaxSlippageATR.CheckState = CheckState.Checked
+        chkMaxSlippageATR.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        chkMaxSlippageATR.ForeColor = Color.DodgerBlue
+        chkMaxSlippageATR.Location = New Point(280, 178)
+        chkMaxSlippageATR.Name = "chkMaxSlippageATR"
+        chkMaxSlippageATR.Size = New Size(132, 39)
+        chkMaxSlippageATR.TabIndex = 197
+        chkMaxSlippageATR.Text = "ATRSlip:"
+        chkMaxSlippageATR.UseVisualStyleBackColor = False
+        ' 
+        ' txtMaxSlippageATR
+        ' 
+        txtMaxSlippageATR.BackColor = Color.Gainsboro
+        txtMaxSlippageATR.BorderStyle = BorderStyle.FixedSingle
+        txtMaxSlippageATR.Font = New Font("Calibri", 14F)
+        txtMaxSlippageATR.Location = New Point(412, 180)
+        txtMaxSlippageATR.Name = "txtMaxSlippageATR"
+        txtMaxSlippageATR.Size = New Size(74, 42)
+        txtMaxSlippageATR.TabIndex = 198
+        txtMaxSlippageATR.Text = "0.6"
+        txtMaxSlippageATR.TextAlign = HorizontalAlignment.Center
         ' 
         ' frmMainPageV2
         ' 
         AutoScaleMode = AutoScaleMode.None
         BackColor = SystemColors.Desktop
         ClientSize = New Size(1080, 856)
-        Controls.Add(GroupBoxButtons)
-        Controls.Add(GroupBox8)
+        Controls.Add(TradeButtons)
+        Controls.Add(OrderAmount)
         Controls.Add(lblMaintenanceMargin)
         Controls.Add(lblInitialMargin)
         Controls.Add(lblEstimatedLeverage)
         Controls.Add(lblEstimatedLiquidation)
         Controls.Add(btnViewTrades)
-        Controls.Add(GroupBoxPlaced)
+        Controls.Add(PlacedOrders)
         Controls.Add(lblIndexPrice)
         Controls.Add(Label2)
-        Controls.Add(GroupBox4)
+        Controls.Add(ConnectionStatus)
         Controls.Add(txtLogs)
-        Controls.Add(GroupBox1)
-        Controls.Add(GroupBox5)
+        Controls.Add(MarginControl)
+        Controls.Add(AccountInfo)
         Controls.Add(btnClearLog)
         Controls.Add(btnClose)
         Controls.Add(btnChangeForm)
-        Controls.Add(GroupBox2)
+        Controls.Add(ManualTPSL)
         Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         FormBorderStyle = FormBorderStyle.FixedDialog
         MaximizeBox = False
         Name = "frmMainPageV2"
         Text = "Deribit Order Placement App V2."
         TopMost = True
-        GroupBox1.ResumeLayout(False)
-        GroupBox1.PerformLayout()
-        GroupBoxButtons.ResumeLayout(False)
-        GroupBoxButtons.PerformLayout()
-        GroupBox5.ResumeLayout(False)
-        GroupBox5.PerformLayout()
-        GroupBox4.ResumeLayout(False)
-        GroupBoxPlaced.ResumeLayout(False)
-        GroupBoxPlaced.PerformLayout()
-        GroupBox8.ResumeLayout(False)
-        GroupBox8.PerformLayout()
-        GroupBox2.ResumeLayout(False)
-        GroupBox2.PerformLayout()
+        MarginControl.ResumeLayout(False)
+        MarginControl.PerformLayout()
+        TradeButtons.ResumeLayout(False)
+        TradeButtons.PerformLayout()
+        AccountInfo.ResumeLayout(False)
+        AccountInfo.PerformLayout()
+        ConnectionStatus.ResumeLayout(False)
+        PlacedOrders.ResumeLayout(False)
+        PlacedOrders.PerformLayout()
+        OrderAmount.ResumeLayout(False)
+        OrderAmount.PerformLayout()
+        ManualTPSL.ResumeLayout(False)
+        ManualTPSL.PerformLayout()
         ResumeLayout(False)
         PerformLayout()
     End Sub
@@ -1201,14 +1232,14 @@ Partial Class frmMainPageV2
     Friend WithEvents txtLogs As RichTextBox
     Friend WithEvents btnClose As Button
     Friend WithEvents btnClearLog As Button
-    Friend WithEvents GroupBox1 As GroupBox
+    Friend WithEvents MarginControl As GroupBox
     Friend WithEvents txtComms As TextBox
     Friend WithEvents txtTPOffset As TextBox
     Friend WithEvents txtTriggerOffset As TextBox
     Friend WithEvents txtStopLoss As TextBox
     Friend WithEvents txtTrigger As TextBox
     Friend WithEvents txtTakeProfit As TextBox
-    Friend WithEvents GroupBoxButtons As GroupBox
+    Friend WithEvents TradeButtons As GroupBox
     Friend WithEvents btnMarket As Button
     Friend WithEvents btnCancelAllOpen As Button
     Friend WithEvents btnTrail As Button
@@ -1222,7 +1253,7 @@ Partial Class frmMainPageV2
     Friend WithEvents lblPlacedStopLossPrice As CustomLabel
     Friend WithEvents lblPlacedTrigStopPrice As CustomLabel
     Friend WithEvents lblPlacedPrice As CustomLabel
-    Friend WithEvents GroupBox5 As GroupBox
+    Friend WithEvents AccountInfo As GroupBox
     Friend WithEvents lblPlacedTakeProfitPrice As CustomLabel
     Friend WithEvents CustomLabel2 As CustomLabel
     Friend WithEvents CustomLabel1 As CustomLabel
@@ -1235,13 +1266,13 @@ Partial Class frmMainPageV2
     Friend WithEvents lblBalance As Label
     Friend WithEvents Label50 As Label
     Friend WithEvents lblIndexPrice As Label
-    Friend WithEvents GroupBox4 As GroupBox
+    Friend WithEvents ConnectionStatus As GroupBox
     Friend WithEvents lblStatus As Label
     Friend WithEvents Label2 As Label
     Friend WithEvents lblTime As CustomLabel
     Friend WithEvents lblTopBid As CustomLabel
     Friend WithEvents lblTopAsk As CustomLabel
-    Friend WithEvents GroupBoxPlaced As GroupBox
+    Friend WithEvents PlacedOrders As GroupBox
     Friend WithEvents CustomLabel10 As CustomLabel
     Friend WithEvents CustomLabel14 As CustomLabel
     Friend WithEvents CustomLabel11 As CustomLabel
@@ -1260,7 +1291,7 @@ Partial Class frmMainPageV2
     Friend WithEvents txtPlacedTrigStopPrice As CustomTextBox
     Friend WithEvents txtPlacedPrice As CustomTextBox
     Friend WithEvents txtAmount As CustomTextBox
-    Friend WithEvents GroupBox8 As GroupBox
+    Friend WithEvents OrderAmount As GroupBox
     Friend WithEvents btnConnect As Button
     Friend WithEvents radHeartBeat As RadioButton
     Friend WithEvents txtTopAsk As CustomTextBox
@@ -1273,7 +1304,7 @@ Partial Class frmMainPageV2
     Friend WithEvents btnTPOffset As Button
     Friend WithEvents btnEditSLPrice As Button
     Friend WithEvents btnEditTPPrice As Button
-    Friend WithEvents GroupBox2 As GroupBox
+    Friend WithEvents ManualTPSL As GroupBox
     Friend WithEvents CustomLabel5 As CustomLabel
     Friend WithEvents txtManualSL As CustomTextBox
     Friend WithEvents txtManualTP As CustomTextBox
@@ -1289,4 +1320,6 @@ Partial Class frmMainPageV2
     Friend WithEvents btnMark As Button
     Friend WithEvents CustomLabel7 As CustomLabel
     Friend WithEvents chkMarketStopLoss As CheckBox
+    Friend WithEvents txtMaxSlippageATR As TextBox
+    Friend WithEvents chkMaxSlippageATR As CheckBox
 End Class

@@ -17,6 +17,7 @@ Imports Newtonsoft.Json.Linq
 Public Class frmMainPageV2
 
     Private _indicators As FrmIndicators
+    Private _autotradesettings As AutoTradeSettings
 
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
@@ -1618,6 +1619,82 @@ Public Class frmMainPageV2
         End If
     End Sub
 
+    ' Add these variables to your order placement logic
+    Private originalSignalPrice As Decimal = 0
+    Private orderCreationTime As DateTime = DateTime.MinValue
+    Private currentRequoteCount As Integer = 0
+
+    Private Function CalculateATRSlippageLimit() As Decimal
+        ' Get current ATR from your indicators form
+        Dim currentATR As Decimal
+        If Not Decimal.TryParse(_indicators.lblATR.Text, currentATR) Then
+            Return 70 ' Fallback to $70 if ATR unavailable
+        End If
+
+        ' Get ATR multiplier from settings
+        Dim atrMultiplier As Decimal
+        If Not Decimal.TryParse(txtMaxSlippageATR.Text, atrMultiplier) Then
+            atrMultiplier = 0.6D ' Default 0.6x ATR
+        End If
+
+        Return currentATR * atrMultiplier
+    End Function
+
+    Private Function IsATRSlippageExcessive(currentPrice As Decimal, direction As String) As Boolean
+        If originalSignalPrice = 0 Then
+            originalSignalPrice = currentPrice ' Set initial price
+            Return False
+        End If
+
+        Dim slippageLimit As Decimal = CalculateATRSlippageLimit()
+        Dim actualSlippage As Decimal = Math.Abs(currentPrice - originalSignalPrice)
+
+        ' Calculate slippage in ATR units for logging
+        Dim currentATR As Decimal = Decimal.Parse(_indicators.lblATR.Text)
+        Dim slippageInATR As Decimal = If(currentATR > 0, actualSlippage / currentATR, 0)
+
+        If actualSlippage > slippageLimit Then
+            AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) exceeds limit ${slippageLimit:F2}", Color.Red)
+
+            ' Log failed attempt
+            LogFailedEntry("ATR slippage exceeded", slippageInATR)
+            Return True
+        End If
+
+        ' Log acceptable slippage
+        AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) within limit", Color.Gray)
+        Return False
+    End Function
+
+    Private Sub LogFailedEntry(reason As String, Optional slippageATR As Decimal = 0)
+        ' Create failed trade record
+        Dim failedTrade = New TradeRecord With {
+        .AttemptType = "Failed",
+        .OrderType = reason,
+        .Timestamp = DateTime.UtcNow,
+        .RequoteCount = currentRequoteCount,
+        .SignalPrice = originalSignalPrice,
+        .SlippageATR = slippageATR,
+        .MaxSlippageExceeded = True
+    }
+
+        ' You could optionally save failed attempts to database for analysis
+
+        ' Engage cooldown
+        Dim cooloffMins = Integer.Parse(_autotradesettings.txtCooloff.Text)
+        _indicators.lastAutoTradeTime = DateTime.Now.AddMinutes(cooloffMins)
+
+        'AppendLog($"Entry failed: {reason}. Cooloff: {cooloffMins}min", Color.Orange)
+
+        ' Reset for next attempt
+        ResetOrderAttempt()
+    End Sub
+
+    Private Sub ResetOrderAttempt()
+        currentRequoteCount = 0
+        orderCreationTime = DateTime.MinValue
+        originalSignalPrice = 0
+    End Sub
 
 
     'All order execution code below
@@ -3097,8 +3174,8 @@ Public Class frmMainPageV2
         btnReduceLimit.Text = "Reduce BUY"
         btnReduceMarket.Text = "Mkt. Rdc. Buy"
 
-        GroupBoxButtons.Text = "Short"
-        GroupBoxPlaced.Text = "Placed Short"
+        TradeButtons.Text = "Short"
+        PlacedOrders.Text = "Placed Short"
 
         txtPlacedStopLossPrice.Location = New Point(173, 95)
         txtPlacedTrigStopPrice.Location = New Point(173, 146)
@@ -3146,8 +3223,8 @@ Public Class frmMainPageV2
         btnReduceLimit.Text = "Reduce SELL"
         btnReduceMarket.Text = "Mkt. Rdc. Sell"
 
-        GroupBoxButtons.Text = "Long"
-        GroupBoxPlaced.Text = "Placed Long"
+        TradeButtons.Text = "Long"
+        PlacedOrders.Text = "Placed Long"
 
         txtPlacedTakeProfitPrice.Location = New Point(173, 95)
         txtPlacedPrice.Location = New Point(173, 146)

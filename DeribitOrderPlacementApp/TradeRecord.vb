@@ -11,6 +11,13 @@ Public Class TradeRecord
     Public Property ProfitLossUSD As Decimal
     Public Property IsProfit As Boolean
 
+    ' Add slippage tracking
+    Public Property RequoteCount As Integer = 0
+    Public Property AttemptType As String = "Entry" ' "Entry", "Retry", "Abandoned"
+    Public Property SignalPrice As Decimal = 0 ' Original signal price
+    Public Property SlippageATR As Decimal = 0 ' Slippage in ATR units
+    Public Property MaxSlippageExceeded As Boolean = False
+
     Public Sub New()
         Timestamp = DateTime.UtcNow
     End Sub
