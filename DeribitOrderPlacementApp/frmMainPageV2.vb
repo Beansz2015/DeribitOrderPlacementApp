@@ -888,18 +888,24 @@ Public Class frmMainPageV2
                               End Sub)
                 End If
 
-                'For keeping current order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
+                'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
                 If (CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
+                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 'Stop if repositioned past ATR slippage threshold
-                                If IsATRSlippageExcessive(bestBid, "LONG") Then
+                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestBid, "LONG") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestBid)
+
+                                    Dim currentPlacedPrice As Decimal = 0D
+                                    If Decimal.TryParse(txtPlacedPrice.Text, currentPlacedPrice) AndAlso currentPlacedPrice > 0 Then
+                                        AppendColoredText(txtLogs, $"Order repositioned: ${currentPlacedPrice:F2} → ${bestBid:F2}", Color.Yellow)
+                                    End If
+
                                     txtPlacedPrice.Text = bestBid
                                 End If
                             Else
@@ -923,13 +929,19 @@ Public Class frmMainPageV2
                             End If
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
+                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
+
+                                    Dim currentPlacedPrice As Decimal = 0D
+                                    If Decimal.TryParse(txtPlacedPrice.Text, currentPlacedPrice) AndAlso currentPlacedPrice > 0 Then
+                                        AppendColoredText(txtLogs, $"Order repositioned: ${currentPlacedPrice:F2} → ${bestAsk:F2}", Color.Yellow)
+                                    End If
+
                                     txtPlacedPrice.Text = bestAsk
                                 End If
                             Else
@@ -1034,13 +1046,13 @@ Public Class frmMainPageV2
 
 
 
-                'For keeping current order at top of orderbook for trailing stop loss orders. +/- 5 leeway to reduce too many edit orders sent
+                'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
                 If (CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 5) Then
+                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If IsATRSlippageExcessive(bestAsk, "LONG") Then
+                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "LONG") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
@@ -1063,9 +1075,9 @@ Public Class frmMainPageV2
                             End If
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 5) Then
+                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
@@ -1286,11 +1298,14 @@ Public Class frmMainPageV2
 
                                                       'This groups CRITICAL SL, Triggered SL messages together
                                                       If orderId = lastSLId Then
-                                                          AppendColoredText(txtLogs, pendingLocalMsg, Color.Red)
+                                                          'AppendColoredText(txtLogs, pendingLocalMsg, Color.Red)
                                                           pendingLocalMsg = "" : lastSLId = ""
                                                       End If
 
-                                                      AppendColoredText(txtLogs, $"Triggered SL placed @ ${price}", Color.Red)
+                                                      If UpdateFlag = False Then
+                                                          AppendColoredText(txtLogs, $"Triggered SL placed @ ${price}", Color.Red)
+                                                      End If
+
                                                       txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
 
                                                       lblOrderStatus.Text = "Stop Loss Triggered"
@@ -1332,10 +1347,15 @@ Public Class frmMainPageV2
                                               End Select
                                           End Sub)
 
-                                If UpdateFlag = True Then
-                                    AppendColoredText(txtLogs, $"Updated to: ${price}", Color.Yellow)
-                                    UpdateFlag = False
-                                End If
+                                'If UpdateFlag = True Then
+                                ' If label = "StopLossOrder" Then
+                                'AppendColoredText(txtLogs, $"Updated to: ${price}", Color.Crimson)
+                                'Else
+                                '   AppendColoredText(txtLogs, $"Updated to: ${price}", Color.Yellow)
+                                'End If
+                                'UpdateFlag = False
+                                'End If
+
 
                             ElseIf (orderState = "untriggered") Then
                                 'Dim price = order.SelectToken("price")?.ToObject(Of Decimal?)()
@@ -1379,6 +1399,7 @@ Public Class frmMainPageV2
                                         lblOrderStatus.ForeColor = Color.Yellow
                                         OpenPositions = True
                                         OpenOrderNo = False
+                                        UpdateFlag = False
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
@@ -1404,6 +1425,7 @@ Public Class frmMainPageV2
                                         OpenOrderNo = False
                                         isTrailingStop = True 'For checking if is trailing order when executing In Position code
                                         isTrailingPosition = False   'For sanity confirm that it is not in position
+                                        UpdateFlag = False
                                     Case "TrailingStopLoss"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
@@ -1687,7 +1709,7 @@ Public Class frmMainPageV2
         End If
 
         ' Log acceptable slippage
-        AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) within limit", Color.Gray)
+        'AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) within limit", Color.Gray)
         Return False
     End Function
 
@@ -2065,15 +2087,15 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Buy limit order placed For {amount} at {BestPrice}.", Color.MediumSeaGreen)
             ElseIf TypeOfOrder = "SellLimit" Then
                 ' Optional: Handle post-order logic (e.g., display confirmation)
-                AppendColoredText(txtLogs, $"Sell limit order placed For {amount} at {BestPrice}.", Color.DarkRed)
+                AppendColoredText(txtLogs, $"Sell limit order placed For {amount} at {BestPrice}.", Color.Crimson)
             ElseIf TypeOfOrder = "BuyNoSpread" Then
                 AppendColoredText(txtLogs, $"Buy limit no spread order placed For {amount} at {BestPrice}.", Color.MediumSeaGreen)
             ElseIf TypeOfOrder = "SellNoSpread" Then
-                AppendColoredText(txtLogs, $"Sell limit no spread order placed For {amount} at {BestPrice}.", Color.DarkRed)
+                AppendColoredText(txtLogs, $"Sell limit no spread order placed For {amount} at {BestPrice}.", Color.Crimson)
             ElseIf TypeOfOrder = "BuyMarket" Then
                 AppendColoredText(txtLogs, $"Market buy order placed For {amount} starting at {BestPrice}.", Color.MediumSeaGreen)
             ElseIf TypeOfOrder = "SellMarket" Then
-                AppendColoredText(txtLogs, $"Market sell order placed For {amount} starting at {BestPrice}.", Color.DarkRed)
+                AppendColoredText(txtLogs, $"Market sell order placed For {amount} starting at {BestPrice}.", Color.Crimson)
             End If
 
         Catch ex As Exception
@@ -2755,7 +2777,7 @@ Public Class frmMainPageV2
     Private Async Function ForceStopLossUpdate(newPrice As Decimal, Optional reason As String = "Emergency Update") As Task
         ' Bypass all rate limiting for emergency situations
         lastStopLossUpdate = DateTime.MinValue
-        AppendColoredText(txtLogs, $"EMERGENCY SL UPDATE: {reason}", Color.Red)
+        'AppendColoredText(txtLogs, $"EMERGENCY SL UPDATE: {reason}", Color.Red)
         Await UpdateStopLossForTriggeredStopLossOrder(newPrice)
     End Function
 
