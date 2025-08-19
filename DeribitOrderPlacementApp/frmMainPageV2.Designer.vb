@@ -27,6 +27,8 @@ Partial Class frmMainPageV2
         btnClose = New Button()
         btnClearLog = New Button()
         MarginControl = New GroupBox()
+        txtMaxSlippageATR = New TextBox()
+        chkMaxSlippageATR = New CheckBox()
         chkMarketStopLoss = New CheckBox()
         CustomLabel7 = New CustomLabel()
         btnMark = New Button()
@@ -105,8 +107,6 @@ Partial Class frmMainPageV2
         lblEstimatedLeverage = New CustomLabel()
         lblInitialMargin = New CustomLabel()
         lblMaintenanceMargin = New CustomLabel()
-        chkMaxSlippageATR = New CheckBox()
-        txtMaxSlippageATR = New TextBox()
         MarginControl.SuspendLayout()
         TradeButtons.SuspendLayout()
         AccountInfo.SuspendLayout()
@@ -196,6 +196,33 @@ Partial Class frmMainPageV2
         MarginControl.TabIndex = 97
         MarginControl.TabStop = False
         MarginControl.Text = "MARGINS"
+        ' 
+        ' txtMaxSlippageATR
+        ' 
+        txtMaxSlippageATR.BackColor = Color.Gainsboro
+        txtMaxSlippageATR.BorderStyle = BorderStyle.FixedSingle
+        txtMaxSlippageATR.Font = New Font("Calibri", 14F)
+        txtMaxSlippageATR.Location = New Point(412, 180)
+        txtMaxSlippageATR.Name = "txtMaxSlippageATR"
+        txtMaxSlippageATR.Size = New Size(74, 42)
+        txtMaxSlippageATR.TabIndex = 198
+        txtMaxSlippageATR.Text = "0.6"
+        txtMaxSlippageATR.TextAlign = HorizontalAlignment.Center
+        ' 
+        ' chkMaxSlippageATR
+        ' 
+        chkMaxSlippageATR.AutoSize = True
+        chkMaxSlippageATR.BackColor = SystemColors.ActiveCaptionText
+        chkMaxSlippageATR.Checked = True
+        chkMaxSlippageATR.CheckState = CheckState.Checked
+        chkMaxSlippageATR.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        chkMaxSlippageATR.ForeColor = Color.DodgerBlue
+        chkMaxSlippageATR.Location = New Point(280, 178)
+        chkMaxSlippageATR.Name = "chkMaxSlippageATR"
+        chkMaxSlippageATR.Size = New Size(132, 39)
+        chkMaxSlippageATR.TabIndex = 197
+        chkMaxSlippageATR.Text = "ATRSlip:"
+        chkMaxSlippageATR.UseVisualStyleBackColor = False
         ' 
         ' chkMarketStopLoss
         ' 
@@ -1156,33 +1183,6 @@ Partial Class frmMainPageV2
         lblMaintenanceMargin.TabIndex = 118
         lblMaintenanceMargin.Text = "MM: N/A"
         ' 
-        ' chkMaxSlippageATR
-        ' 
-        chkMaxSlippageATR.AutoSize = True
-        chkMaxSlippageATR.BackColor = SystemColors.ActiveCaptionText
-        chkMaxSlippageATR.Checked = True
-        chkMaxSlippageATR.CheckState = CheckState.Checked
-        chkMaxSlippageATR.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
-        chkMaxSlippageATR.ForeColor = Color.DodgerBlue
-        chkMaxSlippageATR.Location = New Point(280, 178)
-        chkMaxSlippageATR.Name = "chkMaxSlippageATR"
-        chkMaxSlippageATR.Size = New Size(132, 39)
-        chkMaxSlippageATR.TabIndex = 197
-        chkMaxSlippageATR.Text = "ATRSlip:"
-        chkMaxSlippageATR.UseVisualStyleBackColor = False
-        ' 
-        ' txtMaxSlippageATR
-        ' 
-        txtMaxSlippageATR.BackColor = Color.Gainsboro
-        txtMaxSlippageATR.BorderStyle = BorderStyle.FixedSingle
-        txtMaxSlippageATR.Font = New Font("Calibri", 14F)
-        txtMaxSlippageATR.Location = New Point(412, 180)
-        txtMaxSlippageATR.Name = "txtMaxSlippageATR"
-        txtMaxSlippageATR.Size = New Size(74, 42)
-        txtMaxSlippageATR.TabIndex = 198
-        txtMaxSlippageATR.Text = "0.6"
-        txtMaxSlippageATR.TextAlign = HorizontalAlignment.Center
-        ' 
         ' frmMainPageV2
         ' 
         AutoScaleMode = AutoScaleMode.None
@@ -1210,7 +1210,7 @@ Partial Class frmMainPageV2
         FormBorderStyle = FormBorderStyle.FixedDialog
         MaximizeBox = False
         Name = "frmMainPageV2"
-        Text = "Deribit Order Placement App V2."
+        Text = "Deribit Order Placement App V2.1"
         TopMost = True
         MarginControl.ResumeLayout(False)
         MarginControl.PerformLayout()
