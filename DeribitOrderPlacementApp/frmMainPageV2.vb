@@ -231,17 +231,31 @@ Public Class frmMainPageV2
 
         ' Initialize WebSocket
         webSocketClient = New ClientWebSocket()
+        webSocketClient.Options.KeepAliveInterval = TimeSpan.FromSeconds(30)
         cancellationTokenSource = New CancellationTokenSource()
 
         Try
             ' Connect to Deribit WebSocket
-            Await webSocketClient.ConnectAsync(New Uri("wss://www.deribit.com/ws/api/v2"), cancellationTokenSource.Token)
+            'Await webSocketClient.ConnectAsync(New Uri("wss://www.deribit.com/ws/api/v2"), cancellationTokenSource.Token)
+
+            ' Connect with timeout protection
+            Using cts As New CancellationTokenSource(TimeSpan.FromSeconds(30))
+                Await webSocketClient.ConnectAsync(New Uri("wss://www.deribit.com/ws/api/v2"), cts.Token)
+            End Using
+
 
             ' Start fetching real-time server time
             'Await Task.Run(AddressOf FetchServerTimeContinuously)
 
+            ' Initialize rate limiter before any API calls
+            If rateLimiter Is Nothing Then
+                rateLimiter = New DeribitRateLimiter(2000, 50) ' Conservative emergency limiter
+            End If
+
             ' Authorize the connection
             Await AuthorizeWebSocketConnection()
+
+            Await EnableDeribitHeartbeatEnhanced()
 
             ' Subscribe to the BTC-PERPETUAL index price user portfolio
             Await SubscribeToIndexPrice()
@@ -260,6 +274,21 @@ Public Class frmMainPageV2
 
             ' Subscribe to the BTC-PERPETUAL index price
             'Dim subscriptionPayload As String = "{""jsonrpc"":""2.0"",""id"":1,""method"":""public/subscribe"",""params"":{""channels"":[""perpetual.BTC-PERPETUAL.agg2"", ""user.portfolio.btc""]}}"
+
+            Dim WebSocketCallsBackgroundTask = Task.Run(Async Function()
+                                                            Try
+                                                                Await Task.Delay(3000) ' Give connection time to stabilize
+                                                                Await InitializeRateLimitsAfterAuth()
+                                                                AppendColoredText(txtLogs, "Rate limits updated after authentication", Color.Cyan)
+                                                            Catch ex As Exception
+                                                                AppendColoredText(txtLogs, $"Background rate limit update failed: {ex.Message}", Color.Yellow)
+                                                                ' Keep using emergency rate limiter
+                                                            End Try
+                                                            Return Nothing
+                                                        End Function)
+
+            'Monitor connection health in a separate non-async task
+            Dim connectionHealthTask = Task.Run(AddressOf MonitorConnectionHealth)
 
             ' Start receiving messages
             Await ReceiveWebSocketMessagesAsync()
@@ -307,7 +336,7 @@ Public Class frmMainPageV2
         Else
             'txtLogs.AppendText("WebSocket authorized successfully" + Environment.NewLine)
             AppendColoredText(txtLogs, "WebSocket authorized successfully", Color.DodgerBlue)
-            Await EnableHeartbeat(30)
+            Await EnableDeribitHeartbeatEnhanced()
 
             Dim refreshTokenToken = json.SelectToken("result.refresh_token")
             If refreshTokenToken IsNot Nothing Then
@@ -518,9 +547,52 @@ Public Class frmMainPageV2
         Await WebSocketCalls()
     End Function
 
-    Private Async Function EnableHeartbeat(intervalSeconds As Integer) As Task
-        Dim heartbeatPayload As String = $"{{""jsonrpc"":""2.0"",""id"":3,""method"":""public/set_heartbeat"",""params"":{{""interval"":{intervalSeconds}}}}}"
-        Await SendWebSocketMessageAsync(heartbeatPayload)
+
+    'Private Async Function EnableHeartbeat(intervalSeconds As Integer) As Task
+    'Dim heartbeatPayload As String = $"{{""jsonrpc"":""2.0"",""id"":3,""method"":""public/set_heartbeat"",""params"":{{""interval"":{intervalSeconds}}}}}"
+    '        Await SendWebSocketMessageAsync(heartbeatPayload)
+
+    Private Async Function EnableDeribitHeartbeatEnhanced() As Task
+        Try
+            ' Use Deribit's official heartbeat API with proper JSON structure
+            Dim heartbeatPayload As New JObject From {
+            {"jsonrpc", "2.0"},
+            {"id", 1001},
+            {"method", "public/set_heartbeat"},
+            {"params", New JObject From {
+                {"interval", 30}
+            }}
+        }
+
+            Await SendWebSocketMessageAsync(heartbeatPayload.ToString())
+            'AppendColoredText(txtLogs, "Deribit official heartbeat enabled (30s interval)", Color.Cyan)
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, "Heartbeat setup failed: " & ex.Message, Color.Red)
+        End Try
+    End Function
+
+    Private Async Function MonitorConnectionHealth() As Task
+        While webSocketClient?.State = WebSocketState.Open
+            Try
+                ' Send periodic ping using Deribit's official heartbeat API
+                Dim pingPayload As New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", 9999},
+                {"method", "public/ping"},
+                {"params", New JObject()}
+            }
+
+                Await SendWebSocketMessageAsync(pingPayload.ToString())
+
+                ' Wait 60 seconds before next health check
+                Await Task.Delay(60000)
+
+            Catch ex As Exception
+                AppendColoredText(txtLogs, $"Connection health check failed: {ex.Message}", Color.Orange)
+                Exit While
+            End Try
+        End While
     End Function
 
 
@@ -633,6 +705,56 @@ Public Class frmMainPageV2
             ' Ignore parsing errors for non-JSON responses
         End Try
     End Sub
+
+    Private Async Function InitializeRateLimitsAfterAuth() As Task
+        Try
+            AppendColoredText(txtLogs, "Updating rate limits from account summary...", Color.DodgerBlue)
+
+            ' Try to get actual account limits (this should work now that we're authenticated)
+            Dim actualLimits = Await GetAccountSummaryLimitsWithTimeout(3000) ' 3 second timeout
+
+            If actualLimits IsNot Nothing Then
+                ' Update with real limits
+                rateLimiter = New DeribitRateLimiter(actualLimits.MaxCredits, 50)
+                AppendColoredText(txtLogs, $"Rate limits updated: {actualLimits.MaxCredits} max credits, {actualLimits.MaxCredits / 50} req/sec", Color.LimeGreen)
+            Else
+                ' Keep using emergency rate limiter
+                AppendColoredText(txtLogs, "Using emergency rate limiter: 2000 credits, 40 req/sec", Color.Yellow)
+            End If
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Rate limit update error: {ex.Message}", Color.Yellow)
+            ' Keep existing emergency rate limiter
+        End Try
+    End Function
+
+    Private Async Function GetAccountSummaryLimitsWithTimeout(timeoutMs As Integer) As Task(Of RateLimitInfo)
+        Try
+            Using cts As New CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs))
+                accountSummaryTaskCompletionSource = New TaskCompletionSource(Of RateLimitInfo)
+
+                ' Send account summary request
+                Dim payload As New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", 999},
+                {"method", "private/get_account_summary"},
+                {"params", New JObject From {{"currency", "BTC"}, {"extended", True}}}
+            }
+
+                Await SendWebSocketMessageAsync(payload.ToString())
+
+                ' Wait for response with timeout
+                Return Await accountSummaryTaskCompletionSource.Task.WaitAsync(cts.Token)
+            End Using
+
+        Catch ex As TaskCanceledException
+            AppendColoredText(txtLogs, "Account summary request timed out - using fallback", Color.Yellow)
+            Return Nothing
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Account summary error: {ex.Message}", Color.Yellow)
+            Return Nothing
+        End Try
+    End Function
 
 
     'Price-related subscriptions below
@@ -3137,30 +3259,53 @@ Public Class frmMainPageV2
     'All button logic below
     '----------------------------------------------------------------------------------
 
+    'Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
+    ' Try
+    ' If btnConnect.Text = "Connect!" Then
+    '' Initialize WebSocket connection first
+    '             Await WebSocketCalls()
+
+    ' Automatically initialize rate limits after successful connection
+    ' If btnConnect.Text = "ONLINE" Then
+    '                Await InitializeRateLimits()
+    ''AppendColoredText(txtLogs, "Rate limiting initialized automatically after connection.", Color.LimeGreen)
+    'End If
+
+    '          AppendColoredText(txtLogs, "Connected." + Environment.NewLine, Color.DodgerBlue)
+    'ElseIf btnConnect.Text = "ONLINE" Then
+    '           ' Manual rate limit refresh when already connected
+    '          Await InitializeRateLimits()
+    '         AppendColoredText(txtLogs, "Rate limits manually refreshed.", Color.LimeGreen)
+    'End If
+
+    'Catch ex As Exception
+    '       AppendColoredText(txtLogs, "Connect failed." + Environment.NewLine, Color.Red)
+    'End Try
+    'End Sub
+
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
         Try
             If btnConnect.Text = "Connect!" Then
-                ' Initialize WebSocket connection first
+                ' Just connect - rate limits will initialize in background
                 Await WebSocketCalls()
-
-                ' Automatically initialize rate limits after successful connection
-                If btnConnect.Text = "ONLINE" Then
-                    Await InitializeRateLimits()
-                    'AppendColoredText(txtLogs, "Rate limiting initialized automatically after connection.", Color.LimeGreen)
-                End If
-
-                AppendColoredText(txtLogs, "Connected." + Environment.NewLine, Color.DodgerBlue)
+                AppendColoredText(txtLogs, "Connected. Rate limits updating in background...", Color.DodgerBlue)
             ElseIf btnConnect.Text = "ONLINE" Then
-                ' Manual rate limit refresh when already connected
-                Await InitializeRateLimits()
-                AppendColoredText(txtLogs, "Rate limits manually refreshed.", Color.LimeGreen)
+                ' Manual refresh when already connected
+                Dim btnConnectBackgroundTask = Task.Run(Async Function()
+                                                            Try
+                                                                Await InitializeRateLimitsAfterAuth()
+                                                                AppendColoredText(txtLogs, "Rate limits manually refreshed.", Color.LimeGreen)
+                                                            Catch ex As Exception
+                                                                AppendColoredText(txtLogs, $"Rate limit refresh failed: {ex.Message}", Color.Yellow)
+                                                            End Try
+                                                            Return Nothing
+                                                        End Function)
             End If
 
         Catch ex As Exception
-            AppendColoredText(txtLogs, "Connect failed." + Environment.NewLine, Color.Red)
+            AppendColoredText(txtLogs, $"Connect failed: {ex.Message}", Color.Red)
         End Try
     End Sub
-
 
 
     Public Async Function InitializeRateLimits() As Task
