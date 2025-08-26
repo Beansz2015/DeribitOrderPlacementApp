@@ -22,6 +22,7 @@ Partial Class FrmIndicators
     'Do not modify it using the code editor.
     <System.Diagnostics.DebuggerStepThrough()>
     Private Sub InitializeComponent()
+        components = New ComponentModel.Container()
         lblDMI = New Label()
         lblMACD = New Label()
         lblRSI = New Label()
@@ -47,6 +48,7 @@ Partial Class FrmIndicators
         Label1 = New Label()
         btnBacktest = New Button()
         btnAutoTradeSettings = New Button()
+        IndicatorsToolTip = New ToolTip(components)
         GroupBox1.SuspendLayout()
         SuspendLayout()
         ' 
@@ -104,6 +106,7 @@ Partial Class FrmIndicators
         lblDMITitle.Size = New Size(63, 35)
         lblDMITitle.TabIndex = 118
         lblDMITitle.Text = "DMI"
+        IndicatorsToolTip.SetToolTip(lblDMITitle, "ADX > 40 = Strong | > 30 = Normal | else = Weak" & vbCrLf & "Strength upgrade if within 3 candles after crossover." & vbCrLf & "ADX > 22 only considered.")
         ' 
         ' lblMACDTitle
         ' 
@@ -115,6 +118,7 @@ Partial Class FrmIndicators
         lblMACDTitle.Size = New Size(87, 35)
         lblMACDTitle.TabIndex = 119
         lblMACDTitle.Text = "MACD"
+        IndicatorsToolTip.SetToolTip(lblMACDTitle, "MACD + EMA confirmation = 1 score" & vbCrLf & "Confirmation with own histogram (<-10 | >10)" & vbCrLf & "within 3 candle time period = Strength upgrade")
         ' 
         ' lblRSITitle
         ' 
@@ -126,6 +130,7 @@ Partial Class FrmIndicators
         lblRSITitle.Size = New Size(50, 35)
         lblRSITitle.TabIndex = 120
         lblRSITitle.Text = "RSI"
+        IndicatorsToolTip.SetToolTip(lblRSITitle, "RSI + Stochastic confirmation = 1 score" & vbCrLf & "Has momentum signal if heading strongly" & vbCrLf & "in one direction." & vbCrLf & "Strength upgrade if within 3 candles in " & vbCrLf & "overbought/sold region (<15 or >85)")
         ' 
         ' lblStochTitle
         ' 
@@ -137,6 +142,7 @@ Partial Class FrmIndicators
         lblStochTitle.Size = New Size(79, 35)
         lblStochTitle.TabIndex = 121
         lblStochTitle.Text = "Stoch"
+        IndicatorsToolTip.SetToolTip(lblStochTitle, "Stoch < 25  (Strong Buy) < 40 (Normal)" & vbCrLf & "> 60 (Normal Sell) > 75 (Strong Sell)" & vbCrLf & "Else Weak Buy/Sell" & vbCrLf & "Strength upgrade if within 3 candles of crossover." & vbCrLf & "Stoch + RSI confirmation = 1 score")
         ' 
         ' txtIndLogs
         ' 
@@ -175,6 +181,7 @@ Partial Class FrmIndicators
         lblEMATitle.Size = New Size(69, 35)
         lblEMATitle.TabIndex = 125
         lblEMATitle.Text = "EMA"
+        IndicatorsToolTip.SetToolTip(lblEMATitle, "VWAP + EMA confirmation = 1 score" & vbCrLf & "<10D = Weak | <25D = Normal | Else = Strong" & vbCrLf & "Strength upgrade if within 3 candles of crossover.")
         ' 
         ' lblEMA
         ' 
@@ -197,6 +204,7 @@ Partial Class FrmIndicators
         lblVWAPTitle.Size = New Size(85, 35)
         lblVWAPTitle.TabIndex = 127
         lblVWAPTitle.Text = "VWAP"
+        IndicatorsToolTip.SetToolTip(lblVWAPTitle, "VWAP + EMA confirmation = 1 score" & vbCrLf & "Only Buy/Sell bias = 1 score, no tiers.")
         ' 
         ' lblVWAP
         ' 
@@ -229,6 +237,7 @@ Partial Class FrmIndicators
         lblATRTitle.Size = New Size(58, 35)
         lblATRTitle.TabIndex = 130
         lblATRTitle.Text = "ATR"
+        IndicatorsToolTip.SetToolTip(lblATRTitle, "ATR value based on AutoTradeSettings ATR form's" & vbCrLf & "txtATR Length setting.")
         ' 
         ' lblATR
         ' 
@@ -251,6 +260,7 @@ Partial Class FrmIndicators
         btnATR.Size = New Size(88, 136)
         btnATR.TabIndex = 153
         btnATR.Text = "Paste ATR"
+        IndicatorsToolTip.SetToolTip(btnATR, "Multiplies ATR reading on this form with AutoTradeSettings" & vbCrLf & "Take Profit/Stop Loss ATR multipliers to the main form's" & vbCrLf & "Take Profit/Trigger price distance settings.")
         btnATR.UseVisualStyleBackColor = False
         ' 
         ' btnAutoTrade
@@ -401,4 +411,5 @@ Partial Class FrmIndicators
     Friend WithEvents Label1 As Label
     Friend WithEvents btnBacktest As Button
     Friend WithEvents btnAutoTradeSettings As Button
+    Friend WithEvents IndicatorsToolTip As ToolTip
 End Class

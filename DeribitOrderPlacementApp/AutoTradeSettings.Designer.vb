@@ -22,6 +22,7 @@ Partial Class AutoTradeSettings
     'Do not modify it using the code editor.
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
+        components = New ComponentModel.Container()
         txtCircuitBreaker = New TextBox()
         lblBacktestTitle = New Label()
         GroupBox1 = New GroupBox()
@@ -54,6 +55,7 @@ Partial Class AutoTradeSettings
         txtTrendStrength = New TextBox()
         Label10 = New Label()
         Label11 = New Label()
+        AutoTradingToolTip = New ToolTip(components)
         GroupBox1.SuspendLayout()
         GroupBox2.SuspendLayout()
         GroupBox3.SuspendLayout()
@@ -97,6 +99,7 @@ Partial Class AutoTradeSettings
         GroupBox1.TabIndex = 188
         GroupBox1.TabStop = False
         GroupBox1.Text = "Exclusion Time Range"
+        AutoTradingToolTip.SetToolTip(GroupBox1, "Start and end time daily where autotrading is forbidden.")
         ' 
         ' txtEndTime
         ' 
@@ -201,6 +204,7 @@ Partial Class AutoTradeSettings
         lblTestATRSL.Size = New Size(130, 35)
         lblTestATRSL.TabIndex = 186
         lblTestATRSL.Text = "Stop Loss:"
+        AutoTradingToolTip.SetToolTip(lblTestATRSL, "Stop Loss Trigger price distance will be " & vbCrLf & "determined by ATR multiplier here." & vbCrLf)
         ' 
         ' Label3
         ' 
@@ -236,6 +240,7 @@ Partial Class AutoTradeSettings
         lblTestATRTP.Size = New Size(143, 35)
         lblTestATRTP.TabIndex = 183
         lblTestATRTP.Text = "Take Profit:"
+        AutoTradingToolTip.SetToolTip(lblTestATRTP, "Take Profit price distance will be determined" & vbCrLf & "by ATR multiplier here.")
         ' 
         ' txtATRLimit
         ' 
@@ -260,6 +265,7 @@ Partial Class AutoTradeSettings
         lblATRLimit.Size = New Size(147, 35)
         lblATRLimit.TabIndex = 182
         lblATRLimit.Text = "Avg. Range:"
+        AutoTradingToolTip.SetToolTip(lblATRLimit, "An auto trade is allowed only if ATR is above" & vbCrLf & "this limit.")
         ' 
         ' txtATR
         ' 
@@ -284,6 +290,7 @@ Partial Class AutoTradeSettings
         lblTestATR.Size = New Size(101, 35)
         lblTestATR.TabIndex = 171
         lblTestATR.Text = "Length:"
+        AutoTradingToolTip.SetToolTip(lblTestATR, "No. of candles ATR is based on for other" & vbCrLf & "ATR calculations.")
         ' 
         ' GroupBox3
         ' 
@@ -336,6 +343,7 @@ Partial Class AutoTradeSettings
         lblTestSScore.Size = New Size(142, 35)
         lblTestSScore.TabIndex = 181
         lblTestSScore.Text = "Short Trgt.:"
+        AutoTradingToolTip.SetToolTip(lblTestSScore, "Signal score must be <= this limit before auto trade" & vbCrLf & "Short orders are allowed. Only -21 -> -1 range." & vbCrLf)
         ' 
         ' Label5
         ' 
@@ -371,6 +379,7 @@ Partial Class AutoTradeSettings
         lblTestLScore.Size = New Size(135, 35)
         lblTestLScore.TabIndex = 178
         lblTestLScore.Text = "Long Trgt.:"
+        AutoTradingToolTip.SetToolTip(lblTestLScore, "Signal score must be => this limit before auto trade" & vbCrLf & "Long orders are allowed. Only 1 -> 21 range.")
         ' 
         ' Label1
         ' 
@@ -382,6 +391,7 @@ Partial Class AutoTradeSettings
         Label1.Size = New Size(258, 35)
         Label1.TabIndex = 193
         Label1.Text = "Max Loss Limit (USD):"
+        AutoTradingToolTip.SetToolTip(Label1, "Max loss in USD before auto trader is turned off.")
         ' 
         ' Label2
         ' 
@@ -393,6 +403,7 @@ Partial Class AutoTradeSettings
         Label2.Size = New Size(253, 35)
         Label2.TabIndex = 197
         Label2.Text = "Trade Cooloff Period:"
+        AutoTradingToolTip.SetToolTip(Label2, "Auto trade is temporarily disabled for this period of" & vbCrLf & "time after a position is exited or an attempt is stopped." & vbCrLf & "Auto trade is disabled by default during an ongoing " & vbCrLf & "attempt.")
         ' 
         ' txtCooloff
         ' 
@@ -441,6 +452,7 @@ Partial Class AutoTradeSettings
         Label10.Size = New Size(303, 35)
         Label10.TabIndex = 200
         Label10.Text = "EMA Diff. Trend Strength:"
+        AutoTradingToolTip.SetToolTip(Label10, "Auto trade only allowed if diff between EMA50 and EMA200" & vbCrLf & "(EMA50 - EMA200) / EMA200 * 100 is more than the value " & vbCrLf & "set here.")
         ' 
         ' Label11
         ' 
@@ -516,4 +528,5 @@ Partial Class AutoTradeSettings
     Friend WithEvents txtTrendStrength As TextBox
     Friend WithEvents Label10 As Label
     Friend WithEvents Label11 As Label
+    Friend WithEvents AutoTradingToolTip As ToolTip
 End Class

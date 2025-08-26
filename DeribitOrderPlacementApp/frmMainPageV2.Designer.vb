@@ -22,6 +22,8 @@ Partial Class frmMainPageV2
     'Do not modify it using the code editor.
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
+        components = New ComponentModel.Container()
+        Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(frmMainPageV2))
         btnChangeForm = New Button()
         txtLogs = New RichTextBox()
         btnClose = New Button()
@@ -107,6 +109,7 @@ Partial Class frmMainPageV2
         lblEstimatedLeverage = New CustomLabel()
         lblInitialMargin = New CustomLabel()
         lblMaintenanceMargin = New CustomLabel()
+        ToolTip1 = New ToolTip(components)
         MarginControl.SuspendLayout()
         TradeButtons.SuspendLayout()
         AccountInfo.SuspendLayout()
@@ -222,6 +225,7 @@ Partial Class frmMainPageV2
         chkMaxSlippageATR.Size = New Size(132, 39)
         chkMaxSlippageATR.TabIndex = 197
         chkMaxSlippageATR.Text = "ATRSlip:"
+        ToolTip1.SetToolTip(chkMaxSlippageATR, "Max price diff. allowed during initial order placement" & vbCrLf & "repositioning attempts. Calculated by % of ATR (Ex." & vbCrLf & "0.6 = 60% of ATR).")
         chkMaxSlippageATR.UseVisualStyleBackColor = False
         ' 
         ' chkMarketStopLoss
@@ -237,6 +241,7 @@ Partial Class frmMainPageV2
         chkMarketStopLoss.Size = New Size(111, 39)
         chkMarketStopLoss.TabIndex = 196
         chkMarketStopLoss.Text = "M. SL:"
+        ToolTip1.SetToolTip(chkMarketStopLoss, "Price distance allowed from the 1st placed stop loss price" & vbCrLf & "for auto stop loss repositioning. Market stop loss order" & vbCrLf & "is placed if > this price distance.")
         chkMarketStopLoss.UseVisualStyleBackColor = False
         ' 
         ' CustomLabel7
@@ -249,6 +254,7 @@ Partial Class frmMainPageV2
         CustomLabel7.Size = New Size(72, 24)
         CustomLabel7.TabIndex = 124
         CustomLabel7.Text = "SL Price"
+        ToolTip1.SetToolTip(CustomLabel7, "To mark the current stop loss price as the start " & vbCrLf & "of counting the distance before placing a market " & vbCrLf & "stop loss order.")
         ' 
         ' btnMark
         ' 
@@ -296,6 +302,7 @@ Partial Class frmMainPageV2
         btnEstimateMargins.Size = New Size(68, 42)
         btnEstimateMargins.TabIndex = 119
         btnEstimateMargins.Text = "Est."
+        ToolTip1.SetToolTip(btnEstimateMargins, "Estimate (local calculation only) liquidation price" & vbCrLf & "and margins before placing orders.")
         btnEstimateMargins.UseVisualStyleBackColor = False
         ' 
         ' CustomLabel15
@@ -308,6 +315,7 @@ Partial Class frmMainPageV2
         CustomLabel15.Size = New Size(115, 35)
         CustomLabel15.TabIndex = 84
         CustomLabel15.Text = "Comms.:"
+        ToolTip1.SetToolTip(CustomLabel15, "Est. price distance needed to cover loss from" & vbCrLf & "comms paid for market orders.")
         ' 
         ' CustomLabel14
         ' 
@@ -319,6 +327,7 @@ Partial Class frmMainPageV2
         CustomLabel14.Size = New Size(104, 35)
         CustomLabel14.TabIndex = 83
         CustomLabel14.Text = "T.P. Off.:"
+        ToolTip1.SetToolTip(CustomLabel14, resources.GetString("CustomLabel14.ToolTip"))
         ' 
         ' CustomLabel11
         ' 
@@ -341,6 +350,7 @@ Partial Class frmMainPageV2
         CustomLabel10.Size = New Size(105, 35)
         CustomLabel10.TabIndex = 81
         CustomLabel10.Text = "S. Loss.:"
+        ToolTip1.SetToolTip(CustomLabel10, "Stop Loss Price Distance from Trigger Price" & vbCrLf & "This will place a Stop Loss Limit Order from " & vbCrLf & "best price on orderbook to price distance" & vbCrLf & "(stated here) from the current trigger price." & vbCrLf)
         ' 
         ' CustomLabel9
         ' 
@@ -352,6 +362,7 @@ Partial Class frmMainPageV2
         CustomLabel9.Size = New Size(94, 35)
         CustomLabel9.TabIndex = 80
         CustomLabel9.Text = "Trig. P.:"
+        ToolTip1.SetToolTip(CustomLabel9, "Price Distance from placed price for " & vbCrLf & "triggering Stop Loss limit order")
         ' 
         ' CustomLabel8
         ' 
@@ -363,6 +374,7 @@ Partial Class frmMainPageV2
         CustomLabel8.Size = New Size(94, 35)
         CustomLabel8.TabIndex = 79
         CustomLabel8.Text = "T.Prof.:"
+        ToolTip1.SetToolTip(CustomLabel8, "Take Profit Limit Order Price Distance" & vbCrLf & "This places a take profit limit order at" & vbCrLf & "the price distance stated here from the " & vbCrLf & "placed order price.")
         ' 
         ' txtComms
         ' 
@@ -435,6 +447,7 @@ Partial Class frmMainPageV2
         txtTakeProfit.TabIndex = 67
         txtTakeProfit.Text = "60"
         txtTakeProfit.TextAlign = HorizontalAlignment.Center
+        ToolTip1.SetToolTip(txtTakeProfit, vbCrLf)
         ' 
         ' TradeButtons
         ' 
@@ -658,6 +671,7 @@ Partial Class frmMainPageV2
         CustomLabel1.Size = New Size(150, 35)
         CustomLabel1.TabIndex = 113
         CustomLabel1.Text = "Session P/L:"
+        ToolTip1.SetToolTip(CustomLabel1, "Session = 24 hours")
         ' 
         ' CustomLabel17
         ' 
@@ -1322,4 +1336,5 @@ Partial Class frmMainPageV2
     Friend WithEvents chkMarketStopLoss As CheckBox
     Friend WithEvents txtMaxSlippageATR As TextBox
     Friend WithEvents chkMaxSlippageATR As CheckBox
+    Friend WithEvents ToolTip1 As ToolTip
 End Class

@@ -1116,48 +1116,48 @@ Public Class frmMainPageV2
 
                             'Normal conditions operation
                             Dim shouldUpdate As Boolean = False
-                                Dim newStopPrice As Decimal = 0D
+                            Dim newStopPrice As Decimal = 0D
 
-                                If TradeMode Then
-                                    ' Long position: Update when ask price moves significantly below current stop
-                                    If bestAsk < (currentStopPrice - MinPriceMovementThreshold) Then
-                                        newStopPrice = bestAsk
-                                        shouldUpdate = True
-                                    End If
-                                Else
-                                    ' Short position: Update when bid price moves significantly above current stop
-                                    If bestBid > (currentStopPrice + MinPriceMovementThreshold) Then
-                                        newStopPrice = bestBid
-                                        shouldUpdate = True
-                                    End If
+                            If TradeMode Then
+                                ' Long position: Update when ask price moves significantly below current stop
+                                If bestAsk < (currentStopPrice - MinPriceMovementThreshold) Then
+                                    newStopPrice = bestAsk
+                                    shouldUpdate = True
                                 End If
-
-                                ' Execute update if conditions are met
-                                If shouldUpdate Then
-                                    Try
-                                        ' Check if we should use force update instead of normal rate-limited update
-                                        If priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
-                                            Await ForceStopLossUpdate(newStopPrice)
-                                        Else
-                                            Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
-                                        End If
-
-                                        txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2")
-                                        lastStopLossUpdate = currentTime
-
-                                        AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
-
-                                    Catch ex As Exception
-                                        AppendColoredText(txtLogs, $"Critical SL update failed: {ex.Message}", Color.Red)
-
-                                        ' Emergency fallback: Reset timer to allow immediate retry
-                                        lastStopLossUpdate = DateTime.MinValue
-                                    End Try
+                            Else
+                                ' Short position: Update when bid price moves significantly above current stop
+                                If bestBid > (currentStopPrice + MinPriceMovementThreshold) Then
+                                    newStopPrice = bestBid
+                                    shouldUpdate = True
                                 End If
-                                'Else
-                                '    AppendColoredText(txtLogs, "Invalid stop loss price for repositioning", Color.Yellow)
                             End If
-                        Else
+
+                            ' Execute update if conditions are met
+                            If shouldUpdate Then
+                                Try
+                                    ' Check if we should use force update instead of normal rate-limited update
+                                    If priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
+                                        Await ForceStopLossUpdate(newStopPrice)
+                                    Else
+                                        Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
+                                    End If
+
+                                    txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2")
+                                    lastStopLossUpdate = currentTime
+
+                                    AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
+
+                                Catch ex As Exception
+                                    AppendColoredText(txtLogs, $"Critical SL update failed: {ex.Message}", Color.Red)
+
+                                    ' Emergency fallback: Reset timer to allow immediate retry
+                                    lastStopLossUpdate = DateTime.MinValue
+                                End Try
+                            End If
+                            'Else
+                            '    AppendColoredText(txtLogs, "Invalid stop loss price for repositioning", Color.Yellow)
+                        End If
+                    Else
                         ' Log rate limiting (optional - can be removed to reduce noise)
                         Dim remainingMs = MinStopLossUpdateInterval - (currentTime - lastStopLossUpdate).TotalMilliseconds
                         If remainingMs > 1000 Then ' Only log if significant time remaining
@@ -3242,7 +3242,7 @@ Public Class frmMainPageV2
 
         ' Write to file for later analysis
         Try
-            System.IO.File.AppendAllText("AutoTradeLog.txt", logEntry & Environment.NewLine)
+            System.IO.File.AppendAllText("AutoTradeLog.txt", logentry & Environment.NewLine)
         Catch
             AppendColoredText(txtLogs, "Text file IO error", Color.Red) ' Handle file write errors
         End Try
