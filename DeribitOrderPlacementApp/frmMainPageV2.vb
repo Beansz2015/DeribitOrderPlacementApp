@@ -422,7 +422,7 @@ Public Class frmMainPageV2
         Catch ex As WebSocketException
             ' Log WebSocket-specific errors
             AppendColoredText(txtLogs, "WebSocket Error: " & ex.Message, Color.Red)
-            HandleWebSocketDisconnect()
+            Dim disconnectTask = HandleWebSocketDisconnect()
 
         Catch ex As OperationCanceledException
             ' Log if operation was canceled (e.g., during shutdown)
@@ -430,42 +430,140 @@ Public Class frmMainPageV2
         Catch ex As Exception
             ' General exception handler for any other errors
             AppendColoredText(txtLogs, "Error sending message: " & ex.Message, Color.Red)
+            ' Fire and forget reconnection attempt
+            Dim disconnectTask = HandleWebSocketDisconnect()
         End Try
     End Function
 
-    Private Async Sub HandleWebSocketDisconnect()
-        AppendColoredText(txtLogs, "WebSocket disconnected - implementing reconnection strategy", Color.Orange)
+    ' These fields are for reconnect logic
+    Private isReconnecting As Integer = 0  ' 0 = no, 1 = yes (Interlocked)
+    Private reconnectAttempts As Integer = 0
+    Private maxReconnectAttempts As Integer = 10
+    Private isClosing As Boolean = False
 
-        ' Wait for rate limits to reset
-        Await Task.Delay(10000) ' 10 second cooldown
+    Private Async Function HandleWebSocketDisconnect() As Task
 
-        ' Attempt reconnection with exponential backoff
-        Dim maxRetries = 5
-        For attempt = 1 To maxRetries
-            Dim reconnectionSucceeded As Boolean = False
+        If Not isClosing Then
+            ' Single-flight guard - only one reconnect at a time
+            If Interlocked.Exchange(isReconnecting, 1) = 1 Then Return
 
             Try
-                btnConnect.PerformClick()
-                AppendColoredText(txtLogs, "WebSocket reconnected successfully", Color.Green)
-                reconnectionSucceeded = True
-            Catch ex As Exception
-                Dim delayMs = 1000 * Math.Pow(2, attempt)
-                AppendColoredText(txtLogs, $"Reconnection attempt {attempt} failed. Retrying in {delayMs}ms", Color.Yellow)
+                AppendColoredText(txtLogs, "Connection lost - initiating recovery sequence", Color.Orange)
+
+                ' Update UI immediately on UI thread
+                Me.BeginInvoke(Sub()
+                                   btnConnect.Text = "Connect!"
+                                   btnConnect.BackColor = Color.Red
+                                   lblStatus.Text = "Disconnected"
+                               End Sub)
+
+                ' Wait before attempting reconnection
+                Await Task.Delay(2000 + (reconnectAttempts * 1000)) ' Progressive backoff
+
+                For attempt = 1 To maxReconnectAttempts
+                    Dim success As Boolean = False
+                    Dim errorMessage As String = ""
+
+                    Try
+                        AppendColoredText(txtLogs, $"Reconnection attempt {attempt}/{maxReconnectAttempts}", Color.Yellow)
+
+                        ' Call connection method directly - NOT through UI button
+                        Await ConnectToWebSocketDirectly()
+
+                        ' If we reach here, connection succeeded
+                        success = True
+
+                    Catch ex As Exception
+                        errorMessage = ex.Message
+                    End Try
+
+                    ' Handle results outside the Try/Catch
+                    If success Then
+                        reconnectAttempts = 0
+                        AppendColoredText(txtLogs, "Successfully reconnected", Color.LimeGreen)
+                        Return
+                    Else
+                        reconnectAttempts += 1
+                        AppendColoredText(txtLogs, $"Reconnect attempt {attempt} failed: {errorMessage}", Color.Red)
+
+                        ' Only delay if we have more attempts left
+                        If attempt < maxReconnectAttempts Then
+                            Dim delayMs = 2000 * Math.Min(attempt, 5) ' Cap at 10 second delays
+                            Await Task.Delay(delayMs)
+                        End If
+                    End If
+                Next
+
+                ' All reconnection attempts failed
+                AppendColoredText(txtLogs, "All reconnection attempts failed - manual intervention required", Color.Red)
+
+            Finally
+                Interlocked.Exchange(isReconnecting, 0)
             End Try
+        Else
+            Return
+        End If
 
-            ' If successful, exit early
-            If reconnectionSucceeded Then Return
+    End Function
 
-            ' Apply delay outside of Try-Catch (async-friendly)
-            If attempt < maxRetries Then
-                Dim delayMs = 1000 * Math.Pow(2, attempt)
-                Await Task.Delay(CInt(delayMs))
+
+    Private Async Function ConnectToWebSocketDirectly() As Task
+        ' Clean shutdown of existing connection
+        Try
+            If cancellationTokenSource IsNot Nothing Then
+                cancellationTokenSource.Cancel()
             End If
-        Next
-    End Sub
+            If webSocketClient IsNot Nothing Then
+                If webSocketClient.State = WebSocketState.Open Then
+                    Await webSocketClient.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "reconnecting", CancellationToken.None)
+                End If
+                webSocketClient.Dispose()
+            End If
+            cancellationTokenSource?.Dispose()
+        Catch
+            ' Ignore cleanup errors
+        End Try
+
+        ' Create fresh instances
+        webSocketClient = New ClientWebSocket()
+        webSocketClient.Options.KeepAliveInterval = TimeSpan.FromSeconds(30)
+        cancellationTokenSource = New CancellationTokenSource()
+
+        ' Connect with timeout
+        Using connectTimeout As New CancellationTokenSource(TimeSpan.FromSeconds(30))
+            Using combined = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationTokenSource.Token, connectTimeout.Token)
+
+                Await webSocketClient.ConnectAsync(
+                New Uri("wss://www.deribit.com/ws/api/v2"),
+                combined.Token)
+            End Using
+        End Using
+
+        ' Authenticate and subscribe
+        Await AuthorizeWebSocketConnection()
+        Await EnableDeribitHeartbeatEnhanced()
+        Await SubscribeToIndexPrice()
+        Await SubscribeToUserPortfolio()
+        Await SubscribeToQuoteBTCPerpetual()
+        Await SubscribeToUserOrders()
+
+        ' Update UI on success
+        Me.BeginInvoke(Sub()
+                           btnConnect.Text = "ONLINE"
+                           btnConnect.BackColor = Color.Lime
+                           lblStatus.Text = "Connected"
+                       End Sub)
+
+        ' Start background tasks - use proper variable names
+        Dim authTask = Task.Run(AddressOf MonitorAuthentication) ' Fire and forget
+        Dim receiveTask = Task.Run(Function() ReceiveWebSocketMessagesAsync()) ' Fire and forget
+    End Function
+
+
 
     Private Async Function ReceiveWebSocketMessagesAsync() As Task
-        Dim buffer = New Byte(1024 * 4) {}
+        Dim buffer(65535) As Byte ' Larger buffer
         Dim reconnectNeeded As Boolean = False
 
         ' Initialize lastMessageTime to the current time
@@ -473,8 +571,19 @@ Public Class frmMainPageV2
 
         While webSocketClient.State = WebSocketState.Open
             Try
-                Dim result = Await webSocketClient.ReceiveAsync(New ArraySegment(Of Byte)(buffer), cancellationTokenSource.Token)
+                Dim result = Await webSocketClient.ReceiveAsync(
+                New ArraySegment(Of Byte)(buffer),
+                cancellationTokenSource.Token)
+
+                If result.MessageType = WebSocketMessageType.Close Then
+                    AppendColoredText(txtLogs, "Server closed connection gracefully", Color.Yellow)
+                    Exit While
+                End If
+
                 Dim response = Encoding.UTF8.GetString(buffer, 0, result.Count)
+
+                ' Update last message time on any valid message
+                lastMessageTime = DateTime.Now
 
                 ' Call the function to handle heartbeat requests from server
                 HandleHeartbeat(response)
@@ -492,25 +601,41 @@ Public Class frmMainPageV2
                 HandleRateLimitError(response)
                 ' NEW: Handle margin estimates for liquidation price calculations
                 HandleMarginEstimationResponse(response)
+            Catch ex As WebSocketException
+                AppendColoredText(txtLogs, $"WebSocket exception: {ex.Message}", Color.Red)
+                reconnectNeeded = True
+                Exit While
 
-                ' Timeout check
-                If (DateTime.Now - lastMessageTime).TotalSeconds > 75 Then
-                    Throw New Exception("No messages received in the last 75 seconds.")
-                    'txtLogs.AppendText("No messages received in the last 75 seconds." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "No messages received in the last 75 seconds.", Color.Yellow)
-                End If
-
+            Catch ex As OperationCanceledException
+                ' Normal during shutdown
+                AppendColoredText(txtLogs, "Receive operation cancelled", Color.Gray)
+                Exit While
 
             Catch ex As Exception
+                AppendColoredText(txtLogs, $"Receive error: {ex.Message}", Color.Red)
                 reconnectNeeded = True
-                AppendColoredText(txtLogs, ex.Message + Environment.NewLine, Color.Red)
                 Exit While
             End Try
+
+            ' Timeout check
+            If DateTime.Now.Subtract(lastMessageTime).TotalSeconds > 75 Then
+                AppendColoredText(txtLogs, "Message timeout - connection may be dead", Color.Yellow)
+                reconnectNeeded = True
+                Exit While
+            End If
         End While
-        ' Reconnect if necessary
+
+        ' Only trigger reconnect if we detected a problem
+
         If reconnectNeeded Then
-            Await ReconnectWebSocket()
+            If Not isClosing Then
+                ' Fire and forget - don't await to avoid blocking
+                Dim reconnectTask = Task.Run(Function() HandleWebSocketDisconnect())
+            Else
+                Return
+            End If
         End If
+
     End Function
 
     Private accountSummaryTaskCompletionSource As TaskCompletionSource(Of RateLimitInfo)
@@ -3286,26 +3411,38 @@ Public Class frmMainPageV2
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
         Try
             If btnConnect.Text = "Connect!" Then
-                ' Just connect - rate limits will initialize in background
-                Await WebSocketCalls()
-                AppendColoredText(txtLogs, "Connected. Rate limits updating in background...", Color.DodgerBlue)
+                btnConnect.Enabled = False
+                btnConnect.Text = "Connecting..."
+                btnConnect.BackColor = Color.Orange
+
+                Try
+                    Await ConnectToWebSocketDirectly()
+                    AppendColoredText(txtLogs, "Connected successfully", Color.LimeGreen)
+                Catch ex As Exception
+                    AppendColoredText(txtLogs, $"Connection failed: {ex.Message}", Color.Red)
+                    btnConnect.Text = "Connect!"
+                    btnConnect.BackColor = Color.Red
+                Finally
+                    btnConnect.Enabled = True
+                End Try
+
             ElseIf btnConnect.Text = "ONLINE" Then
-                ' Manual refresh when already connected
-                Dim btnConnectBackgroundTask = Task.Run(Async Function()
-                                                            Try
-                                                                Await InitializeRateLimitsAfterAuth()
-                                                                AppendColoredText(txtLogs, "Rate limits manually refreshed.", Color.LimeGreen)
-                                                            Catch ex As Exception
-                                                                AppendColoredText(txtLogs, $"Rate limit refresh failed: {ex.Message}", Color.Yellow)
-                                                            End Try
-                                                            Return Nothing
-                                                        End Function)
+                ' Manual rate limit refresh when already connected
+                Dim refreshratelimits = Task.Run(Async Function()
+                                                     Try
+                                                         Await InitializeRateLimitsAfterAuth()
+                                                         AppendColoredText(txtLogs, "Rate limits manually refreshed", Color.LimeGreen)
+                                                     Catch ex As Exception
+                                                         AppendColoredText(txtLogs, $"Rate limit refresh failed: {ex.Message}", Color.Yellow)
+                                                     End Try
+                                                 End Function)
             End If
 
         Catch ex As Exception
-            AppendColoredText(txtLogs, $"Connect failed: {ex.Message}", Color.Red)
+            AppendColoredText(txtLogs, $"Button click error: {ex.Message}", Color.Red)
         End Try
     End Sub
+
 
 
     Public Async Function InitializeRateLimits() As Task
@@ -3340,54 +3477,38 @@ Public Class frmMainPageV2
 
     Private Async Sub btnClose_Click(sender As Object, e As EventArgs) Handles btnClose.Click
         Try
-            ' Ensure WebSocket client is initialized
-            If webSocketClient IsNot Nothing Then
-                Select Case webSocketClient.State
-                    Case WebSocketState.Open
-                        ' Send the logout message
-                        Dim logoutPayload = New JObject(
-                        New JProperty("jsonrpc", "2.0"),
-                        New JProperty("id", 20),
-                        New JProperty("method", "private/logout"),
-                        New JProperty("params", New JObject())
-                    )
+            ' Signal shutdown intent
+            isClosing = True
 
-                        Await SendWebSocketMessageAsync(logoutPayload.ToString())
+            ' Cancel any ongoing operations
+            cancellationTokenSource?.Cancel()
 
-                        ' Wait briefly for logout to complete
-                        'Await Task.Delay(1000)
-
-                        ' Gracefully close the WebSocket connection
-                        Await webSocketClient.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client closing", CancellationToken.None)
-
-                    Case WebSocketState.Closed, WebSocketState.Aborted
-                        ' If already closed or aborted, just log and continue
-                        MessageBox.Show("WebSocket is already closed or aborted.", "WebSocket State", MessageBoxButtons.OK, MessageBoxIcon.Information)
-
-                    Case Else
-                        ' Handle other states if necessary
-                        MessageBox.Show("WebSocket is not in an open state.", "WebSocket State", MessageBoxButtons.OK, MessageBoxIcon.Warning)
-                End Select
+            ' Close WebSocket gracefully
+            If webSocketClient?.State = WebSocketState.Open Then
+                Try
+                    Await webSocketClient.CloseAsync(
+                    WebSocketCloseStatus.NormalClosure,
+                    "User closing",
+                    CancellationToken.None)
+                Catch
+                    ' Ignore close errors
+                End Try
             End If
-        Catch ex As WebSocketException
-            ' Handle WebSocket-specific errors
-            MessageBox.Show("WebSocket error during closing: " & ex.Message, "WebSocket Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        Catch ex As Exception
-            ' Handle all other exceptions
-            MessageBox.Show("Error during button closing: " & ex.Message, "Closing Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        Finally
+
             ' Clean up resources
-            If webSocketClient IsNot Nothing Then
-                webSocketClient.Dispose()
-            End If
-            If cancellationTokenSource IsNot Nothing Then
-                cancellationTokenSource.Dispose()
-            End If
+            webSocketClient?.Dispose()
+            cancellationTokenSource?.Dispose()
 
-            ' Ensure the application exits
-            Application.Exit()
+            ' Close the application cleanly
+            Me.Close()
+
+        Catch ex As Exception
+            ' Log but don't crash
+            AppendColoredText(txtLogs, $"Shutdown error: {ex.Message}", Color.Red)
+            Me.Close()
         End Try
     End Sub
+
 
 
     Private Sub btnClearLog_Click(sender As Object, e As EventArgs) Handles btnClearLog.Click
