@@ -1224,7 +1224,7 @@ Partial Class frmMainPageV2
         FormBorderStyle = FormBorderStyle.FixedDialog
         MaximizeBox = False
         Name = "frmMainPageV2"
-        Text = "Deribit Order Placement App V2.1"
+        Text = "Deribit Order Placement App V2.2"
         TopMost = True
         MarginControl.ResumeLayout(False)
         MarginControl.PerformLayout()
