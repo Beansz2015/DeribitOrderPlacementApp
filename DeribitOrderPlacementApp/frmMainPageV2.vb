@@ -363,10 +363,12 @@ Public Class frmMainPageV2
 
             refreshTokenExpiryTime = DateTime.UtcNow.AddSeconds(expiresIn - 240) ' Refresh 4 minutes before expiry
 
-            'Give successful status update
-            lblStatus.ForeColor = Color.LimeGreen
-            btnConnect.Text = "ONLINE"
-            btnConnect.BackColor = Color.Lime
+            'Give successful status update - marshal to UI thread (reconnect path runs on a thread-pool thread)
+            Me.BeginInvoke(Sub()
+                               lblStatus.ForeColor = Color.LimeGreen
+                               btnConnect.Text = "ONLINE"
+                               btnConnect.BackColor = Color.Lime
+                           End Sub)
 
         End If
     End Function
