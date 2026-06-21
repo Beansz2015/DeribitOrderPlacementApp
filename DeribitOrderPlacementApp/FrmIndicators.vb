@@ -26,6 +26,9 @@ Public Class FrmIndicators
     Private heartbeatTimer As New System.Windows.Forms.Timer() With {.Interval = 500, .Enabled = False}
     Private score As Integer = 0
     Private startupFired As Boolean = False
+    ' #7: while a backtest runs, pause live indicator evaluation so the backtest's walk of the
+    ' indicator Static state / shared score / labels can't corrupt the live readout. Re-seeded after.
+    Private isBacktesting As Boolean = False
     Private formLoadTimestamp As DateTime = DateTime.MinValue
     Private formLoadOHLCIndex As Integer = -1
 
@@ -643,6 +646,8 @@ Public Class FrmIndicators
 
     'Start of live signal calls & updates
     Private Sub UpdateSignals()
+        ' #7: suppressed while a backtest is walking the indicator state (re-seeded when it finishes).
+        If isBacktesting Then Return
         Dim quotes = SyncLockCopy(ohlcList)
         If quotes.Count < 14 Then Return
 
@@ -1739,6 +1744,10 @@ Public Class FrmIndicators
         Dim netPL As Decimal = 0D
         Dim filteredBars As Integer = 0  ' Track filtered candles
 
+        ' #7: pause live evaluation for the duration of the walk; re-seed live state/labels in Finally.
+        isBacktesting = True
+        Try
+
         For i As Integer = atrPeriod To formLoadHistory.Count - 2
 
             Dim currentATR As Decimal = atrSeries(i).Atr.GetValueOrDefault(0)
@@ -1825,6 +1834,17 @@ Public Class FrmIndicators
         AppendLog($"Short Trades: {shortTrades} | Wins: {shortWins} | Losses: {shortLoss} | Win%: {winRateShort:F1}", Color.Cyan)
         AppendLog($"Total Trades: {trades}", Color.Cyan)
         AppendLog($"Net P&L: {netPL:F2}", Color.Cyan)
+
+        Finally
+            ' #7: resume live evaluation and re-seed the indicator Static state + labels from live data,
+            ' so the backtest's walk doesn't leave the live readout stale. Marshal to the UI thread.
+            isBacktesting = False
+            Try
+                Me.Invoke(Sub() UpdateSignals())
+            Catch
+                ' form closing / handle not created - nothing to re-seed
+            End Try
+        End Try
     End Sub
 
     Private Sub btnATR_Click(sender As Object, e As EventArgs) Handles btnATR.Click
