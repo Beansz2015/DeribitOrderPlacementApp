@@ -419,7 +419,9 @@ Public Class frmMainPageV2
         Try
             Dim json = JObject.Parse(response)
             Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
-            If messageId <> 3 Then Return
+            ' Null-safe: messageId is Nothing for id-less subscription messages. Nothing <> 3 is Nothing
+            ' (treated as False by If), which would fall through on every tick - so test HasValue explicitly.
+            If Not (messageId.HasValue AndAlso messageId.Value = 3) Then Return
 
             Dim errorField = json.SelectToken("error")
             If errorField IsNot Nothing Then
