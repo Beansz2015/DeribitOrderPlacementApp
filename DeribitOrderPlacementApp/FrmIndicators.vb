@@ -330,7 +330,11 @@ Public Class FrmIndicators
             Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
 
             If (enableAutoTrading = True) Then
-                If frmMainPageV2.USDPublicSession < Decimal.TryParse(_autoTradeSettings.txtCircuitBreaker.Text, CircuitBreak) Then
+                ' Circuit breaker: txtCircuitBreaker holds a positive loss magnitude (e.g. 50 = stop at $50 loss).
+                ' USDPublicSession is session PnL in USD (negative in a loss). Guard blank/zero so an unset
+                ' field DISABLES the breaker rather than tripping on any loss (TryParse would leave it 0).
+                Dim cbOk As Boolean = Decimal.TryParse(_autoTradeSettings.txtCircuitBreaker.Text, CircuitBreak)
+                If cbOk AndAlso CircuitBreak > 0D AndAlso frmMainPageV2.USDPublicSession <= -Math.Abs(CircuitBreak) Then
                     'LogTradeDecision("ANY", currentScore, "Circuit breaker active", False)
 
                     enableAutoTrading = False
