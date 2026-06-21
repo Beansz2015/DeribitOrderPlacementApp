@@ -1150,6 +1150,11 @@ Public Class frmMainPageV2
     Private Const MinPriceMovementThreshold As Decimal = 5D ' Minimum $5 movement to trigger update
     Private newPricePublic As Decimal = 0 'For storing the price during emergency reduce market order for logging
 
+    ' #5: single-flight guard for the order-reposition section of HandleQuoteUpdates. 0 = idle, 1 = a
+    ' reposition is awaiting (Interlocked). Mirrors isReconnecting. Does NOT cover the triggered-SL
+    ' emergency block or the price/PnL labels - those run every tick.
+    Private isRepositioning As Integer = 0
+
     ' #6: throttle for hot-path parse warnings so a held-down blank field can't spam the log
     Private lastParseWarn As DateTime = DateTime.MinValue
     Private Sub WarnParseThrottled(message As String)
@@ -1199,7 +1204,11 @@ Public Class frmMainPageV2
                 End If
 
                 'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
-                If (CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) Then
+                ' #5: single-flight - acquire only when an order context is present; skip this tick's
+                ' entry reposition if a previous tick's reposition is still in flight.
+                If ((CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing)) _
+                   AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
+                    Try
                     If TradeMode = True Then
                         If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
                             ' Add null check for rateLimiter
@@ -1269,6 +1278,9 @@ Public Class frmMainPageV2
                             End If
                         End If
                     End If
+                    Finally
+                        Interlocked.Exchange(isRepositioning, 0)
+                    End Try
                 End If
 
                 'For keeping triggered stop loss order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
@@ -1359,7 +1371,10 @@ Public Class frmMainPageV2
 
 
                 'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
-                If (CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True) Then
+                ' #5: same single-flight guard - serialize trailing repositions with entry repositions.
+                If ((CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True)) _
+                   AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
+                    Try
                     If TradeMode = True Then
                         If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
                             ' Add null check for rateLimiter
@@ -1411,13 +1426,19 @@ Public Class frmMainPageV2
                             End If
                         End If
                     End If
+                    Finally
+                        Interlocked.Exchange(isRepositioning, 0)
+                    End Try
                 End If
 
 
 
                 'Check if a trailing order is in position and current price has hit take profit price.
                 'If yes, cancel stop loss and place trailing stop loss order
-                If (isTrailingPosition = True) And (isTrailingStopLossPlaced = True) Then
+                ' #5: same single-flight guard - the trailing-TP trigger places an order; serialize it too.
+                If ((isTrailingPosition = True) And (isTrailingStopLossPlaced = True)) _
+                   AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
+                    Try
                     ' #6: parse trailing-trigger inputs safely. Manual TP (txtManualTP) overrides; otherwise
                     ' derive from placed price + (offset + comms). Skip this tick's trigger if inputs are invalid.
                     Dim manualTP As Decimal = 0D
@@ -1451,6 +1472,9 @@ Public Class frmMainPageV2
                     Else
                         WarnParseThrottled("Trailing TP inputs blank/invalid - skipping trailing trigger this tick")
                     End If
+                    Finally
+                        Interlocked.Exchange(isRepositioning, 0)
+                    End Try
                 End If
 
                 If placedPriceValid AndAlso placedPrice > 0 AndAlso amountValid Then
