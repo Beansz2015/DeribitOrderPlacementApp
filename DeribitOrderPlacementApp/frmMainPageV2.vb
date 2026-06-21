@@ -27,6 +27,13 @@ Public Class frmMainPageV2
     'For refresh authentication token
     Private refreshToken As String = Nothing
     Private refreshTokenExpiryTime As DateTime = DateTime.MinValue
+    ' Single-flight guard for the id-3 token refresh. RefreshWebSocketAuthentication only SENDS;
+    ' the id-3 response is handled in HandleTokenRefreshResponse (central receive loop), which
+    ' advances refreshTokenExpiryTime and clears this flag. Self-clearing: if no response arrives
+    ' within RefreshResponseTimeoutSeconds, the next gate check re-arms so refreshes can't wedge.
+    Private refreshInFlight As Integer = 0  ' 0 = idle, 1 = a refresh send is awaiting its id-3 response (Interlocked)
+    Private refreshSentAt As DateTime = DateTime.MinValue
+    Private Const RefreshResponseTimeoutSeconds As Integer = 30
 
     ' API credentials are loaded at runtime from a git-ignored secrets.json (see AppSecrets.vb).
     ' Use AppSecrets.ClientId / AppSecrets.ClientSecret.
@@ -362,6 +369,7 @@ Public Class frmMainPageV2
             End If
 
             refreshTokenExpiryTime = DateTime.UtcNow.AddSeconds(expiresIn - 240) ' Refresh 4 minutes before expiry
+            Interlocked.Exchange(refreshInFlight, 0) ' Fresh auth: no refresh is in flight on this connection
 
             'Give successful status update - marshal to UI thread (reconnect path runs on a thread-pool thread)
             Me.BeginInvoke(Sub()
@@ -374,9 +382,21 @@ Public Class frmMainPageV2
     End Function
 
     Private Async Function RefreshWebSocketAuthentication() As Task
-        If DateTime.UtcNow >= refreshTokenExpiryTime Then
+        ' Self-clearing guard: if a previous refresh was sent but its id-3 response never arrived
+        ' within the timeout, re-arm so future refreshes are not permanently wedged.
+        If refreshInFlight = 1 AndAlso (DateTime.UtcNow - refreshSentAt).TotalSeconds > RefreshResponseTimeoutSeconds Then
+            Interlocked.Exchange(refreshInFlight, 0)
+            AppendColoredText(txtLogs, "Token refresh response timed out - re-arming refresh", Color.Yellow)
+        End If
 
-            'Dim refreshPayload As String = $"{{""jsonrpc"":""2.0"",""id"":3,""method"":""public/auth"",""params"":{{""grant_type"":""refresh_token"",""refresh_token"":""{refreshToken}""}}}}"
+        If DateTime.UtcNow >= refreshTokenExpiryTime Then
+            ' Single-flight: only one outstanding refresh send at a time. The id-3 response is
+            ' consumed by the central receive loop (HandleTokenRefreshResponse), never here -
+            ' ClientWebSocket forbids a second concurrent ReceiveAsync.
+            If Interlocked.Exchange(refreshInFlight, 1) = 1 Then Return
+
+            refreshSentAt = DateTime.UtcNow
+
             ' Create the refresh message using JObject
             Dim refreshPayload = New JObject(
                 New JProperty("jsonrpc", "2.0"),
@@ -387,27 +407,35 @@ Public Class frmMainPageV2
                     New JProperty("refresh_token", refreshToken)
                 ))
             )
-            'Await SendWebSocketMessageAsync(refreshPayload)
+
+            ' SEND ONLY. Do not ReceiveAsync here - HandleTokenRefreshResponse handles id 3 and
+            ' updates refreshToken + refreshTokenExpiryTime and clears refreshInFlight.
             Await SendWebSocketMessageAsync(refreshPayload.ToString())
+        End If
+    End Function
 
-            Dim buffer = New Byte(1024 * 4) {}
-            Dim result = Await webSocketClient.ReceiveAsync(New ArraySegment(Of Byte)(buffer), cancellationTokenSource.Token)
-            Dim response = Encoding.UTF8.GetString(buffer, 0, result.Count)
-
+    ' Handles the id-3 token-refresh response routed through the single receive loop.
+    Private Sub HandleTokenRefreshResponse(response As String)
+        Try
             Dim json = JObject.Parse(response)
-            If json.SelectToken("error") IsNot Nothing Then
-                Throw New Exception("Token refresh failed: " & json.SelectToken("error").ToString())
-                'txtLogs.AppendText("Token refresh failed: " & json.SelectToken("error").ToString() + Environment.NewLine)
-                AppendColoredText(txtLogs, "Token refresh failed: " & json.SelectToken("error").ToString(), Color.Yellow)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
+            If messageId <> 3 Then Return
+
+            Dim errorField = json.SelectToken("error")
+            If errorField IsNot Nothing Then
+                AppendColoredText(txtLogs, "Token refresh failed: " & errorField.ToString(), Color.Yellow)
+                ' Re-arm so the next gate check can retry (transient errors recover; reconnect is the backstop).
+                Interlocked.Exchange(refreshInFlight, 0)
+                Return
             End If
 
             Dim refreshTokenToken = json.SelectToken("result.refresh_token")
             If refreshTokenToken IsNot Nothing Then
                 refreshToken = refreshTokenToken.ToString()
             Else
-                Throw New Exception("Refresh token not found in response")
-                'txtLogs.AppendText("Refresh token not found in response" + Environment.NewLine)
-                AppendColoredText(txtLogs, "Refresh token not found in response", Color.Yellow)
+                AppendColoredText(txtLogs, "Refresh token not found in refresh response", Color.Yellow)
+                Interlocked.Exchange(refreshInFlight, 0)
+                Return
             End If
 
             Dim expiresInToken = json.SelectToken("result.expires_in")
@@ -415,11 +443,15 @@ Public Class frmMainPageV2
             If expiresInToken IsNot Nothing Then
                 expiresIn = expiresInToken.ToObject(Of Double)()
             End If
+            ' Advance the expiry so the once-a-minute gate stops firing until the next near-expiry window.
+            refreshTokenExpiryTime = DateTime.UtcNow.AddSeconds(expiresIn - 240) ' Refresh 4 minutes before expiry
 
-            'txtLogs.AppendText("WebSocket re-authenticated successfully" + Environment.NewLine)
-            AppendColoredText(txtLogs, "WebSocket re-authenticated successfully", Color.DodgerBlue)
-        End If
-    End Function
+            Interlocked.Exchange(refreshInFlight, 0)
+            AppendColoredText(txtLogs, "WebSocket re-authenticated successfully (token rotated)", Color.DodgerBlue)
+        Catch ex As Exception
+            ' Non-id-3 messages / parse noise: ignore, like the other id-keyed handlers.
+        End Try
+    End Sub
 
     Private Async Function SendWebSocketMessageAsync(message As String) As Task
         Try
@@ -604,6 +636,8 @@ Public Class frmMainPageV2
                 HandleBalanceUpdates(response)
                 ' Call the function to handle user order/position updates
                 HandleOrderPositionUpdates(response)
+                ' Handle the id-3 token-refresh response (sent by RefreshWebSocketAuthentication)
+                HandleTokenRefreshResponse(response)
                 ' NEW: Handle account summary responses
                 HandleAccountSummaryResponse(response)
                 ' NEW: Handle rate limit errors
