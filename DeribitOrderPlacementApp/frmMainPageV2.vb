@@ -1150,6 +1150,15 @@ Public Class frmMainPageV2
     Private Const MinPriceMovementThreshold As Decimal = 5D ' Minimum $5 movement to trigger update
     Private newPricePublic As Decimal = 0 'For storing the price during emergency reduce market order for logging
 
+    ' #6: throttle for hot-path parse warnings so a held-down blank field can't spam the log
+    Private lastParseWarn As DateTime = DateTime.MinValue
+    Private Sub WarnParseThrottled(message As String)
+        If (DateTime.UtcNow - lastParseWarn).TotalSeconds >= 5 Then
+            lastParseWarn = DateTime.UtcNow
+            AppendColoredText(txtLogs, message, Color.Gray)
+        End If
+    End Sub
+
     'Handle best bid/asks updates from Websocket
     Private Async Sub HandleQuoteUpdates(response As String)
         Try
@@ -1178,10 +1187,21 @@ Public Class frmMainPageV2
                               End Sub)
                 End If
 
+                ' #6: parse hot-path inputs ONCE with TryParse. A blank/mid-edit field must never throw
+                ' and abort the tick - that would skip the stop-loss repositioning further down.
+                Dim placedPrice As Decimal = 0D
+                Dim placedPriceValid As Boolean = Decimal.TryParse(txtPlacedPrice.Text, placedPrice)
+                Dim amount As Decimal = 0D
+                Dim amountValid As Boolean = Decimal.TryParse(txtAmount.Text, amount)
+
+                If (Not placedPriceValid) AndAlso (CurrentOpenOrderId IsNot Nothing OrElse SLTriggered OrElse isTrailingPosition) Then
+                    WarnParseThrottled("Placed-price field blank/invalid - skipping reposition/PnL this tick (SL repositioning still runs)")
+                End If
+
                 'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
                 If (CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
+                        If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 'Stop if repositioned past ATR slippage threshold
@@ -1219,7 +1239,7 @@ Public Class frmMainPageV2
                             End If
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
+                        If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
@@ -1262,8 +1282,10 @@ Public Class frmMainPageV2
                         Dim currentStopPrice As Decimal = 0D
                         If Decimal.TryParse(txtPlacedStopLossPrice.Text, currentStopPrice) AndAlso currentStopPrice > 0 Then
 
-                            ' Emergency condition: Check if price moved beyond emergency threshold
-                            Dim emergencyThreshold As Decimal = Decimal.Parse(txtMarketStopLoss.Text)
+                            ' Emergency condition: Check if price moved beyond emergency threshold.
+                            ' #6: TryParse - a blank field disables only the emergency path; normal SL trailing below still runs.
+                            Dim emergencyThreshold As Decimal = 0D
+                            Dim emergencyThresholdValid As Boolean = Decimal.TryParse(txtMarketStopLoss.Text, emergencyThreshold)
                             Dim priceMovement As Decimal = 0D
 
                             If TradeMode Then
@@ -1275,7 +1297,7 @@ Public Class frmMainPageV2
                             ' Call ForceStopLossUpdate if emergency conditions are met
 
 
-                            If priceMovement >= emergencyThreshold Then
+                            If emergencyThresholdValid AndAlso priceMovement >= emergencyThreshold Then
                                 If chkMarketStopLoss.Checked Then
                                     Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
                                     Return ' Exit early after emergency update
@@ -1304,7 +1326,7 @@ Public Class frmMainPageV2
                             If shouldUpdate Then
                                 Try
                                     ' Check if we should use force update instead of normal rate-limited update
-                                    If priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
+                                    If emergencyThresholdValid AndAlso priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
                                         Await ForceStopLossUpdate(newStopPrice)
                                     Else
                                         Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
@@ -1339,7 +1361,7 @@ Public Class frmMainPageV2
                 'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
                 If (CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True) Then
                     If TradeMode = True Then
-                        If bestBid > ((Decimal.Parse(txtPlacedPrice.Text)) + 3) Then
+                        If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "LONG") Then
@@ -1365,7 +1387,7 @@ Public Class frmMainPageV2
                             End If
                         End If
                     Else
-                        If bestAsk < ((Decimal.Parse(txtPlacedPrice.Text)) - 3) Then
+                        If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
@@ -1393,41 +1415,49 @@ Public Class frmMainPageV2
 
 
 
-                'Check if a trailing order is in position and current price has hit take profit price. 
+                'Check if a trailing order is in position and current price has hit take profit price.
                 'If yes, cancel stop loss and place trailing stop loss order
                 If (isTrailingPosition = True) And (isTrailingStopLossPlaced = True) Then
+                    ' #6: parse trailing-trigger inputs safely. Manual TP (txtManualTP) overrides; otherwise
+                    ' derive from placed price + (offset + comms). Skip this tick's trigger if inputs are invalid.
+                    Dim manualTP As Decimal = 0D
+                    Dim manualTPValid As Boolean = Decimal.TryParse(txtManualTP.Text, manualTP)
+                    Dim tpOffset As Decimal = 0D
+                    Dim tpOffsetValid As Boolean = Decimal.TryParse(txtTPOffset.Text, tpOffset)
+                    Dim comms As Decimal = 0D
+                    Dim commsValid As Boolean = Decimal.TryParse(txtComms.Text, comms)
 
-                    If TradeMode = True Then
+                    Dim haveTrigger As Boolean = False
+                    If manualTPValid AndAlso manualTP > 0 Then
+                        TPTrailprice = manualTP
+                        haveTrigger = True
+                    ElseIf placedPriceValid AndAlso tpOffsetValid AndAlso commsValid Then
+                        TPTrailprice = If(TradeMode, placedPrice + (tpOffset + comms), placedPrice - (tpOffset + comms))
+                        haveTrigger = True
+                    End If
 
-                        'To set price at which trailing stop loss order is triggered for placement. This directly uses txtTPOffset and txtComms numbers in realtime.
-                        'If manual take profit textbox is not empty, use that
-                        If Decimal.Parse(txtManualTP.Text) > 0 Then
-                            TPTrailprice = Decimal.Parse(txtManualTP.Text)
+                    If haveTrigger Then
+                        If TradeMode = True Then
+                            If TPTrailprice <= bestAsk Then
+                                isTrailingStopLossPlaced = False
+                                Await TrailingStopLossOrderAsync()
+                            End If
                         Else
-                            TPTrailprice = Decimal.Parse(txtPlacedPrice.Text) + (Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text))
-                        End If
-                        If TPTrailprice <= bestAsk Then
-                            isTrailingStopLossPlaced = False
-                            Await TrailingStopLossOrderAsync()
+                            If TPTrailprice >= bestBid Then
+                                isTrailingStopLossPlaced = False
+                                Await TrailingStopLossOrderAsync()
+                            End If
                         End If
                     Else
-                        If Decimal.Parse(txtManualTP.Text) > 0 Then
-                            TPTrailprice = Decimal.Parse(txtManualTP.Text)
-                        Else
-                            TPTrailprice = Decimal.Parse(txtPlacedPrice.Text) - (Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text))
-                        End If
-                        If TPTrailprice >= bestBid Then
-                            isTrailingStopLossPlaced = False
-                            Await TrailingStopLossOrderAsync()
-                        End If
+                        WarnParseThrottled("Trailing TP inputs blank/invalid - skipping trailing trigger this tick")
                     End If
                 End If
 
-                If Decimal.Parse(txtPlacedPrice.Text) > 0 Then
+                If placedPriceValid AndAlso placedPrice > 0 AndAlso amountValid Then
                     Dim PnL As Decimal
                     If TradeMode = True Then
-                        PnL = (BestAskPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / Decimal.Parse(txtPlacedPrice.Text))
-                        If BestAskPrice < Decimal.Parse(txtPlacedPrice.Text) Then
+                        PnL = (BestAskPrice - placedPrice) * (amount / placedPrice)
+                        If BestAskPrice < placedPrice Then
                             Me.Invoke(Sub()
                                           lblPnL.ForeColor = Color.Red
                                       End Sub)
@@ -1437,8 +1467,8 @@ Public Class frmMainPageV2
                                       End Sub)
                         End If
                     Else
-                        PnL = (Decimal.Parse(txtPlacedPrice.Text) - BestAskPrice) * (Decimal.Parse(txtAmount.Text) / Decimal.Parse(txtPlacedPrice.Text))
-                        If BestAskPrice > Decimal.Parse(txtPlacedPrice.Text) Then
+                        PnL = (placedPrice - BestAskPrice) * (amount / placedPrice)
+                        If BestAskPrice > placedPrice Then
                             Me.Invoke(Sub()
                                           lblPnL.ForeColor = Color.Red
                                       End Sub)
