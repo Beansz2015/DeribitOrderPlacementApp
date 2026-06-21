@@ -28,9 +28,8 @@ Public Class frmMainPageV2
     Private refreshToken As String = Nothing
     Private refreshTokenExpiryTime As DateTime = DateTime.MinValue
 
-    ' Replace with your client ID and client secret
-    Private Const ClientId As String = "YZCnDmWo"
-    Private Const ClientSecret As String = "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA"
+    ' API credentials are loaded at runtime from a git-ignored secrets.json (see AppSecrets.vb).
+    ' Use AppSecrets.ClientId / AppSecrets.ClientSecret.
 
     'Public Variables
     Public BestBidPrice, BestAskPrice, TPTrailprice As Decimal
@@ -196,6 +195,14 @@ Public Class frmMainPageV2
     End Sub
 
     Private Sub frmMainPageV2_Shown(sender As Object, e As EventArgs) Handles MyBase.Shown
+        ' Load API credentials from git-ignored secrets.json before any connection attempt
+        Dim secretsError As String = AppSecrets.Load()
+        If secretsError IsNot Nothing Then
+            AppendColoredText(txtLogs, $"API credentials: {secretsError}", Color.Red)
+        Else
+            AppendColoredText(txtLogs, "API credentials loaded", Color.LimeGreen)
+        End If
+
         Try
             ' Initialize trade database
             tradeDatabase = New TradeDatabase()
@@ -314,8 +321,8 @@ Public Class frmMainPageV2
             New JProperty("method", "public/auth"),
             New JProperty("params", New JObject(
                 New JProperty("grant_type", "client_credentials"),
-                New JProperty("client_id", ClientId),
-                New JProperty("client_secret", ClientSecret)
+                New JProperty("client_id", AppSecrets.ClientId),
+                New JProperty("client_secret", AppSecrets.ClientSecret)
             ))
         )
         'Await SendWebSocketMessageAsync(authPayload)

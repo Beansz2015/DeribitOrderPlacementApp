@@ -80,7 +80,7 @@ Public Class frmMainPage
             timerTopAsk.Stop()
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -461,7 +461,7 @@ Public Class frmMainPage
         Try
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -503,7 +503,7 @@ Public Class frmMainPage
         Try
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -546,7 +546,7 @@ Public Class frmMainPage
         Try
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -647,7 +647,7 @@ Public Class frmMainPage
         Try
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -688,7 +688,7 @@ Public Class frmMainPage
         Try
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -906,7 +906,7 @@ Public Class frmMainPage
             'Await EnsureAuthenticationAsync("YEwHDiU5", "iGNfQP-HgSje-ECSmNUG3NT6AEETuYe9IMoXVilmAes")
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Call the function to get the BTC balance/equity
 
@@ -1127,7 +1127,7 @@ Public Class frmMainPage
             If BTCPrice >= Decimal.Parse(txtPlacedBuyPrice.Text.Trim()) + (Decimal.Parse(txtLTPOffset.Text.Trim) + Decimal.Parse(txtLComms.Text.Trim)) Then
 
                 ' Ensure authentication
-                Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+                Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
                 ' Set the authorization header with the access token
                 client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -1193,7 +1193,7 @@ Public Class frmMainPage
             If BTCPrice <= Decimal.Parse(txtPlacedSellPrice.Text.Trim()) - (Decimal.Parse(txtSTPOffset.Text.Trim) + Decimal.Parse(txtSComms.Text.Trim)) Then
 
                 ' Ensure authentication
-                Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+                Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
                 ' Set the authorization header with the access token
                 client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -1437,7 +1437,7 @@ Public Class frmMainPage
             'Await EnsureAuthenticationAsync("YEwHDiU5", "iGNfQP-HgSje-ECSmNUG3NT6AEETuYe9IMoXVilmAes")
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             If (TypeOfOrder = "NoSpread") Or (TypeOfOrder = "Timer") Then
                 ' Fetch values from textboxes and modify to fit no spread values
@@ -1698,7 +1698,7 @@ Public Class frmMainPage
             'Await EnsureAuthenticationAsync("YEwHDiU5", "iGNfQP-HgSje-ECSmNUG3NT6AEETuYe9IMoXVilmAes")
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             If (TypeOfSOrder = "NoSpread") Or (TypeOfSOrder = "Timer") Then
                 ' Fetch values from textboxes and modify to fit no spread values
@@ -1951,7 +1951,7 @@ Public Class frmMainPage
             'Await EnsureAuthenticationAsync("YEwHDiU5", "iGNfQP-HgSje-ECSmNUG3NT6AEETuYe9IMoXVilmAes")
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             If TypeOfOrder = "MarketBuy" Then
                 ' Fetch values from textboxes and modify to fit no spread values
@@ -2392,7 +2392,7 @@ Public Class frmMainPage
             'Await EnsureAuthenticationAsync("YEwHDiU5", "iGNfQP-HgSje-ECSmNUG3NT6AEETuYe9IMoXVilmAes")
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
 
             ' Fetch values from textboxes
@@ -2505,7 +2505,7 @@ Public Class frmMainPage
             'Await EnsureAuthenticationAsync("YEwHDiU5", "iGNfQP-HgSje-ECSmNUG3NT6AEETuYe9IMoXVilmAes")
 
             'Play Account API
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
 
             ' Fetch values from textboxes
@@ -2736,7 +2736,7 @@ Public Class frmMainPage
             btnEditTPBuyPrice.Enabled = False
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -2803,7 +2803,7 @@ Public Class frmMainPage
             btnEditSLBuyPrice.Enabled = False
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -2869,7 +2869,7 @@ Public Class frmMainPage
             btnEditTPSellPrice.Enabled = False
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -2934,7 +2934,7 @@ Public Class frmMainPage
             btnEditSLSellPrice.Enabled = False
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -3131,7 +3131,7 @@ Public Class frmMainPage
             OrderStatus(btnLTrailBuy, lblOrderStatusLong, PBLong, "Prep Payload.")
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Fetch the values from the textboxes
             Dim entryPrice = Decimal.Parse(txtLEntryPrice.Text.Trim)
@@ -3233,7 +3233,7 @@ Public Class frmMainPage
             OrderStatus(btnSTrailSell, lblOrderStatusShort, PBShort, "Prep Payload.")
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Fetch the values from the textboxes
             Dim entryPrice = Decimal.Parse(txtSEntryPrice.Text.Trim)
@@ -3331,7 +3331,7 @@ Public Class frmMainPage
             'If BTCPrice >= Decimal.Parse(txtPlacedBuyPrice.Text.Trim()) + targetOffset Then
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)
@@ -3393,7 +3393,7 @@ Public Class frmMainPage
             'If BTCPrice >= Decimal.Parse(txtPlacedBuyPrice.Text.Trim()) + targetOffset Then
 
             ' Ensure authentication
-            Await EnsureAuthenticationAsync("YZCnDmWo", "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA")
+            Await EnsureAuthenticationAsync(AppSecrets.ClientId, AppSecrets.ClientSecret)
 
             ' Set the authorization header with the access token
             client.DefaultRequestHeaders.Authorization = New AuthenticationHeaderValue("Bearer", accessToken)

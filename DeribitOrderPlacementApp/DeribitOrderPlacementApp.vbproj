@@ -58,4 +58,14 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Local, git-ignored secrets. Copied to output only if present (fresh clones build fine without it). -->
+    <None Update="secrets.json" Condition="Exists('secrets.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="secrets.example.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

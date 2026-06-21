@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Local API credentials — NEVER commit. Copy secrets.example.json to secrets.json.
+secrets.json
