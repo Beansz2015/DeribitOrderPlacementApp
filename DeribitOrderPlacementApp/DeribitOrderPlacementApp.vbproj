@@ -25,12 +25,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Update="frmMainPage.vb">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Compile>
-    <Compile Update="frmMainPageV2.vb">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Compile>
     <Compile Update="My Project\Application.Designer.vb">
       <DesignTime>True</DesignTime>
       <AutoGen>True</AutoGen>
