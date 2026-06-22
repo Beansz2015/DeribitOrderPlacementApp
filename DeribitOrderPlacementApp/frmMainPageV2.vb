@@ -3691,9 +3691,9 @@ Public Class frmMainPageV2
 
             ' Determine the direction based on the current position
             If TradeMode = True Then
-                direction = "sell" ' To reduce a short, we buy
+                direction = "sell" ' To reduce a long, we sell
             Else
-                direction = "buy" ' To reduce a long, we sell
+                direction = "buy" ' To reduce a short, we buy
             End If
 
             ' Validate the amount
