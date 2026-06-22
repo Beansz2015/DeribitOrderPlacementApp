@@ -16,8 +16,8 @@ Severity legend: 🔴 Critical · 🟠 High · 🟡 Medium · ⚪ Housekeeping
 `frmMainPageV2.vb:32-33`
 
 ```vb
-Private Const ClientId As String = "YZCnDmWo"
-Private Const ClientSecret As String = "EUKusjG9fnmMgsBmPl9TmHod5Otuan8YCnaMy1DvEgA"
+Private Const ClientId As String = "<redacted>"
+Private Const ClientSecret As String = "<redacted>"
 ```
 
 Confirmed present in git history since the first commit (`f5597fe`), on a **public** repo.
