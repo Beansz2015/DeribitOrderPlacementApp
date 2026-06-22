@@ -3788,11 +3788,8 @@ Public Class frmMainPageV2
             ' Determine the direction based on the current position
             If TradeMode = False Then
                 direction = "buy" ' To reduce a short, we buy
-            ElseIf TradeMode = True Then
-                direction = "sell" ' To reduce a long, we sell
             Else
-                AppendColoredText(txtLogs, "No position to reduce.", Color.Red)
-                Return
+                direction = "sell" ' To reduce a long, we sell
             End If
 
             ' Validate the amount
@@ -3826,11 +3823,8 @@ Public Class frmMainPageV2
             ' Determine the direction based on the current position
             If TradeMode = True Then
                 direction = "sell" ' To reduce a short, we buy
-            ElseIf TradeMode = False Then
-                direction = "buy" ' To reduce a long, we sell
             Else
-                AppendColoredText(txtLogs, "No position to reduce.", Color.Red)
-                Return
+                direction = "buy" ' To reduce a long, we sell
             End If
 
             ' Validate the amount
