@@ -22,7 +22,6 @@ Public Class frmMainPageV2
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
     Private lastMessageTime As DateTime
-    Private keepAliveTimer As System.Timers.Timer
 
     'For refresh authentication token
     Private refreshToken As String = Nothing
