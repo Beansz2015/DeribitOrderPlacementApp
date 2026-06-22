@@ -1652,7 +1652,8 @@ Public Class FrmIndicators
     Private Sub FrmIndicators_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
         pollTimer.Stop()
         If client IsNot Nothing AndAlso client.State = WebSocketState.Open Then
-            client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None).Wait()
+            ' Bounded wait on shutdown: a slow/unresponsive close must not hang the UI thread.
+            client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None).Wait(TimeSpan.FromSeconds(2))
         End If
     End Sub
 
