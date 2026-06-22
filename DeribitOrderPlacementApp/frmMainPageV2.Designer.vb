@@ -24,7 +24,6 @@ Partial Class frmMainPageV2
     Private Sub InitializeComponent()
         components = New ComponentModel.Container()
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(frmMainPageV2))
-        btnChangeForm = New Button()
         txtLogs = New RichTextBox()
         btnClose = New Button()
         btnClearLog = New Button()
@@ -118,19 +117,7 @@ Partial Class frmMainPageV2
         OrderAmount.SuspendLayout()
         ManualTPSL.SuspendLayout()
         SuspendLayout()
-        ' 
-        ' btnChangeForm
-        ' 
-        btnChangeForm.BackColor = Color.MediumSeaGreen
-        btnChangeForm.Cursor = Cursors.Hand
-        btnChangeForm.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnChangeForm.Location = New Point(908, 6)
-        btnChangeForm.Name = "btnChangeForm"
-        btnChangeForm.Size = New Size(65, 50)
-        btnChangeForm.TabIndex = 81
-        btnChangeForm.Text = "V1"
-        btnChangeForm.UseVisualStyleBackColor = False
-        ' 
+        '
         ' txtLogs
         ' 
         txtLogs.BackColor = Color.Black
@@ -1218,7 +1205,6 @@ Partial Class frmMainPageV2
         Controls.Add(AccountInfo)
         Controls.Add(btnClearLog)
         Controls.Add(btnClose)
-        Controls.Add(btnChangeForm)
         Controls.Add(ManualTPSL)
         Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         FormBorderStyle = FormBorderStyle.FixedDialog
@@ -1242,7 +1228,6 @@ Partial Class frmMainPageV2
         ResumeLayout(False)
         PerformLayout()
     End Sub
-    Friend WithEvents btnChangeForm As Button
     Friend WithEvents txtLogs As RichTextBox
     Friend WithEvents btnClose As Button
     Friend WithEvents btnClearLog As Button

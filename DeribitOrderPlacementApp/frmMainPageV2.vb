@@ -3566,14 +3566,6 @@ Public Class frmMainPageV2
         End Try
     End Function
 
-
-
-    Private Sub btnChangeForm_Click(sender As Object, e As EventArgs) Handles btnChangeForm.Click
-        frmMainPage.Show()
-        Me.Hide()
-
-    End Sub
-
     Private Async Sub btnClose_Click(sender As Object, e As EventArgs) Handles btnClose.Click
         Try
             ' Signal shutdown intent
