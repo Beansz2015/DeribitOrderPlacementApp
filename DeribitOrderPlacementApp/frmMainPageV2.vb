@@ -238,86 +238,6 @@ Public Class frmMainPageV2
         AppendColoredText(txtLogs, $"Trade #{tradeId} deleted from database", Color.Yellow)
     End Sub
 
-    Private Async Function WebSocketCalls() As Task
-
-        Dim reconnectNeeded As Boolean = False
-
-        ' Initialize WebSocket
-        webSocketClient = New ClientWebSocket()
-        webSocketClient.Options.KeepAliveInterval = TimeSpan.FromSeconds(30)
-        cancellationTokenSource = New CancellationTokenSource()
-
-        Try
-            ' Connect to Deribit WebSocket
-            'Await webSocketClient.ConnectAsync(New Uri("wss://www.deribit.com/ws/api/v2"), cancellationTokenSource.Token)
-
-            ' Connect with timeout protection
-            Using cts As New CancellationTokenSource(TimeSpan.FromSeconds(30))
-                Await webSocketClient.ConnectAsync(New Uri("wss://www.deribit.com/ws/api/v2"), cts.Token)
-            End Using
-
-
-            ' Start fetching real-time server time
-            'Await Task.Run(AddressOf FetchServerTimeContinuously)
-
-            ' Initialize rate limiter before any API calls
-            If rateLimiter Is Nothing Then
-                rateLimiter = New DeribitRateLimiter(2000, 50) ' Conservative emergency limiter
-            End If
-
-            ' Authorize the connection
-            Await AuthorizeWebSocketConnection()
-
-            Await EnableDeribitHeartbeatEnhanced()
-
-            ' Subscribe to the BTC-PERPETUAL index price user portfolio
-            Await SubscribeToIndexPrice()
-
-            ' Subscribe to the user portfolio
-            Await SubscribeToUserPortfolio()
-
-            ' Subscribe to the quote.BTC-PERPETUAL channel
-            Await SubscribeToQuoteBTCPerpetual()
-
-            ' Subscribe to the user.changes.BTC-PERPETUAL.raw channel (Changes to orders, trades & positions)
-            Await SubscribeToUserOrders()
-
-            ' Start monitoring authentication
-            Await Task.Run(AddressOf MonitorAuthentication)
-
-            ' Subscribe to the BTC-PERPETUAL index price
-            'Dim subscriptionPayload As String = "{""jsonrpc"":""2.0"",""id"":1,""method"":""public/subscribe"",""params"":{""channels"":[""perpetual.BTC-PERPETUAL.agg2"", ""user.portfolio.btc""]}}"
-
-            Dim WebSocketCallsBackgroundTask = Task.Run(Async Function()
-                                                            Try
-                                                                Await Task.Delay(3000) ' Give connection time to stabilize
-                                                                Await InitializeRateLimitsAfterAuth()
-                                                                AppendColoredText(txtLogs, "Rate limits updated after authentication", Color.Cyan)
-                                                            Catch ex As Exception
-                                                                AppendColoredText(txtLogs, $"Background rate limit update failed: {ex.Message}", Color.Yellow)
-                                                                ' Keep using emergency rate limiter
-                                                            End Try
-                                                            Return Nothing
-                                                        End Function)
-
-            'Monitor connection health in a separate non-async task
-            Dim connectionHealthTask = Task.Run(AddressOf MonitorConnectionHealth)
-
-            ' Start receiving messages
-            Await ReceiveWebSocketMessagesAsync()
-
-        Catch ex As Exception
-            Throw New Exception("Authentication failed: " & ex.Message)
-            'txtLogs.AppendText("Authentication failed." + ex.Message + Environment.NewLine)
-            AppendColoredText(txtLogs, "Authentication failed." + ex.Message, Color.Red)
-            reconnectNeeded = True
-
-        End Try
-        If reconnectNeeded Then
-            Await ReconnectWebSocket()
-        End If
-    End Function
-
     Private Async Function AuthorizeWebSocketConnection() As Task
 
         ' Create the authorization message using JObject
@@ -694,28 +614,6 @@ Public Class frmMainPageV2
             End Try
         End While
     End Sub
-
-    Private Async Function ReconnectWebSocket() As Task
-        'lblStatus.Text = "Reconnecting..."
-        'txtLogs.AppendText("Reconnecting..." + Environment.NewLine)
-        AppendColoredText(txtLogs, "Reconnecting...", Color.DodgerBlue)
-
-        ' Ensure stop-loss protection during reconnection
-        If SLTriggered AndAlso PositionSLOrderId IsNot Nothing AndAlso BestAskPrice > 0 Then
-            Try
-                Await ForceStopLossUpdate(If(TradeMode, BestAskPrice, BestBidPrice))
-            Catch ex As Exception
-                AppendColoredText(txtLogs, $"Failed to force SL update during reconnection: {ex.Message}", Color.Red)
-            End Try
-        End If
-
-        If webSocketClient IsNot Nothing Then
-            webSocketClient.Dispose()
-        End If
-
-        Await WebSocketCalls()
-    End Function
-
 
     'Private Async Function EnableHeartbeat(intervalSeconds As Integer) As Task
     'Dim heartbeatPayload As String = $"{{""jsonrpc"":""2.0"",""id"":3,""method"":""public/set_heartbeat"",""params"":{{""interval"":{intervalSeconds}}}}}"
