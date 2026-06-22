@@ -615,10 +615,6 @@ Public Class frmMainPageV2
         End While
     End Sub
 
-    'Private Async Function EnableHeartbeat(intervalSeconds As Integer) As Task
-    'Dim heartbeatPayload As String = $"{{""jsonrpc"":""2.0"",""id"":3,""method"":""public/set_heartbeat"",""params"":{{""interval"":{intervalSeconds}}}}}"
-    '        Await SendWebSocketMessageAsync(heartbeatPayload)
-
     Private Async Function EnableDeribitHeartbeatEnhanced() As Task
         Try
             ' Use Deribit's official heartbeat API with proper JSON structure
@@ -3379,30 +3375,6 @@ Public Class frmMainPageV2
 
     'All button logic below
     '----------------------------------------------------------------------------------
-
-    'Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
-    ' Try
-    ' If btnConnect.Text = "Connect!" Then
-    '' Initialize WebSocket connection first
-    '             Await WebSocketCalls()
-
-    ' Automatically initialize rate limits after successful connection
-    ' If btnConnect.Text = "ONLINE" Then
-    '                Await InitializeRateLimits()
-    ''AppendColoredText(txtLogs, "Rate limiting initialized automatically after connection.", Color.LimeGreen)
-    'End If
-
-    '          AppendColoredText(txtLogs, "Connected." + Environment.NewLine, Color.DodgerBlue)
-    'ElseIf btnConnect.Text = "ONLINE" Then
-    '           ' Manual rate limit refresh when already connected
-    '          Await InitializeRateLimits()
-    '         AppendColoredText(txtLogs, "Rate limits manually refreshed.", Color.LimeGreen)
-    'End If
-
-    'Catch ex As Exception
-    '       AppendColoredText(txtLogs, "Connect failed." + Environment.NewLine, Color.Red)
-    'End Try
-    'End Sub
 
     Private Async Sub btnConnect_Click(sender As Object, e As EventArgs) Handles btnConnect.Click
         Try
