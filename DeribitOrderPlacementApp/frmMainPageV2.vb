@@ -1999,17 +1999,15 @@ Public Class frmMainPageV2
     Private currentRequoteCount As Integer = 0
 
     Private Function CalculateATRSlippageLimit() As Decimal
-        ' Get current ATR from your indicators form
-        Dim currentATR As Decimal
-        If Not Decimal.TryParse(_indicators.lblATR.Text, currentATR) Then
+        ' Cross-thread fix: read the engine fields, not controls. ATR comes from _indicators.CurrentATR
+        ' (a backing field), the multiplier from maxSlippageATRmult (mirrors txtMaxSlippageATR).
+        Dim currentATR As Decimal = If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D)
+        If currentATR <= 0D Then
             Return 70 ' Fallback to $70 if ATR unavailable
         End If
 
-        ' Get ATR multiplier from settings
-        Dim atrMultiplier As Decimal
-        If Not Decimal.TryParse(txtMaxSlippageATR.Text, atrMultiplier) Then
-            atrMultiplier = 0.6D ' Default 0.6x ATR
-        End If
+        ' Get ATR multiplier from settings (blank/0 -> default 0.6x ATR)
+        Dim atrMultiplier As Decimal = If(maxSlippageATRmult > 0D, maxSlippageATRmult, 0.6D)
 
         Return currentATR * atrMultiplier
     End Function
@@ -2023,8 +2021,8 @@ Public Class frmMainPageV2
         Dim slippageLimit As Decimal = CalculateATRSlippageLimit()
         Dim actualSlippage As Decimal = Math.Abs(currentPrice - originalSignalPrice)
 
-        ' Calculate slippage in ATR units for logging
-        Dim currentATR As Decimal = Decimal.Parse(_indicators.lblATR.Text)
+        ' Calculate slippage in ATR units for logging (cross-thread fix: read CurrentATR field, not lblATR)
+        Dim currentATR As Decimal = If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D)
         Dim slippageInATR As Decimal = If(currentATR > 0, actualSlippage / currentATR, 0)
 
         If actualSlippage > slippageLimit Then

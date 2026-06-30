@@ -34,6 +34,15 @@ Public Class FrmIndicators
 
     Private _autoTradeSettings As AutoTradeSettings  ' Reference to settings form
 
+    ' Cross-thread fix: latest computed ATR, published for frmMainPageV2's receive-loop slippage check
+    ' to read off-thread without touching lblATR. Updated wherever lblATR.Text is set.
+    Private _currentATR As Decimal = 0D
+    Public ReadOnly Property CurrentATR As Decimal
+        Get
+            Return _currentATR
+        End Get
+    End Property
+
     Public Sub New(host As Form)
         InitializeComponent()               ' designer code
         _host = host
@@ -1583,6 +1592,9 @@ Public Class FrmIndicators
 
         ' Only proceed if ATR exists
         If atrValue.HasValue Then
+            ' Cross-thread fix: publish ATR to a backing field so frmMainPageV2's receive-loop slippage
+            ' check (CalculateATRSlippageLimit/IsATRSlippageExcessive) reads CurrentATR instead of lblATR.Text.
+            _currentATR = CDec(atrValue.Value)
             Dim atrText = $"{atrValue.Value:F2}"
             ' Thread‐safe UI update
             If Me.InvokeRequired Then
