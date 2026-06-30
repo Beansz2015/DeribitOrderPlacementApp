@@ -1113,6 +1113,19 @@ Public Class frmMainPageV2
     Private Const MinPriceMovementThreshold As Decimal = 5D ' Minimum $5 movement to trigger update
     Private newPricePublic As Decimal = 0 'For storing the price during emergency reduce market order for logging
 
+    ' #4 retry-amplifier fix: bounded backoff for a failed triggered-SL reposition. The old code reset
+    ' lastStopLossUpdate = DateTime.MinValue on error, which cleared the throttle so a persistent failure
+    ' retried on EVERY quote tick (amplifying the edit storm). Instead, escalate the next-allowed time
+    ' (capped at 5s) by pushing lastStopLossUpdate forward; a success resets the counter.
+    Private slUpdateFailures As Integer = 0
+    Private Const SLUpdateMaxBackoffMs As Double = 5000
+    Private Sub BackoffStopLossRetry(failedAt As DateTime)
+        slUpdateFailures = Math.Min(slUpdateFailures + 1, 8)
+        Dim backoffMs As Double = Math.Min(MinStopLossUpdateInterval * (2 ^ slUpdateFailures), SLUpdateMaxBackoffMs)
+        ' Gate is (now - lastStopLossUpdate) >= MinInterval, so this delays the next attempt to failedAt + backoffMs.
+        lastStopLossUpdate = failedAt.AddMilliseconds(backoffMs - MinStopLossUpdateInterval)
+    End Sub
+
     ' #5: single-flight guard for the order-reposition section of HandleQuoteUpdates. 0 = idle, 1 = a
     ' reposition is awaiting (Interlocked). Mirrors isReconnecting. Does NOT cover the triggered-SL
     ' emergency block or the price/PnL labels - those run every tick.
@@ -1252,20 +1265,23 @@ Public Class frmMainPageV2
                 End If
 
                 'For keeping triggered stop loss order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
-                If SLTriggered AndAlso PositionSLOrderId IsNot Nothing Then
+                ' Cross-thread fix #5: also gate on a live socket so SL edits aren't piled into a closing connection.
+                If IsWebSocketConnected AndAlso SLTriggered AndAlso PositionSLOrderId IsNot Nothing Then
                     Dim currentTime As DateTime = DateTime.UtcNow
 
                     ' Rate limiting: Only update if minimum time has passed
                     If (currentTime - lastStopLossUpdate).TotalMilliseconds >= MinStopLossUpdateInterval Then
 
-                        ' Parse current stop loss price once to avoid multiple parsing
-                        Dim currentStopPrice As Decimal = 0D
-                        If Decimal.TryParse(txtPlacedStopLossPrice.Text, currentStopPrice) AndAlso currentStopPrice > 0 Then
+                        ' Cross-thread fix: read the engine field, not txtPlacedStopLossPrice. placedStopLossPrice
+                        ' is set at placement, from the exchange, and after each SL reposition below.
+                        Dim currentStopPrice As Decimal = placedStopLossPrice
+                        If currentStopPrice > 0 Then
 
-                            ' Emergency condition: Check if price moved beyond emergency threshold.
-                            ' #6: TryParse - a blank field disables only the emergency path; normal SL trailing below still runs.
-                            Dim emergencyThreshold As Decimal = 0D
-                            Dim emergencyThresholdValid As Boolean = Decimal.TryParse(txtMarketStopLoss.Text, emergencyThreshold)
+                            ' Emergency condition: Check if price moved beyond emergency threshold (marketStopThreshold
+                            ' mirrors txtMarketStopLoss). Blank OR 0 disables the emergency path; normal SL trailing below
+                            ' still runs (deviation from the old TryParse, which treated "0" as an always-on threshold).
+                            Dim emergencyThreshold As Decimal = marketStopThreshold
+                            Dim emergencyThresholdValid As Boolean = marketStopThreshold > 0D
                             Dim priceMovement As Decimal = 0D
 
                             If TradeMode Then
@@ -1312,16 +1328,20 @@ Public Class frmMainPageV2
                                         Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
                                     End If
 
-                                    txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2")
+                                    ' Runaway fix: advance engine state synchronously before the display mirror.
+                                    placedStopLossPrice = newStopPrice
+                                    UiInvoke(Sub() txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2"))
                                     lastStopLossUpdate = currentTime
+                                    slUpdateFailures = 0   ' success clears the backoff
 
                                     AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
 
                                 Catch ex As Exception
                                     AppendColoredText(txtLogs, $"Critical SL update failed: {ex.Message}", Color.Red)
 
-                                    ' Emergency fallback: Reset timer to allow immediate retry
-                                    lastStopLossUpdate = DateTime.MinValue
+                                    ' #4 retry-amplifier fix: bounded backoff instead of DateTime.MinValue (which reset the
+                                    ' throttle and retried every tick on a persistent failure, amplifying the storm).
+                                    BackoffStopLossRetry(currentTime)
                                 End Try
                             End If
                             'Else
@@ -1626,6 +1646,7 @@ Public Class frmMainPageV2
                                                       End If
 
                                                       txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
+                                                      placedStopLossPrice = If(price, 0D)   ' engine state = exchange's triggered-SL price (cross-thread fix)
 
                                                       lblOrderStatus.Text = "Stop Loss Triggered"
                                                       lblOrderStatus.ForeColor = Color.Red
@@ -1697,6 +1718,7 @@ Public Class frmMainPageV2
 
                                                       txtPlacedTrigStopPrice.Text = If(triggerPrice?.ToString("F2"), "0")
                                                       txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
+                                                      placedStopLossPrice = If(price, 0D)   ' engine state mirrors exchange SL price (cross-thread fix)
                                                       unTrigOrder = True
                                                       CurrentSLOrderId = orderId
                                                       PositionSLOrderId = orderId
@@ -2401,7 +2423,8 @@ Public Class frmMainPageV2
             txtPlacedStopLossPrice.Text = stoplossPrice.ToString("F2")
 
             txtPlacedPrice.Text = BestPrice.ToString("F2")
-            placedPrice = BestPrice   ' seed engine state at placement (cross-thread fix)
+            placedPrice = BestPrice               ' seed engine state at placement (cross-thread fix)
+            placedStopLossPrice = stoplossPrice
 
             If TypeOfOrder = "BuyLimit" Then
                 ' Optional: Handle post-order logic (e.g., display confirmation)
@@ -2734,8 +2757,8 @@ Public Class frmMainPageV2
             ' Handle rate limit errors specifically
             If ex.Message.Contains("too_many_requests") OrElse ex.Message.Contains("10028") Then
                 AppendColoredText(txtLogs, "Rate limit hit during critical SL update - will retry", Color.Yellow)
-                ' Reset last update time to allow immediate retry
-                lastStopLossUpdate = DateTime.MinValue
+                ' #4 retry-amplifier fix: bounded backoff instead of DateTime.MinValue (immediate per-tick retry).
+                BackoffStopLossRetry(DateTime.UtcNow)
             End If
         End Try
     End Function
@@ -3006,7 +3029,8 @@ Public Class frmMainPageV2
             txtPlacedStopLossPrice.Text = stoplossPrice.ToString("F2")
 
             txtPlacedPrice.Text = BestPrice.ToString("F2")
-            placedPrice = BestPrice   ' seed engine state at placement (cross-thread fix)
+            placedPrice = BestPrice               ' seed engine state at placement (cross-thread fix)
+            placedStopLossPrice = stoplossPrice
 
             isTrailingStopLossPlaced = True
 
