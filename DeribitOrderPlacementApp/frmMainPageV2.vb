@@ -1729,17 +1729,22 @@ Public Class frmMainPageV2
                                           End Sub)
 
                             ElseIf (orderState = "filled") Then
+                                ' Cross-thread fix: this branch runs on the receive thread (NOT wrapped in Me.Invoke
+                                ' like open/untriggered), so PnL math reads engine fields (placedPrice/orderAmountVal)
+                                ' and the lblOrderStatus writes are marshalled via UiInvoke.
                                 Select Case label
                                     Case "EntryLimitOrder"
-                                        lblOrderStatus.Text = "In Position"
-                                        lblOrderStatus.ForeColor = Color.Yellow
+                                        UiInvoke(Sub()
+                                                     lblOrderStatus.Text = "In Position"
+                                                     lblOrderStatus.ForeColor = Color.Yellow
+                                                 End Sub)
                                         OpenPositions = True
                                         OpenOrderNo = False
                                         UpdateFlag = False
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
-                                        PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
+                                        PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
                                         PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                         PorL = True
                                         label4DB = label
@@ -1747,7 +1752,7 @@ Public Class frmMainPageV2
                                     Case "StopLossOrder"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
-                                        PorLAmt = (Decimal.Parse(txtPlacedPrice.Text) - ExecPrice) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
+                                        PorLAmt = (placedPrice - ExecPrice) * (orderAmountVal / ExecPrice)
                                         PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                         PorL = False
                                         SLTriggered = False
@@ -1755,8 +1760,10 @@ Public Class frmMainPageV2
                                         label4DB = label
 
                                     Case "EntryTrailingOrder"
-                                        lblOrderStatus.Text = "In Position"
-                                        lblOrderStatus.ForeColor = Color.Yellow
+                                        UiInvoke(Sub()
+                                                     lblOrderStatus.Text = "In Position"
+                                                     lblOrderStatus.ForeColor = Color.Yellow
+                                                 End Sub)
                                         OpenPositions = True
                                         OpenOrderNo = False
                                         isTrailingStop = True 'For checking if is trailing order when executing In Position code
@@ -1765,7 +1772,7 @@ Public Class frmMainPageV2
                                     Case "TrailingStopLoss"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
-                                        PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
+                                        PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
                                         PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                         PorL = True
                                         label4DB = label
@@ -1774,28 +1781,28 @@ Public Class frmMainPageV2
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
                                         If TradeMode = True Then
-                                            If ExecPrice > Decimal.Parse(txtPlacedPrice.Text) Then
-                                                PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
+                                            If ExecPrice > placedPrice Then
+                                                PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = True
                                                 label4DB = label
 
                                             Else
-                                                PorLAmt = (Decimal.Parse(txtPlacedPrice.Text) - ExecPrice) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
+                                                PorLAmt = (placedPrice - ExecPrice) * (orderAmountVal / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = False
                                                 label4DB = label
 
                                             End If
                                         Else
-                                            If ExecPrice > Decimal.Parse(txtPlacedPrice.Text) Then
-                                                PorLAmt = (Decimal.Parse(txtPlacedPrice.Text) - ExecPrice) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
+                                            If ExecPrice > placedPrice Then
+                                                PorLAmt = (placedPrice - ExecPrice) * (orderAmountVal / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = False
                                                 label4DB = label
 
                                             Else
-                                                PorLAmt = (ExecPrice - Decimal.Parse(txtPlacedPrice.Text)) * (Decimal.Parse(txtAmount.Text) / ExecPrice)
+                                                PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
                                                 PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
                                                 PorL = True
                                                 label4DB = label
@@ -1838,8 +1845,14 @@ Public Class frmMainPageV2
 
                         If OpenPositions = True Then
 
-                            txtManualSL.Text = "0"
-                            txtManualTP.Text = "0"
+                            ' Cross-thread fix: reset engine fields synchronously, mirror the controls via UiInvoke
+                            ' (the TextChanged sync re-runs on the UI thread, keeping fields == textboxes).
+                            manualSLval = 0D
+                            manualTPval = 0D
+                            UiInvoke(Sub()
+                                         txtManualSL.Text = "0"
+                                         txtManualTP.Text = "0"
+                                     End Sub)
 
 
                             'If it is a trailing order, set flag that it is in position
@@ -1949,9 +1962,9 @@ Public Class frmMainPageV2
                                         ' In HandleOrderPositionUpdates
                                         If PorLAmt > 0 Then
                                             Dim tradeId = RecordCompletedTrade(
-                                                Decimal.Parse(txtPlacedPrice.Text),
+                                                placedPrice,
                                                 ExecPrice,
-                                                Decimal.Parse(txtAmount.Text),
+                                                orderAmountVal,
                                                 PorLAmt,
                                                 PorL,
                                                 TradeMode,
@@ -2461,14 +2474,16 @@ Public Class frmMainPageV2
         placedPrice = 0D
         placedStopLossPrice = 0D
 
+        ' Cross-thread fix: CancelOrderAsync runs on both the UI and receive threads; marshal the status
+        ' label with the placed-price resets (it was previously written unguarded off the receive thread).
         Me.Invoke(Sub()
                       txtPlacedPrice.Text = "0"
                       txtPlacedTakeProfitPrice.Text = "0"
                       txtPlacedTrigStopPrice.Text = "0"
                       txtPlacedStopLossPrice.Text = "0"
+                      lblOrderStatus.Text = "Awaiting Orders"
+                      lblOrderStatus.ForeColor = Color.DeepSkyBlue
                   End Sub)
-        lblOrderStatus.Text = "Awaiting Orders"
-        lblOrderStatus.ForeColor = Color.DeepSkyBlue
 
         'Reset all flags
         isTrailingStop = False
@@ -3434,9 +3449,17 @@ Public Class frmMainPageV2
     'For text file trade logging
     Private Sub LogTradeDecision(ordertype As String, PLAmt As Decimal, ExitP As Decimal)
 
-        Dim placedPrice As Decimal = Convert.ToDecimal(txtPlacedPrice.Text)
-        Dim TakeProfit As Decimal = Convert.ToDecimal(txtPlacedTakeProfitPrice.Text)
-        Dim triggerPrice As Decimal = Convert.ToDecimal(txtPlacedTrigStopPrice.Text)
+        ' Cross-thread fix: LogTradeDecision is called from the receive thread, so snapshot the placed-price
+        ' displays on the UI thread (TryParse, so a blank field logs 0 instead of throwing the handler).
+        Dim placedPrice As Decimal = 0D
+        Dim TakeProfit As Decimal = 0D
+        Dim triggerPrice As Decimal = 0D
+        Dim snapshot As Action = Sub()
+                                     Decimal.TryParse(txtPlacedPrice.Text, placedPrice)
+                                     Decimal.TryParse(txtPlacedTakeProfitPrice.Text, TakeProfit)
+                                     Decimal.TryParse(txtPlacedTrigStopPrice.Text, triggerPrice)
+                                 End Sub
+        If Me.IsHandleCreated AndAlso Me.InvokeRequired Then Me.Invoke(snapshot) Else snapshot()
         Dim logentry As String = String.Empty
 
         'Dim TPPrice, SLPrice As Decimal
