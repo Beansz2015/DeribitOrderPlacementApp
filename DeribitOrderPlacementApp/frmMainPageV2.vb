@@ -1433,21 +1433,15 @@ Public Class frmMainPageV2
                    AndAlso ((isTrailingPosition = True) And (isTrailingStopLossPlaced = True)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
-                    ' #6: parse trailing-trigger inputs safely. Manual TP (txtManualTP) overrides; otherwise
-                    ' derive from placed price + (offset + comms). Skip this tick's trigger if inputs are invalid.
-                    Dim manualTP As Decimal = 0D
-                    Dim manualTPValid As Boolean = Decimal.TryParse(txtManualTP.Text, manualTP)
-                    Dim tpOffset As Decimal = 0D
-                    Dim tpOffsetValid As Boolean = Decimal.TryParse(txtTPOffset.Text, tpOffset)
-                    Dim comms As Decimal = 0D
-                    Dim commsValid As Boolean = Decimal.TryParse(txtComms.Text, comms)
-
+                    ' Cross-thread fix: trailing-trigger inputs come from engine fields, not controls. Manual TP
+                    ' (manualTPval) overrides; otherwise derive from placedPrice + (tpOffset + comms) once a live
+                    ' comms value has arrived. A 0/blank field is treated as "not set".
                     Dim haveTrigger As Boolean = False
-                    If manualTPValid AndAlso manualTP > 0 Then
-                        TPTrailprice = manualTP
+                    If manualTPval > 0 Then
+                        TPTrailprice = manualTPval
                         haveTrigger = True
-                    ElseIf placedPriceValid AndAlso tpOffsetValid AndAlso commsValid Then
-                        TPTrailprice = If(TradeMode, placedPrice + (tpOffset + comms), placedPrice - (tpOffset + comms))
+                    ElseIf placedPriceValid AndAlso commsVal > 0 Then
+                        TPTrailprice = If(TradeMode, placedPrice + (tpOffsetVal + commsVal), placedPrice - (tpOffsetVal + commsVal))
                         haveTrigger = True
                     End If
 
@@ -2584,36 +2578,42 @@ Public Class frmMainPageV2
             End If
 
             Dim newTPprice, newTrigSLprice, newSLprice As Decimal
-            Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
+            ' Cross-thread fix: read engine input fields, never the textboxes (runs on the receive thread).
+            Dim amount As Decimal = orderAmountVal
+            If amount <= 0D Then
+                ' Preserve the old "no edit on a bad amount" behaviour (Decimal.Parse used to throw on blank).
+                AppendColoredText(txtLogs, "Order amount blank/zero - skipping order update", Color.Orange)
+                Return
+            End If
 
             ' Your existing price calculation logic remains the same
             If TradeMode = True Then
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    newTPprice = Decimal.Parse(txtManualTP.Text)
+                If manualTPval > 0 Then
+                    newTPprice = manualTPval
                 Else
-                    newTPprice = newPrice + Decimal.Parse(txtTakeProfit.Text)
+                    newTPprice = newPrice + takeProfitOffset
                 End If
 
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    newSLprice = Decimal.Parse(txtManualSL.Text)
-                    newTrigSLprice = newSLprice + Decimal.Parse(txtStopLoss.Text)
+                If manualSLval > 0 Then
+                    newSLprice = manualSLval
+                    newTrigSLprice = newSLprice + stopLossOffset
                 Else
-                    newTrigSLprice = newPrice - Decimal.Parse(txtTrigger.Text)
-                    newSLprice = newTrigSLprice - Decimal.Parse(txtStopLoss.Text)
+                    newTrigSLprice = newPrice - triggerDistance
+                    newSLprice = newTrigSLprice - stopLossOffset
                 End If
             Else
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
-                    newTPprice = Decimal.Parse(txtManualTP.Text)
+                If manualTPval > 0 Then
+                    newTPprice = manualTPval
                 Else
-                    newTPprice = newPrice - Decimal.Parse(txtTakeProfit.Text)
+                    newTPprice = newPrice - takeProfitOffset
                 End If
 
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    newSLprice = Decimal.Parse(txtManualSL.Text)
-                    newTrigSLprice = newSLprice - Decimal.Parse(txtStopLoss.Text)
+                If manualSLval > 0 Then
+                    newSLprice = manualSLval
+                    newTrigSLprice = newSLprice - stopLossOffset
                 Else
-                    newTrigSLprice = newPrice + Decimal.Parse(txtTrigger.Text)
-                    newSLprice = newTrigSLprice + Decimal.Parse(txtStopLoss.Text)
+                    newTrigSLprice = newPrice + triggerDistance
+                    newSLprice = newTrigSLprice + stopLossOffset
                 End If
             End If
 
@@ -2677,14 +2677,16 @@ Public Class frmMainPageV2
 
     Private Async Function UpdateStopLossForTriggeredStopLossOrder(newPrice As Decimal) As Task
         Try
-            ' Your existing emergency market order logic first
-            If (TradeMode = True) And (StopLossTriggerOriginal - newPrice >= Decimal.Parse(txtMarketStopLoss.Text)) Then
+            ' Your existing emergency market order logic first. Cross-thread fix: marketStopThreshold mirrors
+            ' txtMarketStopLoss; a 0/blank threshold disables this emergency market-stop (was: Parse threw on
+            ' blank and aborted the whole SL update; "0" fired the market stop on any adverse movement).
+            If marketStopThreshold > 0D AndAlso (TradeMode = True) AndAlso (StopLossTriggerOriginal - newPrice >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
-            ElseIf (TradeMode = False) And (newPrice - StopLossTriggerOriginal >= Decimal.Parse(txtMarketStopLoss.Text)) Then
+            ElseIf marketStopThreshold > 0D AndAlso (TradeMode = False) AndAlso (newPrice - StopLossTriggerOriginal >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 btnReduceMarket.PerformClick()
@@ -2713,9 +2715,9 @@ Public Class frmMainPageV2
             ' Consume credits and proceed with update
             rateLimiter.ConsumeCredits()
 
-            ' Validate amount input
-            Dim amount As Decimal = 0D
-            If Not Decimal.TryParse(txtAmount.Text, amount) OrElse amount <= 0 Then
+            ' Validate amount input (cross-thread fix: read engine field, not txtAmount)
+            Dim amount As Decimal = orderAmountVal
+            If amount <= 0 Then
                 AppendColoredText(txtLogs, "Invalid amount for SL update", Color.Red)
                 Return
             End If
@@ -2786,26 +2788,32 @@ Public Class frmMainPageV2
             End If
 
             Dim newTrigSLprice, newSLprice As Decimal
-            Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
+            ' Cross-thread fix: read engine input fields, never the textboxes (runs on the receive thread).
+            Dim amount As Decimal = orderAmountVal
+            If amount <= 0D Then
+                ' Preserve the old "no edit on a bad amount" behaviour (Decimal.Parse used to throw on blank).
+                AppendColoredText(txtLogs, "Order amount blank/zero - skipping trailing order update", Color.Orange)
+                Return
+            End If
 
             ' Calculate the new stop loss prices based on direction
             If TradeMode = True Then
                 ' Buy direction
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    newSLprice = Decimal.Parse(txtManualSL.Text)
-                    newTrigSLprice = newSLprice + Decimal.Parse(txtStopLoss.Text)
+                If manualSLval > 0 Then
+                    newSLprice = manualSLval
+                    newTrigSLprice = newSLprice + stopLossOffset
                 Else
-                    newTrigSLprice = newPrice - Decimal.Parse(txtTrigger.Text)
-                    newSLprice = newTrigSLprice - Decimal.Parse(txtStopLoss.Text)
+                    newTrigSLprice = newPrice - triggerDistance
+                    newSLprice = newTrigSLprice - stopLossOffset
                 End If
             Else
                 ' Sell direction
-                If Decimal.Parse(txtManualSL.Text) > 0 Then
-                    newSLprice = Decimal.Parse(txtManualSL.Text)
-                    newTrigSLprice = newSLprice - Decimal.Parse(txtStopLoss.Text)
+                If manualSLval > 0 Then
+                    newSLprice = manualSLval
+                    newTrigSLprice = newSLprice - stopLossOffset
                 Else
-                    newTrigSLprice = newPrice + Decimal.Parse(txtTrigger.Text)
-                    newSLprice = newTrigSLprice + Decimal.Parse(txtStopLoss.Text)
+                    newTrigSLprice = newPrice + triggerDistance
+                    newSLprice = newTrigSLprice + stopLossOffset
                 End If
             End If
 
@@ -3059,18 +3067,17 @@ Public Class frmMainPageV2
                 Return
             End If
 
-            ' Validate the input amount
-            Dim amountText As String = txtAmount.Text
-            Dim amount As Decimal
+            ' Validate the input amount (cross-thread fix: read engine fields, not the controls)
+            Dim amount As Decimal = orderAmountVal
 
-            If Not Decimal.TryParse(amountText, amount) OrElse amount <= 0 Then
+            If amount <= 0 Then
                 'txtLogs.AppendText("Please enter a valid positive amount." + Environment.NewLine)
                 AppendColoredText(txtLogs, "Please enter a valid positive amount.", Color.Yellow)
                 Return
             End If
 
             Dim method As String
-            Dim startoffset As Decimal = Decimal.Parse(txtTPOffset.Text)
+            Dim startoffset As Decimal = tpOffsetVal
             Dim triggerpricing As Decimal
 
             If TradeMode = True Then
