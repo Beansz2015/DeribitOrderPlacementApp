@@ -129,6 +129,22 @@ Public Class frmMainPageV2
         SyncTradeInputsFromUi()
     End Sub
 
+    ' Checkbox-toggle mirrors so the receive loop reads booleans, not chk*.Checked off-thread.
+    Private maxSlippageATRchecked As Boolean = False
+    Private marketStopLossChecked As Boolean = False
+
+    ' Null-safe: the designer sets .Checked during InitializeComponent, which fires CheckedChanged before
+    ' both checkboxes are constructed - read each only once it exists (Load re-seeds both afterward).
+    Private Sub SyncToggleInputsFromUi()
+        If chkMaxSlippageATR IsNot Nothing Then maxSlippageATRchecked = chkMaxSlippageATR.Checked
+        If chkMarketStopLoss IsNot Nothing Then marketStopLossChecked = chkMarketStopLoss.Checked
+    End Sub
+
+    Private Sub ChkToggle_Changed(sender As Object, e As EventArgs) _
+        Handles chkMaxSlippageATR.CheckedChanged, chkMarketStopLoss.CheckedChanged
+        SyncToggleInputsFromUi()
+    End Sub
+
     Public ReadOnly Property RateLimiterInstance As DeribitRateLimiter
         Get
             Return rateLimiter
@@ -258,6 +274,7 @@ Public Class frmMainPageV2
         Try
             ' Seed the engine input fields from whatever the controls currently hold (cross-thread fix).
             SyncTradeInputsFromUi()
+            SyncToggleInputsFromUi()
 
             _indicators = New FrmIndicators(Me)     ' pass “self” as host
             _indicators.Show()                      ' non-modal; use .ShowDialog() if you prefer modal
@@ -1176,7 +1193,7 @@ Public Class frmMainPageV2
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 'Stop if repositioned past ATR slippage threshold
-                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestBid, "LONG") Then
+                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestBid, "LONG") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
@@ -1215,7 +1232,7 @@ Public Class frmMainPageV2
                     Else
                         If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
@@ -1279,7 +1296,7 @@ Public Class frmMainPageV2
 
 
                             If emergencyThresholdValid AndAlso priceMovement >= emergencyThreshold Then
-                                If chkMarketStopLoss.Checked Then
+                                If marketStopLossChecked Then
                                     Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
                                     Return ' Exit early after emergency update
                                 End If
@@ -1354,7 +1371,7 @@ Public Class frmMainPageV2
                         If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "LONG") Then
+                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "LONG") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
@@ -1380,7 +1397,7 @@ Public Class frmMainPageV2
                     Else
                         If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If chkMaxSlippageATR.Checked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                     Await CancelOrderAsync()
                                     'Return
                                 Else
