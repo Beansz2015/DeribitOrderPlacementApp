@@ -1013,13 +1013,16 @@ Public Class frmMainPageV2
                 comms = 0.0005 * indexPrice
                 comms = Math.Abs(Math.Round(comms, 0, MidpointRounding.AwayFromZero))
 
-                ' Update public variables and textboxes on the UI thread
+                ' Update engine fields first (cross-thread fix: HandleBalanceUpdates reads indexPriceVal,
+                ' not lblIndexPrice.Text), then mirror the display via UiInvoke.
                 If indexPrice IsNot Nothing And IsNumeric(indexPrice) Then
                     lastMessageTime = DateTime.Now
-                    Me.Invoke(Sub()
-                                  lblIndexPrice.Text = indexPrice
-                                  txtComms.Text = comms
-                              End Sub)
+                    indexPriceVal = CDec(indexPrice)
+                    commsVal = comms
+                    UiInvoke(Sub()
+                                 lblIndexPrice.Text = indexPrice
+                                 txtComms.Text = comms
+                             End Sub)
                 End If
 
                 ' Checks if got error message
@@ -1049,36 +1052,32 @@ Public Class frmMainPageV2
                 Dim btcBalance As Decimal = json.SelectToken("params.data.balance")
                 Dim btcSession As Decimal = btcEquity - btcBalance
 
-                Dim USDEquity, Equiv, USDSession As Decimal
+                ' Cross-thread fix: keep equity for the engine (GetEquityBTC) and convert to USD using the
+                ' indexPriceVal field (not lblIndexPrice.Text), then push every label + colour through ONE
+                ' marshalled block (the ForeColor block used to run unguarded on the receive thread).
+                equityBTCVal = btcEquity
+                Dim idx As Decimal = indexPriceVal
 
-                ' Update public variables and textboxes on the UI thread
-                '---------------------------------------------------------------
+                If idx > 0D Then
+                    Dim USDEquity As Decimal = idx * btcEquity
+                    Dim Equiv As Decimal = idx * btcBalance
+                    Dim USDSession As Decimal = idx * btcSession
+                    USDPublicSession = USDSession 'For circuitbreaker in auto trading in frmindicators
+                    Dim sessionColor As Color = If(btcSession < 0, Color.Firebrick, Color.ForestGreen)
 
-                If (btcEquity <> Nothing) And IsNumeric(lblIndexPrice.Text) Then
-                    Me.Invoke(Sub()
-                                  lblBTCEquity.Text = btcEquity.ToString("F8")
-                                  USDEquity = Decimal.Parse(lblIndexPrice.Text.Trim) * btcEquity
-                                  lblUSDEquity.Text = USDEquity.ToString("C", CultureInfo.CreateSpecificCulture("en-US"))
-                              End Sub)
-                End If
+                    UiInvoke(Sub()
+                                 lblBTCEquity.Text = btcEquity.ToString("F8")
+                                 lblUSDEquity.Text = USDEquity.ToString("C", CultureInfo.CreateSpecificCulture("en-US"))
+                                 lblBalance.Text = btcBalance.ToString("F8")
+                                 lblEquiv.Text = Equiv.ToString("C", CultureInfo.CreateSpecificCulture("en-US"))
+                                 lblBTCSession.Text = btcSession.ToString("F8")
+                                 lblUSDSession.Text = USDSession.ToString("C", CultureInfo.CreateSpecificCulture("en-US"))
 
-                If (btcBalance <> Nothing) And IsNumeric(lblIndexPrice.Text) Then
-                    Me.Invoke(Sub()
-                                  ' Update the label with the BTC balance
-                                  lblBalance.Text = btcBalance.ToString("F8")
-                                  Equiv = Decimal.Parse(lblIndexPrice.Text.Trim) * Decimal.Parse(lblBalance.Text.Trim)
-                                  lblEquiv.Text = Equiv.ToString("C", CultureInfo.CreateSpecificCulture("en-US"))
-                              End Sub)
-                End If
-
-                If (btcSession <> Nothing) And IsNumeric(lblIndexPrice.Text) Then
-                    Me.Invoke(Sub()
-                                  lblBTCSession.Text = btcSession.ToString("F8")
-                                  USDSession = Decimal.Parse(lblIndexPrice.Text.Trim) * Decimal.Parse(lblBTCSession.Text.Trim)
-                                  USDPublicSession = USDSession 'For circuitbreaker in auto trading in frmindicators
-                                  lblUSDSession.Text = USDSession.ToString("C", CultureInfo.CreateSpecificCulture("en-US"))
-                              End Sub)
-
+                                 lblBTCEquity.ForeColor = sessionColor
+                                 lblBTCSession.ForeColor = sessionColor
+                                 lblUSDEquity.ForeColor = sessionColor
+                                 lblUSDSession.ForeColor = sessionColor
+                             End Sub)
                 End If
 
                 ' Checks if got error message
@@ -1086,20 +1085,6 @@ Public Class frmMainPageV2
                 If errorField IsNot Nothing Then
                     'txtLogs.AppendText("Error: " & errorField.ToString() + Environment.NewLine)
                     AppendColoredText(txtLogs, "Error: " & errorField.ToString(), Color.Yellow)
-                End If
-
-                '---------------------------------------------------------------
-
-                If btcSession < 0 Then
-                    lblBTCEquity.ForeColor = Color.Firebrick
-                    lblBTCSession.ForeColor = Color.Firebrick
-                    lblUSDEquity.ForeColor = Color.Firebrick
-                    lblUSDSession.ForeColor = Color.Firebrick
-                Else
-                    lblBTCEquity.ForeColor = Color.ForestGreen
-                    lblBTCSession.ForeColor = Color.ForestGreen
-                    lblUSDEquity.ForeColor = Color.ForestGreen
-                    lblUSDSession.ForeColor = Color.ForestGreen
                 End If
             End If
         Catch ex As Exception
@@ -1545,13 +1530,9 @@ Public Class frmMainPageV2
     End Function
 
     Private Function GetEquityBTC() As Decimal
-        Dim eq As Decimal
-        If Decimal.TryParse(lblBTCEquity.Text,
-                        Globalization.NumberStyles.Any,
-                        Globalization.CultureInfo.InvariantCulture, eq) Then
-            Return eq
-        End If
-        Return 0D
+        ' Cross-thread fix: return the engine field (mirrors lblBTCEquity, set in HandleBalanceUpdates)
+        ' so callers on the receive thread (ProcessPositionData) never read the label.
+        Return equityBTCVal
     End Function
 
 
