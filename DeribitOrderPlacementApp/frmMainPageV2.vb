@@ -1155,12 +1155,11 @@ Public Class frmMainPageV2
                               End Sub)
                 End If
 
-                ' #6: parse hot-path inputs ONCE with TryParse. A blank/mid-edit field must never throw
-                ' and abort the tick - that would skip the stop-loss repositioning further down.
-                Dim placedPrice As Decimal = 0D
-                Dim placedPriceValid As Boolean = Decimal.TryParse(txtPlacedPrice.Text, placedPrice)
-                Dim amount As Decimal = 0D
-                Dim amountValid As Boolean = Decimal.TryParse(txtAmount.Text, amount)
+                ' Cross-thread fix: hot-path decisions read engine fields, NEVER the controls. placedPrice is
+                ' set at placement, from the exchange's open EntryLimitOrder, and after each reposition below;
+                ' orderAmountVal mirrors txtAmount. A 0 field means "not set" (same as the old blank/#6 case).
+                Dim placedPriceValid As Boolean = placedPrice > 0D
+                Dim amountValid As Boolean = orderAmountVal > 0D
 
                 If (Not placedPriceValid) AndAlso (CurrentOpenOrderId IsNot Nothing OrElse SLTriggered OrElse isTrailingPosition) Then
                     WarnParseThrottled("Placed-price field blank/invalid - skipping reposition/PnL this tick (SL repositioning still runs)")
@@ -1169,7 +1168,9 @@ Public Class frmMainPageV2
                 'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
                 ' #5: single-flight - acquire only when an order context is present; skip this tick's
                 ' entry reposition if a previous tick's reposition is still in flight.
-                If ((CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing)) _
+                ' Cross-thread fix #5: also gate on a live socket so edits aren't piled into a closing connection.
+                If IsWebSocketConnected _
+                   AndAlso ((CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
                     If TradeMode = True Then
@@ -1183,12 +1184,15 @@ Public Class frmMainPageV2
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestBid)
 
-                                    Dim currentPlacedPrice As Decimal = 0D
-                                    If Decimal.TryParse(txtPlacedPrice.Text, currentPlacedPrice) AndAlso currentPlacedPrice > 0 Then
-                                        AppendColoredText(txtLogs, $"Order repositioned: ${currentPlacedPrice:F2} → ${bestBid:F2}", Color.Yellow)
+                                    ' Runaway fix: advance engine state SYNCHRONOUSLY before the (non-blocking)
+                                    ' display update, so the next tick's "bestBid > placedPrice + 3" reads the
+                                    ' new price even if the textbox write is delayed/fails.
+                                    If placedPrice > 0 Then
+                                        AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestBid:F2}", Color.Yellow)
                                     End If
 
-                                    txtPlacedPrice.Text = bestBid
+                                    placedPrice = bestBid
+                                    UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
                                 End If
                             Else
                                 ' Handle both null limiter and rate limiting scenarios
@@ -1219,12 +1223,13 @@ Public Class frmMainPageV2
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
 
-                                    Dim currentPlacedPrice As Decimal = 0D
-                                    If Decimal.TryParse(txtPlacedPrice.Text, currentPlacedPrice) AndAlso currentPlacedPrice > 0 Then
-                                        AppendColoredText(txtLogs, $"Order repositioned: ${currentPlacedPrice:F2} → ${bestAsk:F2}", Color.Yellow)
+                                    ' Runaway fix: advance engine state synchronously before the display mirror.
+                                    If placedPrice > 0 Then
+                                        AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestAsk:F2}", Color.Yellow)
                                     End If
 
-                                    txtPlacedPrice.Text = bestAsk
+                                    placedPrice = bestAsk
+                                    UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
                                 End If
                             Else
                                 If rateLimiter Is Nothing Then
@@ -1335,7 +1340,9 @@ Public Class frmMainPageV2
 
                 'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
                 ' #5: same single-flight guard - serialize trailing repositions with entry repositions.
-                If ((CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True)) _
+                ' Cross-thread fix #5: also gate on a live socket so edits aren't piled into a closing connection.
+                If IsWebSocketConnected _
+                   AndAlso ((CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
                     If TradeMode = True Then
@@ -1347,7 +1354,8 @@ Public Class frmMainPageV2
                                     'Return
                                 Else
                                     Await UpdateStopLossForTrailingOrder(bestBid)
-                                    txtPlacedPrice.Text = bestBid
+                                    placedPrice = bestBid
+                                    UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
                                 End If
                             Else
                                 ' Handle both null limiter and rate limiting scenarios
@@ -1372,7 +1380,8 @@ Public Class frmMainPageV2
                                     'Return
                                 Else
                                     Await UpdateStopLossForTrailingOrder(bestAsk)
-                                    txtPlacedPrice.Text = bestAsk
+                                    placedPrice = bestAsk
+                                    UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
                                 End If
                             Else
                                 If rateLimiter Is Nothing Then
@@ -1399,7 +1408,9 @@ Public Class frmMainPageV2
                 'Check if a trailing order is in position and current price has hit take profit price.
                 'If yes, cancel stop loss and place trailing stop loss order
                 ' #5: same single-flight guard - the trailing-TP trigger places an order; serialize it too.
-                If ((isTrailingPosition = True) And (isTrailingStopLossPlaced = True)) _
+                ' Cross-thread fix #5: also gate on a live socket so orders aren't sent into a closing connection.
+                If IsWebSocketConnected _
+                   AndAlso ((isTrailingPosition = True) And (isTrailingStopLossPlaced = True)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
                     ' #6: parse trailing-trigger inputs safely. Manual TP (txtManualTP) overrides; otherwise
@@ -1443,7 +1454,7 @@ Public Class frmMainPageV2
                 If placedPriceValid AndAlso placedPrice > 0 AndAlso amountValid Then
                     Dim PnL As Decimal
                     If TradeMode = True Then
-                        PnL = (BestAskPrice - placedPrice) * (amount / placedPrice)
+                        PnL = (BestAskPrice - placedPrice) * (orderAmountVal / placedPrice)
                         If BestAskPrice < placedPrice Then
                             Me.Invoke(Sub()
                                           lblPnL.ForeColor = Color.Red
@@ -1454,7 +1465,7 @@ Public Class frmMainPageV2
                                       End Sub)
                         End If
                     Else
-                        PnL = (placedPrice - BestAskPrice) * (amount / placedPrice)
+                        PnL = (placedPrice - BestAskPrice) * (orderAmountVal / placedPrice)
                         If BestAskPrice > placedPrice Then
                             Me.Invoke(Sub()
                                           lblPnL.ForeColor = Color.Red
@@ -1583,6 +1594,7 @@ Public Class frmMainPageV2
                                               Select Case label
                                                   Case "EntryLimitOrder"
                                                       txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
+                                                      placedPrice = If(price, 0D)   ' engine state = exchange's entry price (cross-thread fix)
                                                       OpenOrderNo = True
                                                       OpenPositions = False
                                                       ' Save the current order_id for tracking
@@ -1621,6 +1633,7 @@ Public Class frmMainPageV2
                                                       OpenOrderNo = False
                                                   Case "EntryTrailingOrder"
                                                       txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
+                                                      placedPrice = If(price, 0D)   ' engine state = exchange's entry price (cross-thread fix)
                                                       CurrentOpenOrderId = orderId
                                                       If Decimal.Parse(txtManualTP.Text) > 0 Then
                                                           txtPlacedTakeProfitPrice.Text = txtManualTP.Text
@@ -2388,6 +2401,7 @@ Public Class frmMainPageV2
             txtPlacedStopLossPrice.Text = stoplossPrice.ToString("F2")
 
             txtPlacedPrice.Text = BestPrice.ToString("F2")
+            placedPrice = BestPrice   ' seed engine state at placement (cross-thread fix)
 
             If TypeOfOrder = "BuyLimit" Then
                 ' Optional: Handle post-order logic (e.g., display confirmation)
@@ -2425,6 +2439,10 @@ Public Class frmMainPageV2
     )
 
         Await SendWebSocketMessageAsync(cancelPayload.ToString())
+
+        ' Reset engine state synchronously (cross-thread fix) so no reposition/SL decision reads a stale price.
+        placedPrice = 0D
+        placedStopLossPrice = 0D
 
         Me.Invoke(Sub()
                       txtPlacedPrice.Text = "0"
@@ -2988,6 +3006,7 @@ Public Class frmMainPageV2
             txtPlacedStopLossPrice.Text = stoplossPrice.ToString("F2")
 
             txtPlacedPrice.Text = BestPrice.ToString("F2")
+            placedPrice = BestPrice   ' seed engine state at placement (cross-thread fix)
 
             isTrailingStopLossPlaced = True
 
