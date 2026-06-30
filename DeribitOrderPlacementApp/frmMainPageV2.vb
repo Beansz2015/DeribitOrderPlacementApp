@@ -64,6 +64,71 @@ Public Class frmMainPageV2
     'For circuit breaker in auto-trading in frmindicators
     Public USDPublicSession As Decimal
 
+    ' ============================================================================================
+    ' Cross-thread fix (docs/spec-cross-thread-fix.md): engine-owned backing fields + UI marshalling.
+    ' ReceiveWebSocketMessagesAsync and every handler it calls run on a thread-pool thread, so they
+    ' must NOT read or write WinForms controls. These fields are the engine's source of truth for all
+    ' hot-path decisions; the matching textboxes/labels are display mirrors only. User-input fields are
+    ' kept current on the UI thread via SyncTradeInputsFromUi (TextChanged + at order placement);
+    ' engine-managed fields (placedPrice, placedStopLossPrice, indexPriceVal, equityBTCVal) are set
+    ' wherever the value authoritatively changes. Any display write off the UI thread goes through UiInvoke.
+    ' ============================================================================================
+
+    ' Engine-managed state (set by the engine; mirrored to controls for display only)
+    Private placedPrice As Decimal = 0D            ' mirrors txtPlacedPrice  (drives entry reposition decision)
+    Private placedStopLossPrice As Decimal = 0D    ' mirrors txtPlacedStopLossPrice (drives triggered-SL reposition)
+    Private indexPriceVal As Decimal = 0D          ' mirrors lblIndexPrice
+    Private equityBTCVal As Decimal = 0D           ' mirrors lblBTCEquity
+
+    ' User-input mirrors (kept == their textboxes by SyncTradeInputsFromUi on the UI thread)
+    Private orderAmountVal As Decimal = 0D         ' mirrors txtAmount
+    Private manualTPval As Decimal = 0D            ' mirrors txtManualTP
+    Private manualSLval As Decimal = 0D            ' mirrors txtManualSL
+    Private takeProfitOffset As Decimal = 0D       ' mirrors txtTakeProfit
+    Private stopLossOffset As Decimal = 0D         ' mirrors txtStopLoss
+    Private triggerDistance As Decimal = 0D        ' mirrors txtTrigger
+    Private tpOffsetVal As Decimal = 0D            ' mirrors txtTPOffset
+    Private commsVal As Decimal = 0D               ' mirrors txtComms
+    Private marketStopThreshold As Decimal = 0D    ' mirrors txtMarketStopLoss
+    Private maxSlippageATRmult As Decimal = 0D     ' mirrors txtMaxSlippageATR
+
+    ' Marshal a display-only action onto the UI thread. Non-blocking (BeginInvoke) so a slow or failed
+    ' paint can never stall or abort a receive-loop decision. Safe to call from any thread.
+    Private Sub UiInvoke(action As Action)
+        If Me.IsHandleCreated AndAlso Me.InvokeRequired Then
+            Me.BeginInvoke(action)
+        Else
+            action()
+        End If
+    End Sub
+
+    ' Snapshot the user-input textboxes into engine fields. MUST run on the UI thread (wired to the
+    ' inputs' TextChanged events and called at order placement). Blank/invalid -> 0, which the engine
+    ' treats as "not set" exactly like the old TryParse hot-path (#6 blank-field safety).
+    Private Sub SyncTradeInputsFromUi()
+        Dim d As Decimal
+        orderAmountVal = If(Decimal.TryParse(txtAmount.Text, d), d, 0D)
+        manualTPval = If(Decimal.TryParse(txtManualTP.Text, d), d, 0D)
+        manualSLval = If(Decimal.TryParse(txtManualSL.Text, d), d, 0D)
+        takeProfitOffset = If(Decimal.TryParse(txtTakeProfit.Text, d), d, 0D)
+        stopLossOffset = If(Decimal.TryParse(txtStopLoss.Text, d), d, 0D)
+        triggerDistance = If(Decimal.TryParse(txtTrigger.Text, d), d, 0D)
+        tpOffsetVal = If(Decimal.TryParse(txtTPOffset.Text, d), d, 0D)
+        commsVal = If(Decimal.TryParse(txtComms.Text, d), d, 0D)
+        marketStopThreshold = If(Decimal.TryParse(txtMarketStopLoss.Text, d), d, 0D)
+        maxSlippageATRmult = If(Decimal.TryParse(txtMaxSlippageATR.Text, d), d, 0D)
+    End Sub
+
+    ' One TextChanged handler for every trade-input textbox: keeps the engine fields == the controls,
+    ' so the receive loop always reads the latest user value without touching a control off-thread.
+    Private Sub TradeInput_Changed(sender As Object, e As EventArgs) _
+        Handles txtAmount.TextChanged, txtManualTP.TextChanged, txtManualSL.TextChanged,
+                txtTakeProfit.TextChanged, txtStopLoss.TextChanged, txtTrigger.TextChanged,
+                txtTPOffset.TextChanged, txtComms.TextChanged, txtMarketStopLoss.TextChanged,
+                txtMaxSlippageATR.TextChanged
+        SyncTradeInputsFromUi()
+    End Sub
+
     Public ReadOnly Property RateLimiterInstance As DeribitRateLimiter
         Get
             Return rateLimiter
@@ -191,6 +256,9 @@ Public Class frmMainPageV2
 
     Private Sub frmMainPageV2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Try
+            ' Seed the engine input fields from whatever the controls currently hold (cross-thread fix).
+            SyncTradeInputsFromUi()
+
             _indicators = New FrmIndicators(Me)     ' pass “self” as host
             _indicators.Show()                      ' non-modal; use .ShowDialog() if you prefer modal
 
