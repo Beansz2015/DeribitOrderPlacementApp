@@ -2679,13 +2679,13 @@ Public Class frmMainPageV2
             If marketStopThreshold > 0D AndAlso (TradeMode = True) AndAlso (StopLossTriggerOriginal - newPrice >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
-                btnReduceMarket.PerformClick()
+                Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
             ElseIf marketStopThreshold > 0D AndAlso (TradeMode = False) AndAlso (newPrice - StopLossTriggerOriginal >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
-                btnReduceMarket.PerformClick()
+                Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
             End If
@@ -3807,27 +3807,33 @@ Public Class frmMainPageV2
 
 
 
+    ' Shared reduce-only MARKET order logic (cross-thread fix). Called by btnReduceMarket_Click (UI thread)
+    ' AND by the emergency stop path in UpdateStopLossForTriggeredStopLossOrder (receive thread), so that
+    ' path no longer needs a cross-thread btnReduceMarket.PerformClick(). Reads orderAmountVal, not txtAmount.
+    Private Async Function SendReduceMarketOrderAsync() As Task
+        Dim direction As String
+
+        ' Determine the direction based on the current position
+        If TradeMode = True Then
+            direction = "sell" ' To reduce a long, we sell
+        Else
+            direction = "buy" ' To reduce a short, we buy
+        End If
+
+        ' Validate the amount
+        Dim amount As Decimal = orderAmountVal
+        If amount <= 0 Then
+            AppendColoredText(txtLogs, "Invalid amount.", Color.Red)
+            Return
+        End If
+
+        ' Call the function to send the reduce-only market order
+        Await SendReduceOrderAsync(Nothing, amount, direction, isMarketOrder:=True)
+    End Function
+
     Private Async Sub btnReduceMarket_Click(sender As Object, e As EventArgs) Handles btnReduceMarket.Click
         Try
-            Dim direction As String
-
-            ' Determine the direction based on the current position
-            If TradeMode = True Then
-                direction = "sell" ' To reduce a long, we sell
-            Else
-                direction = "buy" ' To reduce a short, we buy
-            End If
-
-            ' Validate the amount
-            Dim amount As Decimal
-            If Not Decimal.TryParse(txtAmount.Text, amount) OrElse amount <= 0 Then
-                AppendColoredText(txtLogs, "Invalid amount.", Color.Red)
-                Return
-            End If
-
-            ' Call the function to send the reduce-only market order
-            Await SendReduceOrderAsync(Nothing, amount, direction, isMarketOrder:=True)
-
+            Await SendReduceMarketOrderAsync()
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in btnReduceMarket_Click: {ex.Message}", Color.Red)
         End Try
