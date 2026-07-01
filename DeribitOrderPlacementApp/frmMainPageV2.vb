@@ -1177,7 +1177,7 @@ Public Class frmMainPageV2
                 Dim amountValid As Boolean = orderAmountVal > 0D
 
                 If (Not placedPriceValid) AndAlso (CurrentOpenOrderId IsNot Nothing OrElse SLTriggered OrElse isTrailingPosition) Then
-                    WarnParseThrottled("Placed-price field blank/invalid - skipping reposition/PnL this tick (SL repositioning still runs)")
+                    WarnParseThrottled("Placed price = 0 while an order context is active - skipping reposition/PnL this tick (expected briefly after a cancel; SL repositioning still runs)")
                 End If
 
                 'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
