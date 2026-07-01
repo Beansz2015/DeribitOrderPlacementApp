@@ -77,6 +77,14 @@ Public Class frmMainPageV2
     ' Engine-managed state (set by the engine; mirrored to controls for display only)
     Private placedPrice As Decimal = 0D            ' mirrors txtPlacedPrice  (drives entry reposition decision)
     Private placedStopLossPrice As Decimal = 0D    ' mirrors txtPlacedStopLossPrice (drives triggered-SL reposition)
+
+    ' Transition-race fix: set True in CancelOrderAsync and held until the exchange confirms the cancel
+    ' (cancelled echo / position-flat) or a fresh order is placed, with a timeout fallback. While pending,
+    ' the reposition/edit blocks are gated off and lagging open/untriggered echoes are ignored, so nothing
+    ' edits an order we've already cancelled and no stale echo re-populates placedPrice/order IDs.
+    Private cancelPending As Boolean = False
+    Private cancelPendingSince As DateTime = DateTime.MinValue
+    Private ReadOnly cancelPendingTimeout As TimeSpan = TimeSpan.FromSeconds(4)
     Private indexPriceVal As Decimal = 0D          ' mirrors lblIndexPrice
     Private equityBTCVal As Decimal = 0D           ' mirrors lblBTCEquity
 
@@ -91,6 +99,18 @@ Public Class frmMainPageV2
     Private commsVal As Decimal = 0D               ' mirrors txtComms
     Private marketStopThreshold As Decimal = 0D    ' mirrors txtMarketStopLoss
     Private maxSlippageATRmult As Decimal = 0D     ' mirrors txtMaxSlippageATR
+
+    ' Transition-race fix: True while a cancel is in flight. Auto-clears once the timeout elapses so a
+    ' missed cancel confirmation can never wedge repositioning permanently. Read by the hot-path decision
+    ' gates (quote thread); the echo handler reads the raw cancelPending flag directly.
+    Private Function IsCancelPending() As Boolean
+        If Not cancelPending Then Return False
+        If (DateTime.UtcNow - cancelPendingSince) > cancelPendingTimeout Then
+            cancelPending = False
+            Return False
+        End If
+        Return True
+    End Function
 
     ' Marshal a display-only action onto the UI thread. Non-blocking (BeginInvoke) so a slow or failed
     ' paint can never stall or abort a receive-loop decision. Safe to call from any thread.
@@ -1176,7 +1196,9 @@ Public Class frmMainPageV2
                 Dim placedPriceValid As Boolean = placedPrice > 0D
                 Dim amountValid As Boolean = orderAmountVal > 0D
 
-                If (Not placedPriceValid) AndAlso (CurrentOpenOrderId IsNot Nothing OrElse SLTriggered OrElse isTrailingPosition) Then
+                ' Transition-race fix: suppress this warning while a cancel is pending - placedPrice = 0 with a
+                ' still-set order context is exactly the expected transient state during a cancel.
+                If (Not placedPriceValid) AndAlso (Not IsCancelPending()) AndAlso (CurrentOpenOrderId IsNot Nothing OrElse SLTriggered OrElse isTrailingPosition) Then
                     WarnParseThrottled("Placed price = 0 while an order context is active - skipping reposition/PnL this tick (expected briefly after a cancel; SL repositioning still runs)")
                 End If
 
@@ -1184,7 +1206,9 @@ Public Class frmMainPageV2
                 ' #5: single-flight - acquire only when an order context is present; skip this tick's
                 ' entry reposition if a previous tick's reposition is still in flight.
                 ' Cross-thread fix #5: also gate on a live socket so edits aren't piled into a closing connection.
+                ' Transition-race fix: don't edit an order we're cancelling (gate on Not IsCancelPending()).
                 If IsWebSocketConnected _
+                   AndAlso (Not IsCancelPending()) _
                    AndAlso ((CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
@@ -1363,7 +1387,9 @@ Public Class frmMainPageV2
                 'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
                 ' #5: same single-flight guard - serialize trailing repositions with entry repositions.
                 ' Cross-thread fix #5: also gate on a live socket so edits aren't piled into a closing connection.
+                ' Transition-race fix: don't edit a trailing order we're cancelling (gate on Not IsCancelPending()).
                 If IsWebSocketConnected _
+                   AndAlso (Not IsCancelPending()) _
                    AndAlso ((CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
@@ -1431,7 +1457,9 @@ Public Class frmMainPageV2
                 'If yes, cancel stop loss and place trailing stop loss order
                 ' #5: same single-flight guard - the trailing-TP trigger places an order; serialize it too.
                 ' Cross-thread fix #5: also gate on a live socket so orders aren't sent into a closing connection.
+                ' Transition-race fix: don't fire the trailing-TP trigger while a cancel is pending.
                 If IsWebSocketConnected _
+                   AndAlso (Not IsCancelPending()) _
                    AndAlso ((isTrailingPosition = True) And (isTrailingStopLossPlaced = True)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
@@ -1605,14 +1633,22 @@ Public Class frmMainPageV2
 
                                               Select Case label
                                                   Case "EntryLimitOrder"
-                                                      txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
-                                                      placedPrice = If(price, 0D)   ' engine state = exchange's entry price (cross-thread fix)
-                                                      OpenOrderNo = True
-                                                      OpenPositions = False
-                                                      ' Save the current order_id for tracking
-                                                      CurrentOpenOrderId = orderId
-                                                      lblOrderStatus.Text = "Order Placed"
-                                                      lblOrderStatus.ForeColor = Color.Chartreuse
+                                                      ' Transition-race fix: ignore this echo while a cancel is pending (it confirms an order
+                                                      ' we've already cancelled). Otherwise seed placedPrice only when the engine doesn't
+                                                      ' already own it (placedPrice = 0) so a lagging echo can't reset it backward while the
+                                                      ' quote handler is repositioning; the display mirrors the exchange only when we seed.
+                                                      If Not cancelPending Then
+                                                          If placedPrice = 0D Then
+                                                              placedPrice = If(price, 0D)
+                                                              txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
+                                                          End If
+                                                          OpenOrderNo = True
+                                                          OpenPositions = False
+                                                          ' Save the current order_id for tracking
+                                                          CurrentOpenOrderId = orderId
+                                                          lblOrderStatus.Text = "Order Placed"
+                                                          lblOrderStatus.ForeColor = Color.Chartreuse
+                                                      End If
 
                                                       'When order is executed, TakeLimitProfit/StopLossOrder becomes 2 orders each
                                                       '- 1 with triggered state (The order before execution) and 1 with open state (Triggered by execution)
@@ -1637,36 +1673,46 @@ Public Class frmMainPageV2
                                                           AppendColoredText(txtLogs, $"Triggered SL placed @ ${price}", Color.Red)
                                                       End If
 
-                                                      txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
-                                                      placedStopLossPrice = If(price, 0D)   ' engine state = exchange's triggered-SL price (cross-thread fix)
+                                                      ' Transition-race fix: single-writer for the triggered-SL price. Seed only when the
+                                                      ' engine doesn't already own it (0) and no cancel is pending, so a lagging echo can't
+                                                      ' reset placedStopLossPrice backward while the quote handler is trailing the SL.
+                                                      If placedStopLossPrice = 0D AndAlso Not cancelPending Then
+                                                          placedStopLossPrice = If(price, 0D)
+                                                          txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
+                                                      End If
 
                                                       lblOrderStatus.Text = "Stop Loss Triggered"
                                                       lblOrderStatus.ForeColor = Color.Red
                                                       OpenPositions = True
                                                       OpenOrderNo = False
                                                   Case "EntryTrailingOrder"
-                                                      txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
-                                                      placedPrice = If(price, 0D)   ' engine state = exchange's entry price (cross-thread fix)
-                                                      CurrentOpenOrderId = orderId
-                                                      If Decimal.Parse(txtManualTP.Text) > 0 Then
-                                                          txtPlacedTakeProfitPrice.Text = txtManualTP.Text
-                                                      Else
-                                                          If TradeMode = True Then
-                                                              txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) + ((Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text)))
+                                                      ' Transition-race fix: same as EntryLimitOrder - ignore the echo while cancelling, and
+                                                      ' seed placedPrice/display only when the engine doesn't already own the price.
+                                                      If Not cancelPending Then
+                                                          If placedPrice = 0D Then
+                                                              placedPrice = If(price, 0D)
+                                                              txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
+                                                          End If
+                                                          If Decimal.Parse(txtManualTP.Text) > 0 Then
+                                                              txtPlacedTakeProfitPrice.Text = txtManualTP.Text
                                                           Else
-                                                              txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) - ((Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text)))
+                                                              If TradeMode = True Then
+                                                                  txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) + ((Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text)))
+                                                              Else
+                                                                  txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) - ((Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text)))
+                                                              End If
+
                                                           End If
 
+                                                          OpenOrderNo = True
+                                                          OpenPositions = False
+                                                          isTrailingStop = True     'For checking if is trailing order when executing In Position code
+                                                          isTrailingPosition = False  'For sanity confirm that it is not in position
+                                                          ' Save the current order_id for tracking
+                                                          CurrentOpenOrderId = orderId
+                                                          lblOrderStatus.Text = "Order Placed"
+                                                          lblOrderStatus.ForeColor = Color.Chartreuse
                                                       End If
-
-                                                      OpenOrderNo = True
-                                                      OpenPositions = False
-                                                      isTrailingStop = True     'For checking if is trailing order when executing In Position code
-                                                      isTrailingPosition = False  'For sanity confirm that it is not in position
-                                                      ' Save the current order_id for tracking
-                                                      CurrentOpenOrderId = orderId
-                                                      lblOrderStatus.Text = "Order Placed"
-                                                      lblOrderStatus.ForeColor = Color.Chartreuse
                                                   Case "TrailingStopLoss"
                                                       lblOrderStatus.Text = "In Position"
                                                       lblOrderStatus.ForeColor = Color.Yellow
@@ -1695,7 +1741,11 @@ Public Class frmMainPageV2
                                 'Dim triggerPrice = order.SelectToken("trigger_price")?.ToObject(Of Decimal?)()
 
                                 ' Update textboxes based on the label
+                                ' Transition-race fix: while a cancel is pending, ignore these child-leg echoes -
+                                ' they confirm untriggered TP/SL legs we've already cancelled, and re-populating
+                                ' CurrentTPOrderId/CurrentSLOrderId would re-arm the reposition on a dead context.
                                 Me.Invoke(Sub()
+                                              If cancelPending Then Return
                                               Select Case label
                                                   Case "TakeLimitProfit"
                                                       Dim price = order.SelectToken("price")?.ToObject(Of Decimal?)()
@@ -1715,7 +1765,7 @@ Public Class frmMainPageV2
                                                       CurrentSLOrderId = orderId
                                                       PositionSLOrderId = orderId
                                                   Case "TrailingStopLoss"
-                                                      'Trigger-price is received from channel only when order is placed/triggered/filled. 
+                                                      'Trigger-price is received from channel only when order is placed/triggered/filled.
                                                       'It doesn't update when market price moves and it dynamically adjusts.
 
                                                       Dim triggerPrice = order.SelectToken("trigger_price")?.ToObject(Of Decimal?)()
@@ -1819,6 +1869,10 @@ Public Class frmMainPageV2
 
                                 End Select
                             ElseIf orderState = "cancelled" Then
+                                ' Transition-race fix: the exchange has confirmed a cancel - clear cancelPending so
+                                ' repositioning/echo-seeding can resume for the next order context. The IDs stay null
+                                ' (reset in CancelOrderAsync); a fresh placement or a genuine open echo re-establishes them.
+                                cancelPending = False
                                 Select Case label
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
@@ -2428,6 +2482,7 @@ Public Class frmMainPageV2
             txtPlacedPrice.Text = BestPrice.ToString("F2")
             placedPrice = BestPrice               ' seed engine state at placement (cross-thread fix)
             placedStopLossPrice = stoplossPrice
+            cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
 
             If TypeOfOrder = "BuyLimit" Then
                 ' Optional: Handle post-order logic (e.g., display confirmation)
@@ -2469,6 +2524,15 @@ Public Class frmMainPageV2
         ' Reset engine state synchronously (cross-thread fix) so no reposition/SL decision reads a stale price.
         placedPrice = 0D
         placedStopLossPrice = 0D
+
+        ' Transition-race fix: mark the cancel in flight and drop the order context up front. Nulling the IDs
+        ' plus the cancelPending gate stops any reposition/edit from firing on the just-cancelled order, and
+        ' lagging open echoes can't re-arm the reposition (they're ignored while pending; see the echo handler).
+        cancelPending = True
+        cancelPendingSince = DateTime.UtcNow
+        CurrentOpenOrderId = Nothing
+        CurrentTPOrderId = Nothing
+        CurrentSLOrderId = Nothing
 
         ' Cross-thread fix: CancelOrderAsync runs on both the UI and receive threads; marshal the status
         ' label with the placed-price resets (it was previously written unguarded off the receive thread).
@@ -3050,6 +3114,7 @@ Public Class frmMainPageV2
             txtPlacedPrice.Text = BestPrice.ToString("F2")
             placedPrice = BestPrice               ' seed engine state at placement (cross-thread fix)
             placedStopLossPrice = stoplossPrice
+            cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
 
             isTrailingStopLossPlaced = True
 
