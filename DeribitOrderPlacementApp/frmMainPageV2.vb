@@ -1276,7 +1276,7 @@ Public Class frmMainPageV2
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 'Stop if repositioned past ATR slippage threshold
                                 If maxSlippageATRchecked And IsATRSlippageExcessive(bestBid, "LONG") Then
-                                    Await CancelOrderAsync()
+                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
                                     'Return
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestBid)
@@ -1315,7 +1315,7 @@ Public Class frmMainPageV2
                         If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
-                                    Await CancelOrderAsync()
+                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
                                     'Return
                                 Else
                                     Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
@@ -1488,7 +1488,7 @@ Public Class frmMainPageV2
                             ' Add null check for rateLimiter
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "LONG") Then
-                                    Await CancelOrderAsync()
+                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
                                     'Return
                                 Else
                                     Await UpdateStopLossForTrailingOrder(bestBid)
@@ -1514,7 +1514,7 @@ Public Class frmMainPageV2
                         If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
                             If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                 If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
-                                    Await CancelOrderAsync()
+                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
                                     'Return
                                 Else
                                     Await UpdateStopLossForTrailingOrder(bestAsk)
@@ -2716,6 +2716,50 @@ Public Class frmMainPageV2
             PositionEmpty = False
         End If
 
+    End Function
+
+
+    ' Scoped cancel (docs/spec-decouple-v2.md): abandon the WORKING ENTRY only. Cancels the OTOCO
+    ' primary by id (Deribit cancels the linked untriggered children with it - verified in tests);
+    ' an existing position's legs (PositionTPOrderId/PositionSLOrderId), its triggered-SL trailing
+    ' state (SLTriggered/placedStopLossPrice/StopLossTriggerOriginal), and the trailing/position
+    ' flags are deliberately NOT touched. Receive-thread safe: fields + self-marshalling output.
+    Private Async Function CancelWorkingEntryCoreAsync(reason As String) As Task
+        Dim entryId As String = CurrentOpenOrderId
+        If entryId Is Nothing Then Return
+
+        Dim cancelPayload As New JObject From {
+            {"jsonrpc", "2.0"},
+            {"id", 31},
+            {"method", "private/cancel"},
+            {"params", New JObject From {{"order_id", entryId}}}
+        }
+        Await SendWebSocketMessageAsync(cancelPayload.ToString())
+
+        ' Same transition-race protection as the nuclear cancel: gate repositions/echo-seeding
+        ' for the window, drop the entry context, reset the entry price.
+        cancelPending = True
+        cancelPendingSince = DateTime.UtcNow
+        CurrentOpenOrderId = Nothing
+        CurrentTPOrderId = Nothing
+        CurrentSLOrderId = Nothing
+        placedPrice = 0D
+        ResetOrderAttempt() ' reset ATR slippage tracking for the next attempt
+
+        UiInvoke(Sub()
+                     txtPlacedPrice.Text = "0"
+                     txtPlacedTakeProfitPrice.Text = "0"
+                     txtPlacedTrigStopPrice.Text = "0"
+                     If positionSizeUSD <> 0D Then
+                         lblOrderStatus.Text = "In Position"
+                         lblOrderStatus.ForeColor = Color.Yellow
+                     Else
+                         lblOrderStatus.Text = "Awaiting Orders"
+                         lblOrderStatus.ForeColor = Color.DeepSkyBlue
+                     End If
+                 End Sub)
+
+        AppendColoredText(txtLogs, $"Working entry cancelled ({reason}) - position legs untouched", Color.Yellow)
     End Function
 
 
