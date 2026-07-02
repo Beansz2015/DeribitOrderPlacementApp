@@ -1,4 +1,5 @@
-﻿Imports System.Globalization
+﻿Imports System.Collections.Concurrent
+Imports System.Globalization
 Imports System.IO
 'Imports System.Net.Http
 'Imports System.Net.Http.Headers
@@ -677,6 +678,8 @@ Public Class frmMainPageV2
                 HandleRateLimitError(response)
                 ' NEW: Handle margin estimates for liquidation price calculations
                 HandleMarginEstimationResponse(response)
+                ' Decouple v2: placement acks/rejections (ids >= PlacementIdBase)
+                HandlePlacementResponse(response)
                 ' Audit2 F2: surface JSON-RPC errors no dedicated handler owns (silent order rejections)
                 HandleUnhandledJsonRpcError(response)
             Catch ex As WebSocketException
@@ -902,6 +905,7 @@ Public Class frmMainPageV2
             If messageId.HasValue AndAlso
                (messageId.Value = 3 OrElse messageId.Value = 999 OrElse
                 messageId.Value = 777 OrElse messageId.Value = 890) Then Return
+            If messageId.HasValue AndAlso messageId.Value >= PlacementIdBase Then Return ' HandlePlacementResponse owns placements
 
             Dim errorCode = errorField.SelectToken("code")?.ToObject(Of Integer)()
             If errorCode.HasValue AndAlso errorCode.Value = 10028 Then Return ' HandleRateLimitError owns 10028
@@ -931,6 +935,46 @@ Public Class frmMainPageV2
             Case Else : Return ""
         End Select
     End Function
+
+    ' Consumes success/error responses for entry placements (ids >= PlacementIdBase). On rejection:
+    ' restores the pre-placement engine snapshots (placedPrice/placedStopLossPrice were seeded
+    ' optimistically at send) and completes the ack. On success: completes the ack with the order id.
+    ' Runs on the receive thread - engine fields + self-marshalling output only.
+    Private Sub HandlePlacementResponse(response As String)
+        Try
+            If response.IndexOf("""id""", StringComparison.Ordinal) < 0 Then Return
+            Dim json = JObject.Parse(response)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
+            If Not (messageId.HasValue AndAlso messageId.Value >= PlacementIdBase) Then Return
+
+            Dim entry As PendingPlacement = Nothing
+            If Not pendingPlacements.TryRemove(messageId.Value, entry) Then Return ' unknown/stale id
+
+            Dim errorField = json.SelectToken("error")
+            If errorField IsNot Nothing Then
+                Dim code = errorField.SelectToken("code")?.ToObject(Of Integer)()
+                Dim msg = errorField.SelectToken("message")?.ToString()
+                Dim data = errorField.SelectToken("data")?.ToString(Newtonsoft.Json.Formatting.None)
+                ' Rollback: restore, don't zero (a zero could stall an actively-trailing SL).
+                placedPrice = entry.PrevPlacedPrice
+                placedStopLossPrice = entry.PrevPlacedSL
+                UiInvoke(Sub()
+                             txtPlacedPrice.Text = entry.PrevPlacedPrice.ToString("F2")
+                             txtPlacedStopLossPrice.Text = entry.PrevPlacedSL.ToString("F2")
+                         End Sub)
+                AppendColoredText(txtLogs,
+                    $"ORDER REJECTED (id {messageId.Value}): code {If(code?.ToString(), "?")} - {msg}{If(data IsNot Nothing, " | " & data, "")} - engine state rolled back",
+                    Color.Red)
+                entry.Tcs?.TrySetResult(New PlacementResult With {.Accepted = False, .Reason = $"{code}: {msg}"})
+                Return
+            End If
+
+            Dim orderId = json.SelectToken("result.order.order_id")?.ToString()
+            entry.Tcs?.TrySetResult(New PlacementResult With {.Accepted = True, .OrderId = orderId})
+        Catch
+            ' Parse noise: ignore, like the other handlers.
+        End Try
+    End Sub
 
     Private Async Function InitializeRateLimitsAfterAuth() As Task
         Try
@@ -1699,6 +1743,45 @@ Public Class frmMainPageV2
     Private positionSizeUSD As Decimal = 0D
     Private positionAvgEntry As Decimal = 0D
 
+    ' ============ Decouple v2 (docs/spec-decouple-v2.md) ============
+    ' Unique JSON-RPC ids for entry placements (manual + API). Responses are consumed by
+    ' HandlePlacementResponse; HandleUnhandledJsonRpcError skips this range (single owner).
+    Private Const PlacementIdBase As Integer = 600000
+    Private nextPlacementId As Integer = PlacementIdBase
+
+    ' One entry per in-flight placement. Snapshots restore engine state on rejection
+    ' (restore, not zero - a zero could stall an actively-trailing position SL).
+    Private Class PendingPlacement
+        Public RequestId As Integer
+        Public Tcs As TaskCompletionSource(Of PlacementResult)   ' Nothing for manual placements
+        Public PrevPlacedPrice As Decimal
+        Public PrevPlacedSL As Decimal
+        Public CreatedUtc As DateTime = DateTime.UtcNow
+    End Class
+    Private ReadOnly pendingPlacements As New ConcurrentDictionary(Of Integer, PendingPlacement)
+
+    ' Ack result surfaced to API callers (and, later, over the IPC pipe).
+    Public Class PlacementResult
+        Public Property Accepted As Boolean
+        Public Property OrderId As String     ' entry order id when accepted
+        Public Property Reason As String      ' reject reason / "timeout" / gate refusal
+    End Class
+
+    ' Registers a placement just before its send. If the API pre-registered this id (Tcs attached),
+    ' keep that entry; otherwise create a snapshot-only entry. Sweeps stale entries (>60s) as hygiene.
+    Private Sub RegisterPendingPlacement(reqId As Integer)
+        If Not pendingPlacements.ContainsKey(reqId) Then
+            pendingPlacements(reqId) = New PendingPlacement With {.RequestId = reqId}
+        End If
+        Dim entry = pendingPlacements(reqId)
+        entry.PrevPlacedPrice = placedPrice
+        entry.PrevPlacedSL = placedStopLossPrice
+        For Each stale In pendingPlacements.Values.Where(Function(pp) (DateTime.UtcNow - pp.CreatedUtc).TotalSeconds > 60).ToList()
+            Dim removed As PendingPlacement = Nothing
+            pendingPlacements.TryRemove(stale.RequestId, removed)
+        Next
+    End Sub
+
     Private isTrailingStop As Boolean = False
     Private isTrailingPosition As Boolean = False
     Private PositionEmpty As Boolean = False
@@ -2282,7 +2365,7 @@ Public Class frmMainPageV2
 
     'All order execution code below
     '-----------------------------------------------------------------------
-    Private Async Function ExecuteOrderAsync(TypeOfOrder As String) As Task
+    Private Async Function ExecuteOrderAsync(TypeOfOrder As String, Optional requestId As Integer = 0) As Task
         Try
             Dim takeprofitprice As Decimal
             Dim stoplossTriggerPrice As Decimal
@@ -2598,10 +2681,15 @@ Public Class frmMainPageV2
                 params.Add("post_only", True) ' Post-only is valid only for limit orders
             End If
 
+            ' Decouple v2: unique id per placement + registry entry (snapshots for rejection
+            ' rollback). Manual buttons pass no id -> self-allocate, no ack awaiter.
+            Dim reqId As Integer = If(requestId > 0, requestId, Interlocked.Increment(nextPlacementId))
+            RegisterPendingPlacement(reqId)
+
             ' Prepare the payload for the linked order
             Dim OrderPayload As New JObject(
     New JProperty("jsonrpc", "2.0"),
-    New JProperty("id", 2),
+    New JProperty("id", reqId),
     New JProperty("method", ordermethod),
     New JProperty("params", params)
 )
@@ -3305,10 +3393,14 @@ Public Class frmMainPageV2
             params.Add("price", BestPrice)
             params.Add("post_only", True) ' Post-only is valid only for limit orders
 
+            ' Decouple v2: unique id per placement + registry entry (snapshots for rejection rollback).
+            Dim reqId As Integer = Interlocked.Increment(nextPlacementId)
+            RegisterPendingPlacement(reqId)
+
             ' Prepare the payload for the linked order
             Dim OrderPayload As New JObject(
             New JProperty("jsonrpc", "2.0"),
-            New JProperty("id", 2),
+            New JProperty("id", reqId),
             New JProperty("method", ordermethod),
             New JProperty("params", params)
         )
