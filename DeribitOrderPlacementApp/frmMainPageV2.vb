@@ -2759,13 +2759,15 @@ Public Class frmMainPageV2
             ' Your existing emergency market order logic first. Cross-thread fix: marketStopThreshold mirrors
             ' txtMarketStopLoss; a 0/blank threshold disables this emergency market-stop (was: Parse threw on
             ' blank and aborted the whole SL update; "0" fired the market stop on any adverse movement).
-            If marketStopThreshold > 0D AndAlso (TradeMode = True) AndAlso (StopLossTriggerOriginal - newPrice >= marketStopThreshold) Then
+            ' Audit2 F3: chkMarketStopLoss (via the marketStopLossChecked mirror - receive thread!) is the
+            ' master enable for this emergency market close; threshold 0/blank additionally disables.
+            If marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso (TradeMode = True) AndAlso (StopLossTriggerOriginal - newPrice >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
-            ElseIf marketStopThreshold > 0D AndAlso (TradeMode = False) AndAlso (newPrice - StopLossTriggerOriginal >= marketStopThreshold) Then
+            ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso (TradeMode = False) AndAlso (newPrice - StopLossTriggerOriginal >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
