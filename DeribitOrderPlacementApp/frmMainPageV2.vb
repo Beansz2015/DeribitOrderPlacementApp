@@ -3971,6 +3971,7 @@ Public Class frmMainPageV2
                         TPOrderID = PositionTPOrderId
                     Else
                         AppendColoredText(txtLogs, "T.P. Order ID not found for edit.", Color.Yellow)
+                        Return ' Audit2 F4: don't send an edit with a null order_id
                     End If
 
                     ' Construct the payload for updating the take profit order
@@ -4016,10 +4017,11 @@ Public Class frmMainPageV2
 
                 If CurrentSLOrderId IsNot Nothing Then
                     SLOrderID = CurrentSLOrderId
-                ElseIf PositionTPOrderId IsNot Nothing Then
+                ElseIf PositionSLOrderId IsNot Nothing Then
                     SLOrderID = PositionSLOrderId
                 Else
                     AppendColoredText(txtLogs, "S.L. Order ID not found for edit.", Color.Yellow)
+                    Return ' Audit2 F4: don't send an edit with a null order_id
                 End If
 
                 If TradeMode = True Then
