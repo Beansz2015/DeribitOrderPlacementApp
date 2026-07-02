@@ -615,6 +615,10 @@ Public Class frmMainPageV2
         Await SubscribeToQuoteBTCPerpetual()
         Await SubscribeToUserOrders()
 
+        ' Position model: seed size/avg-entry for a restart with an already-open position
+        ' (id-777 response lands in ProcessPositionData via HandleMarginEstimationResponse).
+        Await GetLivePositionData("BTC-PERPETUAL")
+
         ' Update UI on success
         Me.BeginInvoke(Sub()
                            btnConnect.Text = "ONLINE"
@@ -1677,6 +1681,14 @@ Public Class frmMainPageV2
     Private reduceOrderPrice As Decimal = 0D
     Private reduceOrderAmount As Decimal = 0D
     Private reduceOrderIsBuy As Boolean = False
+
+    ' Position model (docs/spec-position-model.md): the engine's view of the ACTUAL position.
+    ' size is signed USD (+long / -short) from the exchange; avg entry updates only while a
+    ' position exists and RETAINS the just-closed basis on the flat echo (close-P/L reads it).
+    ' Written on the receive thread; UI buttons read them (accepted Decimal torn-read class).
+    Private positionSizeUSD As Decimal = 0D
+    Private positionAvgEntry As Decimal = 0D
+
     Private isTrailingStop As Boolean = False
     Private isTrailingPosition As Boolean = False
     Private PositionEmpty As Boolean = False
@@ -1696,6 +1708,22 @@ Public Class frmMainPageV2
 
                 ' Check if the update relates to orders
                 If orderData IsNot Nothing Then
+                    ' Position model: update from EVERY positions echo, independent of the
+                    ' order-context gates below (fills from other sources / liquidations included).
+                    Dim posTokens = orderData.SelectToken("positions")?.ToObject(Of List(Of JObject))()
+                    If posTokens IsNot Nothing Then
+                        For Each p In posTokens
+                            Dim sz = p.SelectToken("size")?.ToObject(Of Decimal?)()
+                            If sz.HasValue Then
+                                positionSizeUSD = sz.Value
+                                If sz.Value <> 0D Then
+                                    Dim avg = p.SelectToken("average_price")?.ToObject(Of Decimal?)()
+                                    If avg.HasValue AndAlso avg.Value > 0D Then positionAvgEntry = avg.Value
+                                End If
+                            End If
+                        Next
+                    End If
+
                     Dim orders = orderData.SelectToken("orders")?.ToObject(Of List(Of JObject))()
                     If orders IsNot Nothing AndAlso orders.Count > 0 Then
                         Dim OpenOrderNo As Boolean = False
@@ -3613,6 +3641,14 @@ Public Class frmMainPageV2
             Dim positionSize = positionData.SelectToken("size")?.ToObject(Of Decimal?)()
             Dim markPrice = positionData.SelectToken("mark_price")?.ToObject(Of Decimal?)()
             Dim averagePrice = positionData.SelectToken("average_price")?.ToObject(Of Decimal?)()
+
+            ' Position model: keep the engine fields current from id-777 snapshots too.
+            If positionSize.HasValue Then
+                positionSizeUSD = positionSize.Value
+                If positionSize.Value <> 0D AndAlso averagePrice.HasValue AndAlso averagePrice.Value > 0D Then
+                    positionAvgEntry = averagePrice.Value
+                End If
+            End If
 
             ' CORRECTED: For BTC-PERPETUAL, positionSize is in USD, not BTC
             Dim effectiveLeverage As Decimal = 0
