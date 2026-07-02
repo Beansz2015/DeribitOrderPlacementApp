@@ -2070,11 +2070,21 @@ Public Class frmMainPageV2
                                                 LogTradeDecision("Exit Position - Loss", PorLAmt, ExecPrice) 'For autotrade log for when trade exit position
                                             End If
 
+                                        ElseIf label4DB IsNot Nothing Then
+                                            ' Audit2 fix 7: a tracked close whose P/L rounds to $0.00 (scratch) previously
+                                            ' logged nothing and was never recorded. Market reduces (label4DB Is Nothing)
+                                            ' keep their fix-6 logging and stay untracked by design. No LogTradeDecision
+                                            ' call here: it has no scratch branch and would write an empty file line.
+                                            AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Yellow)
+                                            AppendColoredText(txtLogs, "Scratch close: P/L ≈ $0.00.", Color.Yellow)
                                         End If
 
                                         'To record to DB
                                         ' In HandleOrderPositionUpdates
-                                        If PorLAmt > 0 Then
+                                        ' Audit2 fix 7: record every computed close (label4DB set), including $0.00
+                                        ' scratches - real trades whose absence biased the stats. Market reduces
+                                        ' (label4DB Is Nothing) remain untracked by design.
+                                        If label4DB IsNot Nothing Then
                                             Dim tradeId = RecordCompletedTrade(
                                                 entryPriceAtClose,
                                                 ExecPrice,
