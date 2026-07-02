@@ -673,6 +673,8 @@ Public Class frmMainPageV2
                 HandleRateLimitError(response)
                 ' NEW: Handle margin estimates for liquidation price calculations
                 HandleMarginEstimationResponse(response)
+                ' Audit2 F2: surface JSON-RPC errors no dedicated handler owns (silent order rejections)
+                HandleUnhandledJsonRpcError(response)
             Catch ex As WebSocketException
                 AppendColoredText(txtLogs, $"WebSocket exception: {ex.Message}", Color.Red)
                 reconnectNeeded = True
@@ -876,6 +878,55 @@ Public Class frmMainPageV2
             ' Ignore parsing errors for non-JSON responses
         End Try
     End Sub
+
+    ' Audit2 F2 (logger half): surface JSON-RPC error responses that no dedicated handler owns.
+    ' Ids 3/999/777/890 already log their own errors in their handlers; code 10028 is owned by
+    ' HandleRateLimitError. Everything else (entry orders id 2, cancels id 30, edits 223344-223350,
+    ' reduce orders id 1, subscribes) was previously dropped silently - a rejected order looked
+    ' identical to a working one. LOGGING ONLY: no engine state is touched here (rollback is #10's job).
+    Private Sub HandleUnhandledJsonRpcError(response As String)
+        Try
+            ' Fast path: skip the JSON parse for the vast majority of messages (quotes, echoes).
+            If response.IndexOf("""error""", StringComparison.Ordinal) < 0 Then Return
+
+            Dim json = JObject.Parse(response)
+            Dim errorField = json.SelectToken("error")
+            If errorField Is Nothing Then Return
+
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
+            ' Skip errors that already have dedicated logging (null-safe: HasValue AndAlso, never <>)
+            If messageId.HasValue AndAlso
+               (messageId.Value = 3 OrElse messageId.Value = 999 OrElse
+                messageId.Value = 777 OrElse messageId.Value = 890) Then Return
+
+            Dim errorCode = errorField.SelectToken("code")?.ToObject(Of Integer)()
+            If errorCode.HasValue AndAlso errorCode.Value = 10028 Then Return ' HandleRateLimitError owns 10028
+
+            Dim errorMessage = errorField.SelectToken("message")?.ToString()
+            Dim errorData = errorField.SelectToken("data")?.ToString(Newtonsoft.Json.Formatting.None)
+
+            AppendColoredText(txtLogs,
+                $"API ERROR (id {If(messageId?.ToString(), "-")}{RequestNameForId(messageId)}): " &
+                $"code {If(errorCode?.ToString(), "?")} - {errorMessage}" &
+                $"{If(errorData IsNot Nothing, " | " & errorData, "")}",
+                Color.Red)
+        Catch
+            ' Parse noise / unexpected shapes: ignore, like the other handlers.
+        End Try
+    End Sub
+
+    ' Best-effort request-class hint for the ad-hoc id space (see CODE_AUDIT_FABLE5.md F15).
+    Private Function RequestNameForId(messageId As Integer?) As String
+        If Not messageId.HasValue Then Return ""
+        Select Case messageId.Value
+            Case 2 : Return " auth/entry order"
+            Case 30 : Return " cancel-all/trailing stop"
+            Case 1 : Return " subscribe/reduce order"
+            Case 1001 : Return " set_heartbeat"
+            Case 223344, 223345, 223346, 223347, 223348, 223350 : Return " order edit"
+            Case Else : Return ""
+        End Select
+    End Function
 
     Private Async Function InitializeRateLimitsAfterAuth() As Task
         Try
