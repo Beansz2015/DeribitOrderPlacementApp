@@ -4063,30 +4063,24 @@ Public Class frmMainPageV2
 
     Private Async Sub btnReduceLimit_Click(sender As Object, e As EventArgs) Handles btnReduceLimit.Click
         Try
-            Dim direction As String
-
-            ' Determine the direction based on the current position
-            If TradeMode = False Then
-                direction = "buy" ' To reduce a short, we buy
-            Else
-                direction = "sell" ' To reduce a long, we sell
-            End If
-
-            ' Validate the amount
-            Dim amount As Decimal
-            If Not Decimal.TryParse(txtAmount.Text, amount) OrElse amount <= 0 Then
-                AppendColoredText(txtLogs, "Invalid amount.", Color.Red)
+            ' Position model: reduce the ACTUAL position. Direction from the position sign (a
+            ' wrong TradeMode used to produce a silently-rejected reduce-only order); amount =
+            ' full position size (owner's full-close workflow; reduce_only caps there anyway).
+            Dim posSize As Decimal = positionSizeUSD
+            If posSize = 0D Then
+                AppendColoredText(txtLogs, "No open position to reduce.", Color.Yellow)
                 Return
             End If
+            Dim direction As String = If(posSize > 0D, "sell", "buy")
+            Dim amount As Decimal = Math.Abs(posSize)
 
-            ' Validate the price
-            Dim price As Decimal
-            If Not Decimal.TryParse(If(TradeMode = False, txtTopBid.Text, txtTopAsk.Text), price) OrElse price <= 0 Then
+            ' Passive side for the chosen direction (engine quote fields, not textbox parses)
+            Dim price As Decimal = If(direction = "buy", BestBidPrice, BestAskPrice)
+            If price <= 0 Then
                 AppendColoredText(txtLogs, "Invalid price.", Color.Red)
                 Return
             End If
 
-            ' Call the function to send the reduce-only limit order
             Await SendReduceOrderAsync(price, amount, direction, isMarketOrder:=False)
 
         Catch ex As Exception
@@ -4100,20 +4094,24 @@ Public Class frmMainPageV2
     ' AND by the emergency stop path in UpdateStopLossForTriggeredStopLossOrder (receive thread), so that
     ' path no longer needs a cross-thread btnReduceMarket.PerformClick(). Reads orderAmountVal, not txtAmount.
     Private Async Function SendReduceMarketOrderAsync() As Task
+        ' Position model: flatten the ACTUAL position - the emergency stop must close what is
+        ' really open, not what txtAmount says (a stale amount used to under-close after adds).
+        Dim posSize As Decimal = positionSizeUSD
         Dim direction As String
-
-        ' Determine the direction based on the current position
-        If TradeMode = True Then
-            direction = "sell" ' To reduce a long, we sell
+        Dim amount As Decimal
+        If posSize <> 0D Then
+            direction = If(posSize > 0D, "sell", "buy")
+            amount = Math.Abs(posSize)
         Else
-            direction = "buy" ' To reduce a short, we buy
-        End If
-
-        ' Validate the amount
-        Dim amount As Decimal = orderAmountVal
-        If amount <= 0 Then
-            AppendColoredText(txtLogs, "Invalid amount.", Color.Red)
-            Return
+            ' Safety fallback: model unseeded (shouldn't happen after the connect seed) - behave
+            ' exactly like the old path so the emergency stop is never WEAKER than before.
+            AppendColoredText(txtLogs, "Position model empty - using TradeMode/txtAmount fallback for market reduce", Color.Orange)
+            direction = If(TradeMode, "sell", "buy")
+            amount = orderAmountVal
+            If amount <= 0 Then
+                AppendColoredText(txtLogs, "Invalid amount.", Color.Red)
+                Return
+            End If
         End If
 
         ' Call the function to send the reduce-only market order
