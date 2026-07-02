@@ -1638,6 +1638,13 @@ Public Class frmMainPageV2
     ' Variable to track the specific order ID of interest
     Private CurrentOpenOrderId, CurrentTPOrderId, CurrentSLOrderId As String
     Private PositionTPOrderId, PositionSLOrderId As String
+
+    ' Reduce-limit reposition context (docs/spec-reduce-reposition.md). One tracked reduce order.
+    ' Engine-owned; read/written on the receive thread - never read controls for these.
+    Private ReduceOrderId As String = Nothing
+    Private reduceOrderPrice As Decimal = 0D
+    Private reduceOrderAmount As Decimal = 0D
+    Private reduceOrderIsBuy As Boolean = False
     Private isTrailingStop As Boolean = False
     Private isTrailingPosition As Boolean = False
     Private PositionEmpty As Boolean = False
@@ -1777,6 +1784,21 @@ Public Class frmMainPageV2
                                                       isTrailingStopLossPlaced = False  'For sanity check that trailing stop loss has been placed
                                                       ' Save the current order_id for tracking
                                                       CurrentOpenOrderId = orderId
+                                                  Case "ReduceLimitOrder"
+                                                      ' Reposition context: capture the id; seed price/amount only when
+                                                      ' the engine doesn't already own them (single-writer). Direction
+                                                      ' always refreshed from the exchange (source of truth).
+                                                      If Not cancelPending Then
+                                                          ReduceOrderId = orderId
+                                                          reduceOrderIsBuy = (order.SelectToken("direction")?.ToString() = "buy")
+                                                          If reduceOrderPrice = 0D Then
+                                                              reduceOrderPrice = If(price, 0D)
+                                                          End If
+                                                          If reduceOrderAmount = 0D Then
+                                                              reduceOrderAmount = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
+                                                          End If
+                                                      End If
+                                                  Case "ReduceMarketOrder" ' (no-op here; market reduces are not repositioned)
                                               End Select
                                           End Sub)
 
@@ -1912,6 +1934,11 @@ Public Class frmMainPageV2
                                             End If
                                         End If
 
+                                        ' Reduce order gone from the book - drop the reposition context.
+                                        ReduceOrderId = Nothing
+                                        reduceOrderPrice = 0D
+                                        reduceOrderAmount = 0D
+
                                     Case "ReduceMarketOrder"
                                         OpenPositions = True 'Actually no positions but flagged true to use code in openpositions segment for cleanup
                                         If _indicators.IsAutoTradingEnabled Then
@@ -1938,6 +1965,10 @@ Public Class frmMainPageV2
                                         OpenPositions = True
                                     Case "ReduceLimitOrder"
                                         OpenPositions = True
+                                        ' Reduce order gone from the book - drop the reposition context.
+                                        ReduceOrderId = Nothing
+                                        reduceOrderPrice = 0D
+                                        reduceOrderAmount = 0D
                                 End Select
                             End If
 
@@ -2605,6 +2636,9 @@ Public Class frmMainPageV2
         CurrentOpenOrderId = Nothing
         CurrentTPOrderId = Nothing
         CurrentSLOrderId = Nothing
+        ReduceOrderId = Nothing
+        reduceOrderPrice = 0D
+        reduceOrderAmount = 0D
 
         ' Cross-thread fix: CancelOrderAsync runs on both the UI and receive threads; marshal the status
         ' label with the placed-price resets (it was previously written unguarded off the receive thread).
@@ -2694,6 +2728,14 @@ Public Class frmMainPageV2
 
             ' Send the payload via WebSocket
             Await SendWebSocketMessageAsync(payload.ToString())
+
+            If Not isMarketOrder Then
+                ' Seed the reposition context at placement. The open echo captures the order id and
+                ' re-seeds price/amount only when 0 (single-writer rule - see HandleOrderPositionUpdates).
+                reduceOrderPrice = If(price, 0D)
+                reduceOrderAmount = amount
+                reduceOrderIsBuy = (direction = "buy")
+            End If
 
             Dim orderDescription As String = $"{orderType.ToUpper()} {direction} {amount} {(If(isMarketOrder, "", $"@ {price}"))}"
             AppendColoredText(txtLogs, $"Reduce-only {orderDescription} order sent.", Color.Green)
