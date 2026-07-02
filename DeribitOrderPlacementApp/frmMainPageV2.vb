@@ -1965,6 +1965,10 @@ Public Class frmMainPageV2
 
                                     If size = 0 Then ' Position has been closed
 
+                                        ' Audit2 F1: snapshot the entry price BEFORE CancelOrderAsync zeroes
+                                        ' placedPrice, so the DB record gets the real entry, not 0.
+                                        Dim entryPriceAtClose As Decimal = placedPrice
+
                                         'Reset all flags
                                         OpenPositions = False
                                         isTrailingStop = False
@@ -2014,7 +2018,7 @@ Public Class frmMainPageV2
                                         ' In HandleOrderPositionUpdates
                                         If PorLAmt > 0 Then
                                             Dim tradeId = RecordCompletedTrade(
-                                                placedPrice,
+                                                entryPriceAtClose,
                                                 ExecPrice,
                                                 orderAmountVal,
                                                 PorLAmt,
