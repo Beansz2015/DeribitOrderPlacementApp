@@ -257,10 +257,6 @@ Public Class frmMainPageV2
 
     'For AUTOMATED ORDER PLACEMENT
     '----------------------------------------------------------------------------------------------
-    Public Async Function ExecuteAutomatedOrder(orderType As String) As Task
-        Await ExecuteOrderAsync(orderType)
-    End Function
-
     Public Function GetTradeMode() As Boolean
         Return TradeMode
     End Function
@@ -289,6 +285,127 @@ Public Class frmMainPageV2
             Return rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest()
         End Get
     End Property
+
+    ' ===== PUBLIC AUTOMATION API (contract: docs/integration-contract-verdictengine.md) =====
+    ' Thread contract: every member here is callable from ANY thread.
+
+    Public ReadOnly Property OpenPositionSizeUSD As Decimal   ' signed: + long / - short
+        Get
+            Return positionSizeUSD
+        End Get
+    End Property
+
+    Public ReadOnly Property OpenPositionAvgEntry As Decimal
+        Get
+            Return positionAvgEntry
+        End Get
+    End Property
+
+    Public ReadOnly Property SessionPnLUSD As Decimal
+        Get
+            Return USDPublicSession
+        End Get
+    End Property
+
+    Public ReadOnly Property HasWorkingEntryOrder As Boolean
+        Get
+            Return CurrentOpenOrderId IsNot Nothing
+        End Get
+    End Property
+
+    Public ReadOnly Property IsFlat As Boolean
+        Get
+            Return positionSizeUSD = 0D
+        End Get
+    End Property
+
+    ' Writes the trade-input textboxes on the UI thread; TextChanged syncs the engine mirrors -
+    ' the same path the manual flow and the old btnATR paste use. Nothing/negative = leave as is.
+    Public Sub SetTradeTargets(Optional takeProfit As Decimal? = Nothing,
+                               Optional triggerDistance As Decimal? = Nothing,
+                               Optional stopLoss As Decimal? = Nothing,
+                               Optional sizeUSD As Decimal? = Nothing,
+                               Optional manualTP As Decimal? = Nothing,
+                               Optional manualSL As Decimal? = Nothing)
+        Dim apply As Action = Sub()
+                                  If takeProfit.HasValue AndAlso takeProfit.Value >= 0D Then txtTakeProfit.Text = takeProfit.Value.ToString()
+                                  If triggerDistance.HasValue AndAlso triggerDistance.Value >= 0D Then txtTrigger.Text = triggerDistance.Value.ToString()
+                                  If stopLoss.HasValue AndAlso stopLoss.Value >= 0D Then txtStopLoss.Text = stopLoss.Value.ToString()
+                                  If sizeUSD.HasValue AndAlso sizeUSD.Value > 0D Then txtAmount.Text = sizeUSD.Value.ToString()
+                                  If manualTP.HasValue AndAlso manualTP.Value >= 0D Then txtManualTP.Text = manualTP.Value.ToString()
+                                  If manualSL.HasValue AndAlso manualSL.Value >= 0D Then txtManualSL.Text = manualSL.Value.ToString()
+                              End Sub
+        If Me.IsHandleCreated AndAlso Me.InvokeRequired Then Me.Invoke(apply) Else apply()
+    End Sub
+
+    ' Places an entry with the current targets. v1 policy: STRICT - refuses unless connected,
+    ' rate-limit OK, flat, no working entry, and no cancel pending (the engine flattens first if
+    ' it wants to flip). side: "long"/"short". kind: "limit"|"market"|"nospread". Returns the
+    ' exchange ack (or a gate refusal / 5s timeout). Callable from any thread.
+    Public Async Function PlaceAutomatedOrder(side As String, Optional kind As String = "limit",
+                                              Optional ackTimeoutMs As Integer = 5000) As Task(Of PlacementResult)
+        ' Gates (fields only - safe on any thread)
+        If Not IsWebSocketConnected Then Return New PlacementResult With {.Accepted = False, .Reason = "not connected"}
+        If Not CanMakeAPIRequest Then Return New PlacementResult With {.Accepted = False, .Reason = "rate limit"}
+        If IsCancelPending() Then Return New PlacementResult With {.Accepted = False, .Reason = "cancel pending"}
+        If positionSizeUSD <> 0D Then Return New PlacementResult With {.Accepted = False, .Reason = "position open (flatten first)"}
+        If CurrentOpenOrderId IsNot Nothing Then Return New PlacementResult With {.Accepted = False, .Reason = "working entry exists"}
+
+        Dim isLong As Boolean
+        Select Case If(side, "").ToLowerInvariant()
+            Case "long", "buy" : isLong = True
+            Case "short", "sell" : isLong = False
+            Case Else : Return New PlacementResult With {.Accepted = False, .Reason = $"unknown side '{side}'"}
+        End Select
+
+        Dim typeOfOrder As String
+        Select Case If(kind, "").ToLowerInvariant()
+            Case "limit" : typeOfOrder = If(isLong, "BuyLimit", "SellLimit")
+            Case "market" : typeOfOrder = If(isLong, "BuyMarket", "SellMarket")
+            Case "nospread" : typeOfOrder = If(isLong, "BuyNoSpread", "SellNoSpread")
+            Case Else : Return New PlacementResult With {.Accepted = False, .Reason = $"unknown kind '{kind}'"}
+        End Select
+
+        ' Pre-register the ack BEFORE the placement seeds engine state (snapshots re-taken at send).
+        Dim reqId As Integer = Interlocked.Increment(nextPlacementId)
+        Dim tcs As New TaskCompletionSource(Of PlacementResult)(TaskCreationOptions.RunContinuationsAsynchronously)
+        pendingPlacements(reqId) = New PendingPlacement With {.RequestId = reqId, .Tcs = tcs}
+
+        ' Marshal the placement onto the UI thread (ExecuteOrderAsync reads controls) and await it
+        ' from this thread. Control.Invoke of a Function(Of Task) returns the Task to await.
+        Dim placeCall As Func(Of Task) = Function()
+                                             SetTradeMode(isLong)
+                                             Return ExecuteOrderAsync(typeOfOrder, reqId)
+                                         End Function
+        If Me.IsHandleCreated AndAlso Me.InvokeRequired Then
+            Await CType(Me.Invoke(placeCall), Task)
+        Else
+            Await placeCall()
+        End If
+
+        ' Await the exchange ack with a timeout. Timeout <> rejection: no rollback (the order may
+        ' exist; echoes remain the source of truth) - the caller re-queries state.
+        Dim done = Await Task.WhenAny(tcs.Task, Task.Delay(ackTimeoutMs))
+        If done Is tcs.Task Then Return tcs.Task.Result
+        Dim ignored As PendingPlacement = Nothing
+        pendingPlacements.TryRemove(reqId, ignored)
+        Return New PlacementResult With {.Accepted = False, .Reason = "timeout"}
+    End Function
+
+    ' Flatten the actual position at market (position-model sized; emergency-grade path).
+    Public Async Function FlattenPositionAsync() As Task
+        Await SendReduceMarketOrderAsync()
+    End Function
+
+    ' Nuclear: cancel every order on the instrument (the Cancel-All button's path).
+    Public Async Function CancelAllOrdersAsync() As Task
+        Await CancelOrderAsync()
+    End Function
+
+    ' Scoped: abandon the working entry only; an existing position's legs stay.
+    Public Async Function CancelWorkingEntryAsync() As Task
+        Await CancelWorkingEntryCoreAsync("API request")
+    End Function
     '----------------------------------------------------------------------------------------------
 
     Private Sub frmMainPageV2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
@@ -4020,102 +4137,112 @@ Public Class frmMainPageV2
 
     End Sub
 
+    ' Decouple v2: mode switching extracted from btnBuy_Click/btnSell_Click (bodies unchanged) so
+    ' the automation API can set direction on the UI thread without PerformClick.
+    Private Sub SetTradeMode(isLong As Boolean)
+        If isLong Then
+
+            'Sets mode to Buy mode
+            TradeMode = True
+
+            'Set btnBuy color to on
+            btnBuy.FlatStyle = FlatStyle.Flat
+            btnBuy.FlatAppearance.BorderSize = 2 ' Optional: Highlight border
+            btnBuy.BackColor = Color.Lime ' Change to "depressed" color
+            btnBuy.ForeColor = Color.Black
+
+            'Reset btnSell color
+            btnSell.FlatStyle = FlatStyle.Popup
+            btnSell.FlatAppearance.BorderSize = 0
+            btnSell.BackColor = Color.DarkRed ' Reset to default color
+            btnSell.ForeColor = Color.White
+
+
+            btnLimit.BackColor = Color.DarkGreen
+            btnNoSpread.BackColor = Color.Green
+            btnTrail.BackColor = Color.ForestGreen
+            btnMarket.BackColor = Color.SeaGreen
+
+            btnLimit.Text = "Limit BUY"
+            btnNoSpread.Text = "No Sprd. BUY"
+            btnTrail.Text = "Trail BUY"
+            btnMarket.Text = "Mkt. BUY"
+            btnReduceLimit.Text = "Reduce SELL"
+            btnReduceMarket.Text = "Mkt. Rdc. Sell"
+
+            TradeButtons.Text = "Long"
+            PlacedOrders.Text = "Placed Long"
+
+            txtPlacedTakeProfitPrice.Location = New Point(173, 95)
+            txtPlacedPrice.Location = New Point(173, 146)
+            txtPlacedTrigStopPrice.Location = New Point(173, 197)
+            txtPlacedStopLossPrice.Location = New Point(173, 248)
+
+            lblPlacedTakeProfitPrice.Location = New Point(12, 97)
+            lblPlacedPrice.Location = New Point(21, 150)
+            lblPlacedTrigStopPrice.Location = New Point(24, 201)
+            lblPlacedStopLossPrice.Location = New Point(22, 254)
+
+            btnEditTPPrice.Location = New Point(379, 93)
+            btnEditSLPrice.Location = New Point(379, 194)
+            btnTPOffset.Location = New Point(379, 247)
+
+        Else
+
+            'Sets mode to Sell mode
+            TradeMode = False
+
+            'Set btnSell color to on
+            btnSell.FlatStyle = FlatStyle.Flat
+            btnSell.FlatAppearance.BorderSize = 2 ' Optional: Highlight border
+            btnSell.BackColor = Color.Red ' Change to "depressed" color
+            btnSell.ForeColor = Color.Black
+
+            'Reset btnBuy color
+            btnBuy.FlatStyle = FlatStyle.Popup
+            btnBuy.FlatAppearance.BorderSize = 0
+            btnBuy.BackColor = Color.DarkGreen ' Reset to default color
+            btnBuy.ForeColor = Color.White
+
+
+            btnLimit.BackColor = Color.DarkRed
+            btnNoSpread.BackColor = Color.Firebrick
+            btnTrail.BackColor = Color.IndianRed
+            btnMarket.BackColor = Color.LightCoral
+
+            btnLimit.Text = "Limit SELL"
+            btnNoSpread.Text = "No Sprd. SELL"
+            btnTrail.Text = "Trail SELL"
+            btnMarket.Text = "Mkt. SELL"
+            btnReduceLimit.Text = "Reduce BUY"
+            btnReduceMarket.Text = "Mkt. Rdc. Buy"
+
+            TradeButtons.Text = "Short"
+            PlacedOrders.Text = "Placed Short"
+
+            txtPlacedStopLossPrice.Location = New Point(173, 95)
+            txtPlacedTrigStopPrice.Location = New Point(173, 146)
+            txtPlacedPrice.Location = New Point(173, 197)
+            txtPlacedTakeProfitPrice.Location = New Point(173, 248)
+
+            lblPlacedStopLossPrice.Location = New Point(22, 97)
+            lblPlacedTrigStopPrice.Location = New Point(24, 150)
+            lblPlacedPrice.Location = New Point(21, 201)
+            lblPlacedTakeProfitPrice.Location = New Point(12, 254)
+
+            btnEditTPPrice.Location = New Point(379, 247)
+            btnEditSLPrice.Location = New Point(379, 146)
+            btnTPOffset.Location = New Point(379, 93)
+
+        End If
+    End Sub
+
     Private Sub btnSell_Click(sender As Object, e As EventArgs) Handles btnSell.Click
-
-        'Sets mode to Sell mode
-        TradeMode = False
-
-        'Set btnSell color to on
-        btnSell.FlatStyle = FlatStyle.Flat
-        btnSell.FlatAppearance.BorderSize = 2 ' Optional: Highlight border
-        btnSell.BackColor = Color.Red ' Change to "depressed" color
-        btnSell.ForeColor = Color.Black
-
-        'Reset btnBuy color
-        btnBuy.FlatStyle = FlatStyle.Popup
-        btnBuy.FlatAppearance.BorderSize = 0
-        btnBuy.BackColor = Color.DarkGreen ' Reset to default color
-        btnBuy.ForeColor = Color.White
-
-
-        btnLimit.BackColor = Color.DarkRed
-        btnNoSpread.BackColor = Color.Firebrick
-        btnTrail.BackColor = Color.IndianRed
-        btnMarket.BackColor = Color.LightCoral
-
-        btnLimit.Text = "Limit SELL"
-        btnNoSpread.Text = "No Sprd. SELL"
-        btnTrail.Text = "Trail SELL"
-        btnMarket.Text = "Mkt. SELL"
-        btnReduceLimit.Text = "Reduce BUY"
-        btnReduceMarket.Text = "Mkt. Rdc. Buy"
-
-        TradeButtons.Text = "Short"
-        PlacedOrders.Text = "Placed Short"
-
-        txtPlacedStopLossPrice.Location = New Point(173, 95)
-        txtPlacedTrigStopPrice.Location = New Point(173, 146)
-        txtPlacedPrice.Location = New Point(173, 197)
-        txtPlacedTakeProfitPrice.Location = New Point(173, 248)
-
-        lblPlacedStopLossPrice.Location = New Point(22, 97)
-        lblPlacedTrigStopPrice.Location = New Point(24, 150)
-        lblPlacedPrice.Location = New Point(21, 201)
-        lblPlacedTakeProfitPrice.Location = New Point(12, 254)
-
-        btnEditTPPrice.Location = New Point(379, 247)
-        btnEditSLPrice.Location = New Point(379, 146)
-        btnTPOffset.Location = New Point(379, 93)
-
+        SetTradeMode(False)
     End Sub
 
     Private Sub btnBuy_Click(sender As Object, e As EventArgs) Handles btnBuy.Click
-
-        'Sets mode to Buy mode
-        TradeMode = True
-
-        'Set btnBuy color to on
-        btnBuy.FlatStyle = FlatStyle.Flat
-        btnBuy.FlatAppearance.BorderSize = 2 ' Optional: Highlight border
-        btnBuy.BackColor = Color.Lime ' Change to "depressed" color
-        btnBuy.ForeColor = Color.Black
-
-        'Reset btnSell color
-        btnSell.FlatStyle = FlatStyle.Popup
-        btnSell.FlatAppearance.BorderSize = 0
-        btnSell.BackColor = Color.DarkRed ' Reset to default color
-        btnSell.ForeColor = Color.White
-
-
-        btnLimit.BackColor = Color.DarkGreen
-        btnNoSpread.BackColor = Color.Green
-        btnTrail.BackColor = Color.ForestGreen
-        btnMarket.BackColor = Color.SeaGreen
-
-        btnLimit.Text = "Limit BUY"
-        btnNoSpread.Text = "No Sprd. BUY"
-        btnTrail.Text = "Trail BUY"
-        btnMarket.Text = "Mkt. BUY"
-        btnReduceLimit.Text = "Reduce SELL"
-        btnReduceMarket.Text = "Mkt. Rdc. Sell"
-
-        TradeButtons.Text = "Long"
-        PlacedOrders.Text = "Placed Long"
-
-        txtPlacedTakeProfitPrice.Location = New Point(173, 95)
-        txtPlacedPrice.Location = New Point(173, 146)
-        txtPlacedTrigStopPrice.Location = New Point(173, 197)
-        txtPlacedStopLossPrice.Location = New Point(173, 248)
-
-        lblPlacedTakeProfitPrice.Location = New Point(12, 97)
-        lblPlacedPrice.Location = New Point(21, 150)
-        lblPlacedTrigStopPrice.Location = New Point(24, 201)
-        lblPlacedStopLossPrice.Location = New Point(22, 254)
-
-        btnEditTPPrice.Location = New Point(379, 93)
-        btnEditSLPrice.Location = New Point(379, 194)
-        btnTPOffset.Location = New Point(379, 247)
-
+        SetTradeMode(True)
     End Sub
 
     Private Async Sub btnLimit_Click(sender As Object, e As EventArgs) Handles btnLimit.Click
