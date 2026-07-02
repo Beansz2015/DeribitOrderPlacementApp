@@ -1585,11 +1585,21 @@ Public Class frmMainPageV2
                     End Try
                 End If
 
-                If placedPriceValid AndAlso placedPrice > 0 AndAlso amountValid Then
+                ' Position model: when a position exists, display P/L against the avg-entry basis
+                ' and the real size; otherwise keep the resting-order hypothetical (old behavior).
+                Dim dispLong As Boolean = TradeMode
+                Dim dispBasis As Decimal = placedPrice
+                Dim dispAmt As Decimal = orderAmountVal
+                If positionSizeUSD <> 0D AndAlso positionAvgEntry > 0D Then
+                    dispLong = (positionSizeUSD > 0D)
+                    dispBasis = positionAvgEntry
+                    dispAmt = Math.Abs(positionSizeUSD)
+                End If
+                If dispBasis > 0D AndAlso dispAmt > 0D Then
                     Dim PnL As Decimal
-                    If TradeMode = True Then
-                        PnL = (BestAskPrice - placedPrice) * (orderAmountVal / placedPrice)
-                        If BestAskPrice < placedPrice Then
+                    If dispLong Then
+                        PnL = (BestAskPrice - dispBasis) * (dispAmt / dispBasis)
+                        If BestAskPrice < dispBasis Then
                             Me.Invoke(Sub()
                                           lblPnL.ForeColor = Color.Red
                                       End Sub)
@@ -1599,8 +1609,8 @@ Public Class frmMainPageV2
                                       End Sub)
                         End If
                     Else
-                        PnL = (placedPrice - BestAskPrice) * (orderAmountVal / placedPrice)
-                        If BestAskPrice > placedPrice Then
+                        PnL = (dispBasis - BestAskPrice) * (dispAmt / dispBasis)
+                        If BestAskPrice > dispBasis Then
                             Me.Invoke(Sub()
                                           lblPnL.ForeColor = Color.Red
                                       End Sub)
@@ -1732,6 +1742,8 @@ Public Class frmMainPageV2
                         Dim ExecPrice, PorLAmt As Decimal
                         Dim PorL As Boolean = True
                         Dim label4DB As String = Nothing
+                        Dim closedAmountUSD As Decimal = 0D   ' position model: actual closed size from the fill echo
+                        Dim closedWasLong As Boolean = TradeMode ' position model: closed side (from the fill's direction)
 
                         For Each order In orders
                             ' Extract relevant fields
@@ -1928,20 +1940,13 @@ Public Class frmMainPageV2
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
-                                        PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
-                                        PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
-                                        PorL = True
-                                        label4DB = label
+                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
 
                                     Case "StopLossOrder"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
-                                        PorLAmt = (placedPrice - ExecPrice) * (orderAmountVal / ExecPrice)
-                                        PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
-                                        PorL = False
                                         SLTriggered = False
-                                        'Need to calculate PorL when trailing stop loss is triggered
-                                        label4DB = label
+                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
 
                                     Case "EntryTrailingOrder"
                                         UiInvoke(Sub()
@@ -1956,43 +1961,12 @@ Public Class frmMainPageV2
                                     Case "TrailingStopLoss"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
-                                        PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
-                                        PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
-                                        PorL = True
-                                        label4DB = label
+                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
 
                                     Case "ReduceLimitOrder"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
-                                        If TradeMode = True Then
-                                            If ExecPrice > placedPrice Then
-                                                PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
-                                                PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
-                                                PorL = True
-                                                label4DB = label
-
-                                            Else
-                                                PorLAmt = (placedPrice - ExecPrice) * (orderAmountVal / ExecPrice)
-                                                PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
-                                                PorL = False
-                                                label4DB = label
-
-                                            End If
-                                        Else
-                                            If ExecPrice > placedPrice Then
-                                                PorLAmt = (placedPrice - ExecPrice) * (orderAmountVal / ExecPrice)
-                                                PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
-                                                PorL = False
-                                                label4DB = label
-
-                                            Else
-                                                PorLAmt = (ExecPrice - placedPrice) * (orderAmountVal / ExecPrice)
-                                                PorLAmt = Math.Abs(Math.Round(PorLAmt, 2, MidpointRounding.AwayFromZero))
-                                                PorL = True
-                                                label4DB = label
-
-                                            End If
-                                        End If
+                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
 
                                         ' Reduce order gone from the book - drop the reposition context.
                                         ReduceOrderId = Nothing
@@ -2005,12 +1979,12 @@ Public Class frmMainPageV2
                                             LogTradeDecision("Exit Position - Market Order Loss", 0, 0) 'For autotrade log for when trade exit position
                                         End If
                                         ResetOrderAttempt() ' Reset ATR slippage tracking
-                                        ' Audit2 fix 6: log the echo's actual fill price - newPricePublic is only set by the
-                                        ' emergency market-stop path, so manual reduces printed a stale 0. Wording neutralized
-                                        ' (a market reduce is not necessarily a loss).
+                                        ' Audit2 fix 6 + position model: log the echo's actual fill price and track the
+                                        ' close like every other fill (P/L vs avg entry; emergency closes hit the stats).
                                         Dim reduceFill = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
+                                        ExecPrice = If(reduceFill, 0D)
                                         AppendColoredText(txtLogs, $"Position reduced at {If(reduceFill?.ToString("F2"), If(newPricePublic > 0D, newPricePublic.ToString("F2"), "?"))} (market order).", Color.Crimson)
-                                        AppendColoredText(txtLogs, "P/L not tracked for market reduces - check order history.", Color.Crimson)
+                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
 
                                 End Select
                             ElseIf orderState = "cancelled" Then
@@ -2114,9 +2088,10 @@ Public Class frmMainPageV2
 
                                     If size = 0 Then ' Position has been closed
 
-                                        ' Audit2 F1: snapshot the entry price BEFORE CancelOrderAsync zeroes
-                                        ' placedPrice, so the DB record gets the real entry, not 0.
-                                        Dim entryPriceAtClose As Decimal = placedPrice
+                                        ' Audit2 F1 + position model: snapshot the closing basis BEFORE CancelOrderAsync
+                                        ' zeroes placedPrice. Avg entry is the true basis (survives adds/Cancel-All);
+                                        ' placedPrice remains the fallback for an unseeded model.
+                                        Dim entryPriceAtClose As Decimal = If(positionAvgEntry > 0D, positionAvgEntry, placedPrice)
 
                                         'Reset all flags
                                         OpenPositions = False
@@ -2162,27 +2137,26 @@ Public Class frmMainPageV2
                                             End If
 
                                         ElseIf label4DB IsNot Nothing Then
-                                            ' Audit2 fix 7: a tracked close whose P/L rounds to $0.00 (scratch) previously
-                                            ' logged nothing and was never recorded. Market reduces (label4DB Is Nothing)
-                                            ' keep their fix-6 logging and stay untracked by design. No LogTradeDecision
-                                            ' call here: it has no scratch branch and would write an empty file line.
+                                            ' Audit2 fix 7 + position model: a tracked close whose P/L rounds to $0.00
+                                            ' (scratch) still logs and records. No LogTradeDecision call here: it has no
+                                            ' scratch branch and would write an empty file line.
                                             AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Yellow)
                                             AppendColoredText(txtLogs, "Scratch close: P/L ≈ $0.00.", Color.Yellow)
                                         End If
 
                                         'To record to DB
                                         ' In HandleOrderPositionUpdates
-                                        ' Audit2 fix 7: record every computed close (label4DB set), including $0.00
-                                        ' scratches - real trades whose absence biased the stats. Market reduces
-                                        ' (label4DB Is Nothing) remain untracked by design.
+                                        ' Audit2 fix 7 + position model: record every computed close (label4DB set) -
+                                        ' $0.00 scratches and market reduces included; they are real trades and their
+                                        ' absence biased the stats.
                                         If label4DB IsNot Nothing Then
                                             Dim tradeId = RecordCompletedTrade(
                                                 entryPriceAtClose,
                                                 ExecPrice,
-                                                orderAmountVal,
+                                                If(closedAmountUSD > 0D, closedAmountUSD, orderAmountVal),
                                                 PorLAmt,
                                                 PorL,
-                                                TradeMode,
+                                                closedWasLong,
                                                 label4DB
                                             )
                                         End If
@@ -3520,6 +3494,29 @@ Public Class frmMainPageV2
         btnReduceLimit.Enabled = False
         btnCancelAllOpen.Enabled = False
 
+    End Sub
+
+    ' Position-model close P/L (docs/spec-position-model.md). Basis = exchange average entry
+    ' (positionAvgEntry, retained through the flat echo); side = the closing fill's OWN direction
+    ' (a closing SELL means the position was long); size = the fill's own amount. Replaces the
+    ' old placedPrice/TradeMode/orderAmountVal math, which was wrong after Cancel-All (basis
+    ' zeroed), after adds (order price <> avg entry), and after mode flips. Receive-thread safe:
+    ' reads engine fields only. If the model is unseeded (avg = 0) the P/L is 0 -> the close
+    ' lands in the fix-7 scratch path instead of recording garbage.
+    Private Sub ApplyCloseFill(order As JObject, execPrice As Decimal, label As String,
+                               ByRef porLAmt As Decimal, ByRef porL As Boolean, ByRef label4DB As String,
+                               ByRef closedAmountUSD As Decimal, ByRef closedWasLong As Boolean)
+        Dim fillDir As String = order.SelectToken("direction")?.ToString()
+        Dim fillAmt As Decimal = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
+        Dim signedPL As Decimal = 0D
+        If execPrice > 0D AndAlso positionAvgEntry > 0D AndAlso fillAmt > 0D Then
+            signedPL = If(fillDir = "sell", execPrice - positionAvgEntry, positionAvgEntry - execPrice) * (fillAmt / execPrice)
+        End If
+        porL = (signedPL >= 0D)
+        porLAmt = Math.Abs(Math.Round(signedPL, 2, MidpointRounding.AwayFromZero))
+        closedAmountUSD = fillAmt
+        closedWasLong = (fillDir = "sell")
+        label4DB = label
     End Sub
 
     Public Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal,
