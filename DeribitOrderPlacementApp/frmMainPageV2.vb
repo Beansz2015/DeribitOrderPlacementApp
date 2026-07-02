@@ -643,7 +643,10 @@ Public Class frmMainPageV2
                 cancellationTokenSource.Token)
 
                 If result.MessageType = WebSocketMessageType.Close Then
-                    AppendColoredText(txtLogs, "Server closed connection gracefully", Color.Yellow)
+                    ' Audit2 F6: a server-initiated close is a dead connection - schedule recovery.
+                    ' isClosing (checked below) still suppresses this during user-initiated shutdown.
+                    AppendColoredText(txtLogs, "Server closed connection - scheduling reconnect", Color.Yellow)
+                    reconnectNeeded = True
                     Exit While
                 End If
 
