@@ -1918,8 +1918,12 @@ Public Class frmMainPageV2
                                             LogTradeDecision("Exit Position - Market Order Loss", 0, 0) 'For autotrade log for when trade exit position
                                         End If
                                         ResetOrderAttempt() ' Reset ATR slippage tracking
-                                        AppendColoredText(txtLogs, $"Position executed at {newPricePublic}.", Color.Crimson)
-                                        AppendColoredText(txtLogs, $"Loss: Check order history.", Color.Crimson)
+                                        ' Audit2 fix 6: log the echo's actual fill price - newPricePublic is only set by the
+                                        ' emergency market-stop path, so manual reduces printed a stale 0. Wording neutralized
+                                        ' (a market reduce is not necessarily a loss).
+                                        Dim reduceFill = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
+                                        AppendColoredText(txtLogs, $"Position reduced at {If(reduceFill?.ToString("F2"), If(newPricePublic > 0D, newPricePublic.ToString("F2"), "?"))} (market order).", Color.Crimson)
+                                        AppendColoredText(txtLogs, "P/L not tracked for market reduces - check order history.", Color.Crimson)
 
                                 End Select
                             ElseIf orderState = "cancelled" Then
