@@ -923,7 +923,7 @@ Public Class frmMainPageV2
             Case 30 : Return " cancel-all/trailing stop"
             Case 1 : Return " subscribe/reduce order"
             Case 1001 : Return " set_heartbeat"
-            Case 223344, 223345, 223346, 223347, 223348, 223350 : Return " order edit"
+            Case 223344, 223345, 223346, 223347, 223348, 223349, 223350 : Return " order edit"
             Case Else : Return ""
         End Select
     End Function
@@ -1339,6 +1339,38 @@ Public Class frmMainPageV2
                             End If
                         End If
                     End If
+                    Finally
+                        Interlocked.Exchange(isRepositioning, 0)
+                    End Try
+                End If
+
+                'Reduce-limit reposition (docs/spec-reduce-reposition.md): keep a resting reduce-only
+                'LIMIT order at top of book. Chase direction comes from the ORDER (reduceOrderIsBuy),
+                'never TradeMode - a mode flip while the order rests must not invert the chase.
+                'Same gate ordering as the entry block: IsCancelPending BEFORE the single-flight acquire.
+                If IsWebSocketConnected _
+                   AndAlso (Not IsCancelPending()) _
+                   AndAlso ReduceOrderId IsNot Nothing _
+                   AndAlso reduceOrderPrice > 0D AndAlso reduceOrderAmount > 0D _
+                   AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
+                    Try
+                        If reduceOrderIsBuy Then
+                            ' Closing a short: reduce BUY rests at the bid - chase up
+                            If bestBid IsNot Nothing AndAlso bestBid > (reduceOrderPrice + 3) Then
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                    rateLimiter.ConsumeCredits()
+                                    Await SendReduceRepositionEdit(bestBid)
+                                End If
+                            End If
+                        Else
+                            ' Closing a long: reduce SELL rests at the ask - chase down
+                            If bestAsk IsNot Nothing AndAlso bestAsk < (reduceOrderPrice - 3) Then
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                    rateLimiter.ConsumeCredits()
+                                    Await SendReduceRepositionEdit(bestAsk)
+                                End If
+                            End If
+                        End If
                     Finally
                         Interlocked.Exchange(isRepositioning, 0)
                     End Try
@@ -2857,6 +2889,31 @@ Public Class frmMainPageV2
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in SendRateLimitedUpdate ({orderType}): {ex.Message}", Color.Red)
+        End Try
+    End Function
+
+    ' Edits the tracked reduce-limit order to a new top-of-book price. Receive-thread safe:
+    ' engine fields only; AppendColoredText self-marshals.
+    Private Async Function SendReduceRepositionEdit(newPrice As Decimal) As Task
+        Try
+            Dim editPayload As New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", 223349},
+                {"method", "private/edit"},
+                {"params", New JObject From {
+                    {"order_id", ReduceOrderId},
+                    {"price", newPrice},
+                    {"amount", reduceOrderAmount}
+                }}
+            }
+            Await SendWebSocketMessageAsync(editPayload.ToString())
+
+            AppendColoredText(txtLogs, $"Reduce order repositioned: ${reduceOrderPrice:F2} → ${newPrice:F2}", Color.Yellow)
+            ' Runaway-fix pattern: advance engine state synchronously so the next tick compares
+            ' against the new price even if the exchange echo lags.
+            reduceOrderPrice = newPrice
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error repositioning reduce order: {ex.Message}", Color.Red)
         End Try
     End Function
 
