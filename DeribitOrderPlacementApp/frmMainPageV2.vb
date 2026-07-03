@@ -346,6 +346,7 @@ Public Class frmMainPageV2
                                               Optional ackTimeoutMs As Integer = 5000) As Task(Of PlacementResult)
         ' Gates (fields only - safe on any thread)
         If Not IsWebSocketConnected Then Return New PlacementResult With {.Accepted = False, .Reason = "not connected"}
+        If rateLimiter Is Nothing Then Return New PlacementResult With {.Accepted = False, .Reason = "rate limiter not initialized"}
         If Not CanMakeAPIRequest Then Return New PlacementResult With {.Accepted = False, .Reason = "rate limit"}
         If IsCancelPending() Then Return New PlacementResult With {.Accepted = False, .Reason = "cancel pending"}
         If positionSizeUSD <> 0D Then Return New PlacementResult With {.Accepted = False, .Reason = "position open (flatten first)"}
@@ -747,6 +748,19 @@ Public Class frmMainPageV2
         ' Start background tasks - use proper variable names
         Dim authTask = Task.Run(AddressOf MonitorAuthentication) ' Fire and forget
         Dim receiveTask = Task.Run(Function() ReceiveWebSocketMessagesAsync()) ' Fire and forget
+
+        ' Arm the rate limiter at connect (runtime test 5, 2026-07-03): it was previously created
+        ' lazily (reposition fallback / manual ONLINE re-click), so CanMakeAPIRequest - and the
+        ' PlaceAutomatedOrder gate - read False until the first manual order activity. Needs the
+        ' receive loop above (id-999 response); fire-and-forget like the other startup tasks.
+        ' Reconnects keep the existing limiter (Is Nothing guard); the conservative fallback
+        ' guarantees an armed limiter even if the account-summary request times out.
+        If rateLimiter Is Nothing Then
+            Dim armLimiterTask = Task.Run(Async Function()
+                                              Await InitializeRateLimitsAfterAuth()
+                                              If rateLimiter Is Nothing Then rateLimiter = New DeribitRateLimiter(2000, 50)
+                                          End Function)
+        End If
     End Function
 
 
