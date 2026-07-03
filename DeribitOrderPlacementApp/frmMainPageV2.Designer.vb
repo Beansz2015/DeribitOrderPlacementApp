@@ -117,7 +117,7 @@ Partial Class frmMainPageV2
         OrderAmount.SuspendLayout()
         ManualTPSL.SuspendLayout()
         SuspendLayout()
-        '
+        ' 
         ' txtLogs
         ' 
         txtLogs.BackColor = Color.Black

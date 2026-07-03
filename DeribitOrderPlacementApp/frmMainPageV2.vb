@@ -1445,79 +1445,79 @@ Public Class frmMainPageV2
                    AndAlso ((CurrentOpenOrderId IsNot Nothing) And (CurrentTPOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
-                    If TradeMode = True Then
-                        If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
-                            ' Add null check for rateLimiter
-                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                'Stop if repositioned past ATR slippage threshold
-                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestBid, "LONG") Then
-                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
-                                    'Return
-                                Else
-                                    Await UpdateLimitOrderWithOTOCOAsync(bestBid)
+                        If TradeMode = True Then
+                            If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
+                                ' Add null check for rateLimiter
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                    'Stop if repositioned past ATR slippage threshold
+                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestBid, "LONG") Then
+                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                        'Return
+                                    Else
+                                        Await UpdateLimitOrderWithOTOCOAsync(bestBid)
 
-                                    ' Runaway fix: advance engine state SYNCHRONOUSLY before the (non-blocking)
-                                    ' display update, so the next tick's "bestBid > placedPrice + 3" reads the
-                                    ' new price even if the textbox write is delayed/fails.
-                                    If placedPrice > 0 Then
-                                        AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestBid:F2}", Color.Yellow)
+                                        ' Runaway fix: advance engine state SYNCHRONOUSLY before the (non-blocking)
+                                        ' display update, so the next tick's "bestBid > placedPrice + 3" reads the
+                                        ' new price even if the textbox write is delayed/fails.
+                                        If placedPrice > 0 Then
+                                            AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestBid:F2}", Color.Yellow)
+                                        End If
+
+                                        placedPrice = bestBid
+                                        UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
                                     End If
-
-                                    placedPrice = bestBid
-                                    UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
-                                End If
-                            Else
-                                ' Handle both null limiter and rate limiting scenarios
-                                If rateLimiter Is Nothing Then
-                                    '-- First warn the log
-                                    AppendColoredText(txtLogs, "Rate limiter not initialized – creating skipping order update", Color.Orange)
-
-                                    '-- Fire-and-forget: get real limits without blocking the quote thread
-                                    Dim _ignore = Task.Run(Async Function()
-                                                               Await InitializeRateLimits()
-                                                           End Function)
-
-                                    '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 50)
-
                                 Else
-                                    ' Limiter exists but credits are currently insufficient
-                                    AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
+                                    ' Handle both null limiter and rate limiting scenarios
+                                    If rateLimiter Is Nothing Then
+                                        '-- First warn the log
+                                        AppendColoredText(txtLogs, "Rate limiter not initialized – creating skipping order update", Color.Orange)
+
+                                        '-- Fire-and-forget: get real limits without blocking the quote thread
+                                        Dim _ignore = Task.Run(Async Function()
+                                                                   Await InitializeRateLimits()
+                                                               End Function)
+
+                                        '-- Install a conservative limiter so the very next tick can proceed
+                                        rateLimiter = New DeribitRateLimiter(1000, 50)
+
+                                    Else
+                                        ' Limiter exists but credits are currently insufficient
+                                        AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
+                                    End If
+                                End If
+                            End If
+                        Else
+                            If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                        'Return
+                                    Else
+                                        Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
+
+                                        ' Runaway fix: advance engine state synchronously before the display mirror.
+                                        If placedPrice > 0 Then
+                                            AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestAsk:F2}", Color.Yellow)
+                                        End If
+
+                                        placedPrice = bestAsk
+                                        UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
+                                    End If
+                                Else
+                                    If rateLimiter Is Nothing Then
+                                        AppendColoredText(txtLogs, "Rate limiter not initialized - skipping order update", Color.Orange)
+                                        Dim _ignore = Task.Run(Async Function()
+                                                                   Await InitializeRateLimits()
+                                                               End Function)
+
+                                        '-- Install a conservative limiter so the very next tick can proceed
+                                        rateLimiter = New DeribitRateLimiter(1000, 50)
+                                    Else
+                                        AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
+                                    End If
                                 End If
                             End If
                         End If
-                    Else
-                        If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
-                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
-                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
-                                    'Return
-                                Else
-                                    Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
-
-                                    ' Runaway fix: advance engine state synchronously before the display mirror.
-                                    If placedPrice > 0 Then
-                                        AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestAsk:F2}", Color.Yellow)
-                                    End If
-
-                                    placedPrice = bestAsk
-                                    UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
-                                End If
-                            Else
-                                If rateLimiter Is Nothing Then
-                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping order update", Color.Orange)
-                                    Dim _ignore = Task.Run(Async Function()
-                                                               Await InitializeRateLimits()
-                                                           End Function)
-
-                                    '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 50)
-                                Else
-                                    AppendColoredText(txtLogs, "Skipping order update due to rate limits", Color.Orange)
-                                End If
-                            End If
-                        End If
-                    End If
                     Finally
                         Interlocked.Exchange(isRepositioning, 0)
                     End Try
@@ -1658,59 +1658,59 @@ Public Class frmMainPageV2
                    AndAlso ((CurrentOpenOrderId IsNot Nothing) And (CurrentSLOrderId IsNot Nothing) And (isTrailingStopLossPlaced = True)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
-                    If TradeMode = True Then
-                        If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
-                            ' Add null check for rateLimiter
-                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "LONG") Then
-                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
-                                    'Return
+                        If TradeMode = True Then
+                            If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
+                                ' Add null check for rateLimiter
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "LONG") Then
+                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                        'Return
+                                    Else
+                                        Await UpdateStopLossForTrailingOrder(bestBid)
+                                        placedPrice = bestBid
+                                        UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
+                                    End If
                                 Else
-                                    Await UpdateStopLossForTrailingOrder(bestBid)
-                                    placedPrice = bestBid
-                                    UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
-                                End If
-                            Else
-                                ' Handle both null limiter and rate limiting scenarios
-                                If rateLimiter Is Nothing Then
-                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
-                                    Dim _ignore = Task.Run(Async Function()
-                                                               Await InitializeRateLimits()
-                                                           End Function)
+                                    ' Handle both null limiter and rate limiting scenarios
+                                    If rateLimiter Is Nothing Then
+                                        AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
+                                        Dim _ignore = Task.Run(Async Function()
+                                                                   Await InitializeRateLimits()
+                                                               End Function)
 
-                                    '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 50)
+                                        '-- Install a conservative limiter so the very next tick can proceed
+                                        rateLimiter = New DeribitRateLimiter(1000, 50)
+                                    Else
+                                        AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
+                                    End If
+                                End If
+                            End If
+                        Else
+                            If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
+                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                        'Return
+                                    Else
+                                        Await UpdateStopLossForTrailingOrder(bestAsk)
+                                        placedPrice = bestAsk
+                                        UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
+                                    End If
                                 Else
-                                    AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
+                                    If rateLimiter Is Nothing Then
+                                        AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
+                                        Dim _ignore = Task.Run(Async Function()
+                                                                   Await InitializeRateLimits()
+                                                               End Function)
+
+                                        '-- Install a conservative limiter so the very next tick can proceed
+                                        rateLimiter = New DeribitRateLimiter(1000, 50)
+                                    Else
+                                        AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
+                                    End If
                                 End If
                             End If
                         End If
-                    Else
-                        If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
-                            If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
-                                    Await CancelWorkingEntryCoreAsync("ATR slippage")
-                                    'Return
-                                Else
-                                    Await UpdateStopLossForTrailingOrder(bestAsk)
-                                    placedPrice = bestAsk
-                                    UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
-                                End If
-                            Else
-                                If rateLimiter Is Nothing Then
-                                    AppendColoredText(txtLogs, "Rate limiter not initialized - skipping trailing update", Color.Orange)
-                                    Dim _ignore = Task.Run(Async Function()
-                                                               Await InitializeRateLimits()
-                                                           End Function)
-
-                                    '-- Install a conservative limiter so the very next tick can proceed
-                                    rateLimiter = New DeribitRateLimiter(1000, 50)
-                                Else
-                                    AppendColoredText(txtLogs, "Skipping trailing order update due to rate limits", Color.Orange)
-                                End If
-                            End If
-                        End If
-                    End If
                     Finally
                         Interlocked.Exchange(isRepositioning, 0)
                     End Try
@@ -1728,33 +1728,33 @@ Public Class frmMainPageV2
                    AndAlso ((isTrailingPosition = True) And (isTrailingStopLossPlaced = True)) _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
-                    ' Cross-thread fix: trailing-trigger inputs come from engine fields, not controls. Manual TP
-                    ' (manualTPval) overrides; otherwise derive from placedPrice + (tpOffset + comms) once a live
-                    ' comms value has arrived. A 0/blank field is treated as "not set".
-                    Dim haveTrigger As Boolean = False
-                    If manualTPval > 0 Then
-                        TPTrailprice = manualTPval
-                        haveTrigger = True
-                    ElseIf placedPriceValid AndAlso commsVal > 0 Then
-                        TPTrailprice = If(TradeMode, placedPrice + (tpOffsetVal + commsVal), placedPrice - (tpOffsetVal + commsVal))
-                        haveTrigger = True
-                    End If
+                        ' Cross-thread fix: trailing-trigger inputs come from engine fields, not controls. Manual TP
+                        ' (manualTPval) overrides; otherwise derive from placedPrice + (tpOffset + comms) once a live
+                        ' comms value has arrived. A 0/blank field is treated as "not set".
+                        Dim haveTrigger As Boolean = False
+                        If manualTPval > 0 Then
+                            TPTrailprice = manualTPval
+                            haveTrigger = True
+                        ElseIf placedPriceValid AndAlso commsVal > 0 Then
+                            TPTrailprice = If(TradeMode, placedPrice + (tpOffsetVal + commsVal), placedPrice - (tpOffsetVal + commsVal))
+                            haveTrigger = True
+                        End If
 
-                    If haveTrigger Then
-                        If TradeMode = True Then
-                            If TPTrailprice <= bestAsk Then
-                                isTrailingStopLossPlaced = False
-                                Await TrailingStopLossOrderAsync()
+                        If haveTrigger Then
+                            If TradeMode = True Then
+                                If TPTrailprice <= bestAsk Then
+                                    isTrailingStopLossPlaced = False
+                                    Await TrailingStopLossOrderAsync()
+                                End If
+                            Else
+                                If TPTrailprice >= bestBid Then
+                                    isTrailingStopLossPlaced = False
+                                    Await TrailingStopLossOrderAsync()
+                                End If
                             End If
                         Else
-                            If TPTrailprice >= bestBid Then
-                                isTrailingStopLossPlaced = False
-                                Await TrailingStopLossOrderAsync()
-                            End If
+                            WarnParseThrottled("Trailing TP inputs blank/invalid - skipping trailing trigger this tick")
                         End If
-                    Else
-                        WarnParseThrottled("Trailing TP inputs blank/invalid - skipping trailing trigger this tick")
-                    End If
                     Finally
                         Interlocked.Exchange(isRepositioning, 0)
                     End Try
@@ -2825,7 +2825,7 @@ Public Class frmMainPageV2
     New JProperty("params", params)
 )
 
-            AppendColoredText(txtLogs, OrderPayload.ToString(), Color.LightGray)
+            'AppendColoredText(txtLogs, OrderPayload.ToString(), Color.LightGray)
 
 
             ' Send the order and capture the server's response
@@ -4165,13 +4165,6 @@ Public Class frmMainPageV2
         txtLogs.Clear()
 
     End Sub
-
-#If DEBUG Then
-    Private Async Sub btnApiSmoke_Click(sender As Object, e As EventArgs) Handles btnApiSmoke.Click
-        Dim r = Await Task.Run(Function() PlaceAutomatedOrder("long", "limit"))
-        AppendColoredText(txtLogs, $"API ack: Accepted={r.Accepted} OrderId={If(r.OrderId, "-")} Reason={If(r.Reason, "-")}", Color.Cyan)
-    End Sub
-#End If
 
     ' Decouple v2: mode switching extracted from btnBuy_Click/btnSell_Click (bodies unchanged) so
     ' the automation API can set direction on the UI thread without PerformClick.
