@@ -1551,6 +1551,12 @@ Public Class frmMainPageV2
                             ' still runs (deviation from the old TryParse, which treated "0" as an always-on threshold).
                             Dim emergencyThreshold As Decimal = marketStopThreshold
                             Dim emergencyThresholdValid As Boolean = marketStopThreshold > 0D
+                            ' Restore hardening: an unknown baseline (0, e.g. after a restart before the
+                            ' order-context snapshot lands) disables the emergency market-stop - otherwise
+                            ' priceMovement below is measured from 0 and a short fires an INSTANT close
+                            ' (bestBid - 0 >= threshold). Same philosophy as threshold-0-disables; normal
+                            ' SL trailing further down is unaffected.
+                            Dim baselineKnown As Boolean = StopLossTriggerOriginal > 0D
                             Dim priceMovement As Decimal = 0D
 
                             If TradeMode Then
@@ -1562,7 +1568,7 @@ Public Class frmMainPageV2
                             ' Call ForceStopLossUpdate if emergency conditions are met
 
 
-                            If emergencyThresholdValid AndAlso priceMovement >= emergencyThreshold Then
+                            If emergencyThresholdValid AndAlso baselineKnown AndAlso priceMovement >= emergencyThreshold Then
                                 If marketStopLossChecked Then
                                     Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
                                     Return ' Exit early after emergency update
@@ -1591,7 +1597,7 @@ Public Class frmMainPageV2
                             If shouldUpdate Then
                                 Try
                                     ' Check if we should use force update instead of normal rate-limited update
-                                    If emergencyThresholdValid AndAlso priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
+                                    If emergencyThresholdValid AndAlso baselineKnown AndAlso priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
                                         Await ForceStopLossUpdate(newStopPrice)
                                     Else
                                         Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
@@ -3190,13 +3196,16 @@ Public Class frmMainPageV2
             ' blank and aborted the whole SL update; "0" fired the market stop on any adverse movement).
             ' Audit2 F3: chkMarketStopLoss (via the marketStopLossChecked mirror - receive thread!) is the
             ' master enable for this emergency market close; threshold 0/blank additionally disables.
-            If marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso (TradeMode = True) AndAlso (StopLossTriggerOriginal - newPrice >= marketStopThreshold) Then
+            ' Restore hardening: StopLossTriggerOriginal > 0D - an unknown baseline (0 after a restart)
+            ' disables the emergency market-stop, or the short branch below fires instantly (newPrice - 0
+            ' >= threshold). Restored once the order-context snapshot lands; normal SL trailing unaffected.
+            If marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso StopLossTriggerOriginal > 0D AndAlso (TradeMode = True) AndAlso (StopLossTriggerOriginal - newPrice >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
-            ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso (TradeMode = False) AndAlso (newPrice - StopLossTriggerOriginal >= marketStopThreshold) Then
+            ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso StopLossTriggerOriginal > 0D AndAlso (TradeMode = False) AndAlso (newPrice - StopLossTriggerOriginal >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
