@@ -25,7 +25,6 @@ Partial Class frmMainPageV2
         components = New ComponentModel.Container()
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(frmMainPageV2))
         txtLogs = New RichTextBox()
-        btnClose = New Button()
         btnClearLog = New Button()
         MarginControl = New GroupBox()
         txtMaxSlippageATR = New TextBox()
@@ -131,19 +130,7 @@ Partial Class frmMainPageV2
         txtLogs.Size = New Size(314, 294)
         txtLogs.TabIndex = 82
         txtLogs.Text = ""
-        ' 
-        ' btnClose
-        ' 
-        btnClose.BackColor = Color.Crimson
-        btnClose.Cursor = Cursors.Hand
-        btnClose.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnClose.Location = New Point(976, 6)
-        btnClose.Name = "btnClose"
-        btnClose.Size = New Size(65, 50)
-        btnClose.TabIndex = 83
-        btnClose.Text = " - X -"
-        btnClose.UseVisualStyleBackColor = False
-        ' 
+        '
         ' btnClearLog
         ' 
         btnClearLog.BackColor = Color.DodgerBlue
@@ -1204,7 +1191,6 @@ Partial Class frmMainPageV2
         Controls.Add(MarginControl)
         Controls.Add(AccountInfo)
         Controls.Add(btnClearLog)
-        Controls.Add(btnClose)
         Controls.Add(ManualTPSL)
         Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         FormBorderStyle = FormBorderStyle.FixedDialog
@@ -1229,7 +1215,6 @@ Partial Class frmMainPageV2
         PerformLayout()
     End Sub
     Friend WithEvents txtLogs As RichTextBox
-    Friend WithEvents btnClose As Button
     Friend WithEvents btnClearLog As Button
     Friend WithEvents MarginControl As GroupBox
     Friend WithEvents txtComms As TextBox

@@ -2184,6 +2184,7 @@ Public Class frmMainPageV2
                                                      lblOrderStatus.Text = "In Position"
                                                      lblOrderStatus.ForeColor = Color.Yellow
                                                  End Sub)
+                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${placedPrice:F2}", Color.LimeGreen)
                                         OpenPositions = True
                                         OpenOrderNo = False
                                         UpdateFlag = False
@@ -2203,6 +2204,7 @@ Public Class frmMainPageV2
                                                      lblOrderStatus.Text = "In Position"
                                                      lblOrderStatus.ForeColor = Color.Yellow
                                                  End Sub)
+                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${placedPrice:F2}", Color.LimeGreen)
                                         OpenPositions = True
                                         OpenOrderNo = False
                                         isTrailingStop = True 'For checking if is trailing order when executing In Position code
@@ -4328,7 +4330,8 @@ Public Class frmMainPageV2
         End Try
     End Function
 
-    ' Single shutdown path: X, Alt+F4 and btnClose all land here (CS_NOCLOSE override removed).
+    ' Single shutdown path: the title-bar X and Alt+F4 land here (CS_NOCLOSE override removed). The old
+    ' in-app btnClose "-X-" button was removed - the title-bar X runs this same full shutdown.
     ' Note for the ergonomics implementer: config save goes at the TOP of this handler, before teardown.
     Private shutdownStarted As Boolean = False
     Private Sub frmMainPageV2_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
@@ -4348,12 +4351,6 @@ Public Class frmMainPageV2
             ' Never block shutdown on cleanup errors.
         End Try
     End Sub
-
-    Private Sub btnClose_Click(sender As Object, e As EventArgs) Handles btnClose.Click
-        Me.Close()
-    End Sub
-
-
 
     Private Sub btnClearLog_Click(sender As Object, e As EventArgs) Handles btnClearLog.Click
         txtLogs.Clear()
