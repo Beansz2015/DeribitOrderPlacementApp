@@ -1889,6 +1889,18 @@ Public Class frmMainPageV2
     ' Restart restore: one "Open position detected" announcement per connection (display only).
     Private positionRestoreAnnounced As Boolean = False
 
+    ' Reliable close (docs/spec-close-completion-fix.md + review): the closing fill's P/L is captured
+    ' in these fields so it survives across echoes - the fill and the flat-position update can arrive
+    ' in SEPARATE user.changes messages. ApplyCloseFill writes them; CompletePositionClose (invoked on
+    ' the size!=0 -> 0 transition) consumes and clears them. Cleared on a new-position open (stale guard).
+    Private pendingCloseValid As Boolean = False
+    Private pendingClosePorLAmt As Decimal = 0D
+    Private pendingClosePorL As Boolean = True
+    Private pendingCloseLabel As String = Nothing
+    Private pendingCloseAmountUSD As Decimal = 0D
+    Private pendingCloseWasLong As Boolean = False
+    Private pendingCloseExecPrice As Decimal = 0D
+
     ' ============ Decouple v2 (docs/spec-decouple-v2.md) ============
     ' Unique JSON-RPC ids for entry placements (manual + API). Responses are consumed by
     ' HandlePlacementResponse; HandleUnhandledJsonRpcError skips this range (single owner).
@@ -1949,15 +1961,23 @@ Public Class frmMainPageV2
                 If orderData IsNot Nothing Then
                     ' Position model: update from EVERY positions echo, independent of the
                     ' order-context gates below (fills from other sources / liquidations included).
+                    ' Reliable close: detect the position going flat (!=0 -> 0) so the close can be completed
+                    ' after the orders block below - even when THIS echo carries no orders array (the split
+                    ' case that lost the close). New position (0 -> !=0) drops any stale close capture.
+                    Dim positionJustClosed As Boolean = False
                     Dim posTokens = orderData.SelectToken("positions")?.ToObject(Of List(Of JObject))()
                     If posTokens IsNot Nothing Then
                         For Each p In posTokens
                             Dim sz = p.SelectToken("size")?.ToObject(Of Decimal?)()
                             If sz.HasValue Then
+                                Dim wasOpen As Boolean = (positionSizeUSD <> 0D)
                                 positionSizeUSD = sz.Value
                                 If sz.Value <> 0D Then
+                                    If Not wasOpen Then pendingCloseValid = False
                                     Dim avg = p.SelectToken("average_price")?.ToObject(Of Decimal?)()
                                     If avg.HasValue AndAlso avg.Value > 0D Then positionAvgEntry = avg.Value
+                                ElseIf wasOpen Then
+                                    positionJustClosed = True
                                 End If
                             End If
                         Next
@@ -1968,11 +1988,7 @@ Public Class frmMainPageV2
                         Dim OpenOrderNo As Boolean = False
                         Dim unTrigOrder As Boolean = False
                         Dim OpenPositions As Boolean = False
-                        Dim ExecPrice, PorLAmt As Decimal
-                        Dim PorL As Boolean = True
-                        Dim label4DB As String = Nothing
-                        Dim closedAmountUSD As Decimal = 0D   ' position model: actual closed size from the fill echo
-                        Dim closedWasLong As Boolean = TradeMode ' position model: closed side (from the fill's direction)
+                        Dim ExecPrice As Decimal    ' close-fill input to ApplyCloseFill; P/L now persists in pendingClose* fields
 
                         For Each order In orders
                             ' Extract relevant fields
@@ -2174,13 +2190,13 @@ Public Class frmMainPageV2
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
-                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
+                                        ApplyCloseFill(order, ExecPrice, label)
 
                                     Case "StopLossOrder"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
                                         SLTriggered = False
-                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
+                                        ApplyCloseFill(order, ExecPrice, label)
 
                                     Case "EntryTrailingOrder"
                                         UiInvoke(Sub()
@@ -2195,12 +2211,12 @@ Public Class frmMainPageV2
                                     Case "TrailingStopLoss"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
-                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
+                                        ApplyCloseFill(order, ExecPrice, label)
 
                                     Case "ReduceLimitOrder"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
-                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
+                                        ApplyCloseFill(order, ExecPrice, label)
 
                                         ' Reduce order gone from the book - drop the reposition context.
                                         ReduceOrderId = Nothing
@@ -2218,7 +2234,7 @@ Public Class frmMainPageV2
                                         Dim reduceFill = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
                                         ExecPrice = If(reduceFill, 0D)
                                         AppendColoredText(txtLogs, $"Position reduced at {If(reduceFill?.ToString("F2"), If(newPricePublic > 0D, newPricePublic.ToString("F2"), "?"))} (market order).", Color.Crimson)
-                                        ApplyCloseFill(order, ExecPrice, label, PorLAmt, PorL, label4DB, closedAmountUSD, closedWasLong)
+                                        ApplyCloseFill(order, ExecPrice, label)
 
                                 End Select
                             ElseIf orderState = "cancelled" Then
@@ -2320,92 +2336,9 @@ Public Class frmMainPageV2
 
                                     End If
 
-                                    If size = 0 Then ' Position has been closed
-
-                                        ' Audit2 F1 + position model: snapshot the closing basis BEFORE CancelOrderAsync
-                                        ' zeroes placedPrice. Avg entry is the true basis (survives adds/Cancel-All);
-                                        ' placedPrice remains the fallback for an unseeded model.
-                                        Dim entryPriceAtClose As Decimal = If(positionAvgEntry > 0D, positionAvgEntry, placedPrice)
-
-                                        'Reset all flags
-                                        OpenPositions = False
-                                        isTrailingStop = False
-                                        isTrailingPosition = False
-                                        isTrailingStopLossPlaced = False
-                                        SLTriggered = False
-                                        StopLossTriggerOriginal = 0
-
-                                        PositionEmpty = True
-                                        PositionLog = False ' Reset position log flag so it can log next new position
-                                        OrderLog = False ' Reset order log flag so it can log next new order
-
-                                        Await CancelOrderAsync()
-
-                                        'Clearing margin displays
-                                        Me.Invoke(Sub()
-                                                      lblEstimatedLiquidation.Text = "L.Liq: N/A"
-                                                      lblInitialMargin.Text = "L.IM: N/A"
-                                                      lblMaintenanceMargin.Text = "L.MM: N/A"
-                                                      lblEstimatedLeverage.Text = "L.Lev: N/A"
-
-                                                      ' Reset colors
-                                                      lblEstimatedLiquidation.ForeColor = Color.Gray
-                                                      lblEstimatedLeverage.ForeColor = Color.Gray
-                                                  End Sub)
-
-
-                                        If (PorL = True) And (PorLAmt > 0) Then
-                                            AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.LimeGreen)
-                                            AppendColoredText(txtLogs, $"Profit made: ${PorLAmt}.", Color.LimeGreen)
-
-                                            If _indicators.IsAutoTradingEnabled Then
-                                                LogTradeDecision("Exit Position - Profit", PorLAmt, ExecPrice) 'For autotrade log for when trade exit position
-                                            End If
-
-                                        ElseIf (PorL = False) And (PorLAmt > 0) Then
-                                            AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Crimson)
-                                            AppendColoredText(txtLogs, $"Loss of: ${PorLAmt}.", Color.Crimson)
-
-                                            If _indicators.IsAutoTradingEnabled Then
-                                                LogTradeDecision("Exit Position - Loss", PorLAmt, ExecPrice) 'For autotrade log for when trade exit position
-                                            End If
-
-                                        ElseIf label4DB IsNot Nothing Then
-                                            ' Audit2 fix 7 + position model: a tracked close whose P/L rounds to $0.00
-                                            ' (scratch) still logs and records. No LogTradeDecision call here: it has no
-                                            ' scratch branch and would write an empty file line.
-                                            AppendColoredText(txtLogs, $"Position executed at {ExecPrice}.", Color.Yellow)
-                                            AppendColoredText(txtLogs, "Scratch close: P/L ≈ $0.00.", Color.Yellow)
-                                        End If
-
-                                        'To record to DB
-                                        ' In HandleOrderPositionUpdates
-                                        ' Audit2 fix 7 + position model: record every computed close (label4DB set) -
-                                        ' $0.00 scratches and market reduces included; they are real trades and their
-                                        ' absence biased the stats.
-                                        If label4DB IsNot Nothing Then
-                                            Dim tradeId = RecordCompletedTrade(
-                                                entryPriceAtClose,
-                                                ExecPrice,
-                                                If(closedAmountUSD > 0D, closedAmountUSD, orderAmountVal),
-                                                PorLAmt,
-                                                PorL,
-                                                closedWasLong,
-                                                label4DB
-                                            )
-                                        End If
-
-                                        ' Update last trade time immediately to prevent multiple rapid executions
-                                        _indicators.lastAutoTradeTime = DateTime.Now
-
-                                    Else
-                                        OpenPositions = True
-                                        'lblOrderStatus.Text = "In Position"
-                                        'lblOrderStatus.ForeColor = Color.Yellow
-                                        'Dim price = position.SelectToken("average_price")?.ToObject(Of Decimal?)()
-                                        'txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
-                                    End If
-
+                                    ' Position-closed completion (message + DB record + flag/display cleanup)
+                                    ' moved to CompletePositionClose, invoked after the orders block below so it
+                                    ' also fires when the flat echo carries no orders array (the split case).
 
                                 Next
                             End If
@@ -2416,6 +2349,9 @@ Public Class frmMainPageV2
 
                     End If
 
+                    ' Reliable close: complete a !=0 -> 0 transition exactly once, even when the flat echo
+                    ' carried no orders (the closing fill was captured in an earlier echo via pendingClose*).
+                    If positionJustClosed Then Await CompletePositionClose()
 
                 End If
             End If
@@ -3814,21 +3750,104 @@ Public Class frmMainPageV2
     ' zeroed), after adds (order price <> avg entry), and after mode flips. Receive-thread safe:
     ' reads engine fields only. If the model is unseeded (avg = 0) the P/L is 0 -> the close
     ' lands in the fix-7 scratch path instead of recording garbage.
-    Private Sub ApplyCloseFill(order As JObject, execPrice As Decimal, label As String,
-                               ByRef porLAmt As Decimal, ByRef porL As Boolean, ByRef label4DB As String,
-                               ByRef closedAmountUSD As Decimal, ByRef closedWasLong As Boolean)
+    Private Sub ApplyCloseFill(order As JObject, execPrice As Decimal, label As String)
         Dim fillDir As String = order.SelectToken("direction")?.ToString()
         Dim fillAmt As Decimal = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
         Dim signedPL As Decimal = 0D
         If execPrice > 0D AndAlso positionAvgEntry > 0D AndAlso fillAmt > 0D Then
             signedPL = If(fillDir = "sell", execPrice - positionAvgEntry, positionAvgEntry - execPrice) * (fillAmt / execPrice)
         End If
-        porL = (signedPL >= 0D)
-        porLAmt = Math.Abs(Math.Round(signedPL, 2, MidpointRounding.AwayFromZero))
-        closedAmountUSD = fillAmt
-        closedWasLong = (fillDir = "sell")
-        label4DB = label
+        ' Reliable close: persist to fields so the capture survives until the flat-position echo (which may
+        ' be a separate message) triggers CompletePositionClose. Side/size from the fill itself (restore-safe).
+        pendingClosePorL = (signedPL >= 0D)
+        pendingClosePorLAmt = Math.Abs(Math.Round(signedPL, 2, MidpointRounding.AwayFromZero))
+        pendingCloseAmountUSD = fillAmt
+        pendingCloseWasLong = (fillDir = "sell")
+        pendingCloseExecPrice = execPrice
+        pendingCloseLabel = label
+        pendingCloseValid = True
     End Sub
+
+    ' Reliable close (docs/spec-close-completion-fix.md + review): runs exactly once per !=0 -> 0 position
+    ' transition (co-echo OR split). Consumes the pendingClose* capture for the message + DB record; falls
+    ' back to a bare "Position closed." when no fill was captured (external/liquidation close). Receive-thread:
+    ' engine fields written directly, UI via Me.Invoke, AppendColoredText self-marshals. OpenPositions is a
+    ' per-echo local of the caller and is intentionally NOT reset here (it has no reader after the loop).
+    Private Async Function CompletePositionClose() As Task
+        ' Audit2 F1 + position model: snapshot the closing basis BEFORE CancelOrderAsync zeroes placedPrice.
+        ' Avg entry is the true basis (survives adds/Cancel-All); placedPrice is the unseeded-model fallback.
+        Dim entryPriceAtClose As Decimal = If(positionAvgEntry > 0D, positionAvgEntry, placedPrice)
+
+        'Reset all flags
+        isTrailingStop = False
+        isTrailingPosition = False
+        isTrailingStopLossPlaced = False
+        SLTriggered = False
+        StopLossTriggerOriginal = 0
+
+        PositionEmpty = True
+        PositionLog = False ' Reset position log flag so it can log next new position
+        OrderLog = False ' Reset order log flag so it can log next new order
+
+        Await CancelOrderAsync()
+
+        'Clearing margin displays
+        Me.Invoke(Sub()
+                      lblEstimatedLiquidation.Text = "L.Liq: N/A"
+                      lblInitialMargin.Text = "L.IM: N/A"
+                      lblMaintenanceMargin.Text = "L.MM: N/A"
+                      lblEstimatedLeverage.Text = "L.Lev: N/A"
+
+                      ' Reset colors
+                      lblEstimatedLiquidation.ForeColor = Color.Gray
+                      lblEstimatedLeverage.ForeColor = Color.Gray
+                  End Sub)
+
+        If pendingCloseValid Then
+            If (pendingClosePorL = True) And (pendingClosePorLAmt > 0) Then
+                AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.LimeGreen)
+                AppendColoredText(txtLogs, $"Profit made: ${pendingClosePorLAmt}.", Color.LimeGreen)
+
+                If _indicators.IsAutoTradingEnabled Then
+                    LogTradeDecision("Exit Position - Profit", pendingClosePorLAmt, pendingCloseExecPrice)
+                End If
+
+            ElseIf (pendingClosePorL = False) And (pendingClosePorLAmt > 0) Then
+                AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.Crimson)
+                AppendColoredText(txtLogs, $"Loss of: ${pendingClosePorLAmt}.", Color.Crimson)
+
+                If _indicators.IsAutoTradingEnabled Then
+                    LogTradeDecision("Exit Position - Loss", pendingClosePorLAmt, pendingCloseExecPrice)
+                End If
+
+            Else
+                ' Audit2 fix 7 + position model: a tracked close whose P/L rounds to $0.00 (scratch) still
+                ' logs and records. No LogTradeDecision here: it has no scratch branch (would write an empty line).
+                AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.Yellow)
+                AppendColoredText(txtLogs, "Scratch close: P/L ≈ $0.00.", Color.Yellow)
+            End If
+
+            ' Audit2 fix 7 + position model: record every computed close - $0.00 scratches and market
+            ' reduces included; they are real trades and their absence biased the stats.
+            Dim tradeId = RecordCompletedTrade(
+                entryPriceAtClose,
+                pendingCloseExecPrice,
+                If(pendingCloseAmountUSD > 0D, pendingCloseAmountUSD, orderAmountVal),
+                pendingClosePorLAmt,
+                pendingClosePorL,
+                pendingCloseWasLong,
+                pendingCloseLabel
+            )
+
+            pendingCloseValid = False
+        Else
+            ' No tracked fill (external/liquidation close): complete the cleanup, nothing to record.
+            AppendColoredText(txtLogs, "Position closed.", Color.Yellow)
+        End If
+
+        ' Update last trade time immediately to prevent multiple rapid executions
+        _indicators.lastAutoTradeTime = DateTime.Now
+    End Function
 
     Public Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal,
                                    orderSizeUSD As Decimal, profitLossUSD As Decimal,
