@@ -4390,6 +4390,14 @@ Public Class frmMainPageV2
     ' AND by the emergency stop path in UpdateStopLossForTriggeredStopLossOrder (receive thread), so that
     ' path no longer needs a cross-thread btnReduceMarket.PerformClick(). Reads orderAmountVal, not txtAmount.
     Private Async Function SendReduceMarketOrderAsync() As Task
+        ' Connection guard first (runtime test 4 follow-up): return before the position-model
+        ' fallback logs, so a disconnected click logs the skip line alone - not fallback noise
+        ' followed by the skip. SendReduceOrderAsync keeps its own guard for the other callers.
+        If Not IsWebSocketConnected Then
+            AppendColoredText(txtLogs, "WebSocket is not connected - reduce order skipped.", Color.Red)
+            Return
+        End If
+
         ' Position model: flatten the ACTUAL position - the emergency stop must close what is
         ' really open, not what txtAmount says (a stale amount used to under-close after adds).
         Dim posSize As Decimal = positionSizeUSD
