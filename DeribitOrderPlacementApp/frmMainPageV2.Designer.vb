@@ -31,7 +31,6 @@ Partial Class frmMainPageV2
         chkMaxSlippageATR = New CheckBox()
         chkMarketStopLoss = New CheckBox()
         CustomLabel7 = New CustomLabel()
-        btnMark = New Button()
         txtMarketStopLoss = New TextBox()
         btnRefreshLiveData = New Button()
         btnEstimateMargins = New Button()
@@ -149,7 +148,6 @@ Partial Class frmMainPageV2
         MarginControl.Controls.Add(chkMaxSlippageATR)
         MarginControl.Controls.Add(chkMarketStopLoss)
         MarginControl.Controls.Add(CustomLabel7)
-        MarginControl.Controls.Add(btnMark)
         MarginControl.Controls.Add(txtMarketStopLoss)
         MarginControl.Controls.Add(btnRefreshLiveData)
         MarginControl.Controls.Add(btnEstimateMargins)
@@ -229,19 +227,7 @@ Partial Class frmMainPageV2
         CustomLabel7.TabIndex = 124
         CustomLabel7.Text = "SL Price"
         ToolTip1.SetToolTip(CustomLabel7, "To mark the current stop loss price as the start " & vbCrLf & "of counting the distance before placing a market " & vbCrLf & "stop loss order.")
-        ' 
-        ' btnMark
-        ' 
-        btnMark.BackColor = Color.Crimson
-        btnMark.Cursor = Cursors.Hand
-        btnMark.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnMark.Location = New Point(202, 177)
-        btnMark.Name = "btnMark"
-        btnMark.Size = New Size(68, 45)
-        btnMark.TabIndex = 123
-        btnMark.Text = "Mark"
-        btnMark.UseVisualStyleBackColor = False
-        ' 
+        '
         ' txtMarketStopLoss
         ' 
         txtMarketStopLoss.BackColor = Color.Gainsboro
@@ -1301,7 +1287,6 @@ Partial Class frmMainPageV2
     Friend WithEvents btnEstimateMargins As Button
     Friend WithEvents btnRefreshLiveData As Button
     Friend WithEvents txtMarketStopLoss As TextBox
-    Friend WithEvents btnMark As Button
     Friend WithEvents CustomLabel7 As CustomLabel
     Friend WithEvents chkMarketStopLoss As CheckBox
     Friend WithEvents txtMaxSlippageATR As TextBox

@@ -39,7 +39,15 @@ Public Class frmMainPageV2
 
     'Public Variables
     Public BestBidPrice, BestAskPrice, TPTrailprice As Decimal
-    Public StopLossTriggerOriginal As Decimal = 0 ' Original stop loss price
+    Public StopLossTriggerOriginal As Decimal = 0 ' Original stop loss TRIGGER price (kept in sync with exchange-side moves)
+
+    ' M.SL emergency-reduce baseline (docs/spec-back-msl-emergency-baseline.md). The price the emergency
+    ' market-reduce measures from: 0 until the SL triggers -> the emergency falls back to
+    ' StopLossTriggerOriginal (the trigger price). At the moment the SL triggers it is pinned to the
+    ' ACTUAL SL price then, and held there while the SL trails. Reset to 0 wherever StopLossTriggerOriginal
+    ' is (close / nuclear cancel / market reduce). Written on the receive/UI thread; read on the receive
+    ' thread by the emergency (accepted Decimal torn-read class, same as StopLossTriggerOriginal).
+    Public emergencyBaseline As Decimal = 0
     'For auto trading logging
     Public AutoPlacedPrice, AutoTakeProfit, AutoStopLoss As Decimal
 
@@ -1563,13 +1571,17 @@ Public Class frmMainPageV2
                             ' priceMovement below is measured from 0 and a short fires an INSTANT close
                             ' (bestBid - 0 >= threshold). Same philosophy as threshold-0-disables; normal
                             ' SL trailing further down is unaffected.
-                            Dim baselineKnown As Boolean = StopLossTriggerOriginal > 0D
+                            ' M.SL emergency baseline: the ACTUAL SL price once triggered (emergencyBaseline,
+                            ' pinned at the trigger moment), else the trigger price (StopLossTriggerOriginal,
+                            ' kept in sync with exchange-side moves). 0 => unknown => guard disables the stop.
+                            Dim emgBaseline As Decimal = If(emergencyBaseline > 0D, emergencyBaseline, StopLossTriggerOriginal)
+                            Dim baselineKnown As Boolean = emgBaseline > 0D
                             Dim priceMovement As Decimal = 0D
 
                             If TradeMode Then
-                                priceMovement = StopLossTriggerOriginal - bestAsk
+                                priceMovement = emgBaseline - bestAsk
                             Else
-                                priceMovement = bestBid - StopLossTriggerOriginal
+                                priceMovement = bestBid - emgBaseline
                             End If
 
                             ' Call ForceStopLossUpdate if emergency conditions are met
@@ -2039,6 +2051,12 @@ Public Class frmMainPageV2
                                                       OpenOrderNo = False
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
+
+                                                      ' Item 1: at the moment of trigger (SLTriggered False->True flip), pin the M.SL
+                                                      ' emergency baseline to the ACTUAL SL price now (the triggered SL limit), not the
+                                                      ' trigger price. Captured only on the flip, so it stays fixed as the SL trails after.
+                                                      ' (price in scope from the open-state extraction above.)
+                                                      If Not SLTriggered Then emergencyBaseline = If(price, emergencyBaseline)
                                                       SLTriggered = True
 
                                                       ' Restore hardening: defensive mid-session heal - if the baseline was lost
@@ -2159,6 +2177,10 @@ Public Class frmMainPageV2
                                                       txtPlacedTrigStopPrice.Text = If(triggerPrice?.ToString("F2"), "0")
                                                       txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
                                                       placedStopLossPrice = If(price, 0D)   ' engine state mirrors exchange SL price (cross-thread fix)
+                                                      ' Item 2: keep the trigger baseline in sync with exchange-side trigger moves while
+                                                      ' UNTRIGGERED (this is the pre-trigger emergency baseline; replaces the manual btnMark
+                                                      ' re-sync). Not trailing yet, so an unconditional mirror is safe - like placedStopLossPrice.
+                                                      StopLossTriggerOriginal = If(triggerPrice, StopLossTriggerOriginal)
                                                       unTrigOrder = True
                                                       CurrentSLOrderId = orderId
                                                       PositionSLOrderId = orderId
@@ -2717,6 +2739,7 @@ Public Class frmMainPageV2
             End Select
 
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
+            emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
 
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
@@ -2877,6 +2900,7 @@ Public Class frmMainPageV2
         isTrailingStopLossPlaced = False
         SLTriggered = False
         StopLossTriggerOriginal = 0
+        emergencyBaseline = 0
 
         'PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
@@ -2966,6 +2990,7 @@ Public Class frmMainPageV2
 
             If isMarketOrder Then
                 StopLossTriggerOriginal = 0
+                emergencyBaseline = 0
             End If
 
             ' Construct the JSON payload for the reduce-only order
@@ -3079,6 +3104,7 @@ Public Class frmMainPageV2
             End If
 
             StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
+            emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
 
             ' Send all three updates with rate limiting
             Await SendRateLimitedUpdate("main", CurrentOpenOrderId, newPrice, amount)
@@ -3168,16 +3194,17 @@ Public Class frmMainPageV2
             ' blank and aborted the whole SL update; "0" fired the market stop on any adverse movement).
             ' Audit2 F3: chkMarketStopLoss (via the marketStopLossChecked mirror - receive thread!) is the
             ' master enable for this emergency market close; threshold 0/blank additionally disables.
-            ' Restore hardening: StopLossTriggerOriginal > 0D - an unknown baseline (0 after a restart)
-            ' disables the emergency market-stop, or the short branch below fires instantly (newPrice - 0
-            ' >= threshold). Restored once the order-context snapshot lands; normal SL trailing unaffected.
-            If marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso StopLossTriggerOriginal > 0D AndAlso (TradeMode = True) AndAlso (StopLossTriggerOriginal - newPrice >= marketStopThreshold) Then
+            ' Restore hardening + M.SL baseline: an unknown baseline (0) disables the emergency market-stop,
+            ' or the short branch below fires instantly (newPrice - 0 >= threshold). emgBaseline = the actual
+            ' SL price once triggered (emergencyBaseline), else the trigger price (StopLossTriggerOriginal).
+            Dim emgBaseline As Decimal = If(emergencyBaseline > 0D, emergencyBaseline, StopLossTriggerOriginal)
+            If marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = True) AndAlso (emgBaseline - newPrice >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
                 Return ' Exit early after emergency execution
-            ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso StopLossTriggerOriginal > 0D AndAlso (TradeMode = False) AndAlso (newPrice - StopLossTriggerOriginal >= marketStopThreshold) Then
+            ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = False) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
@@ -3312,6 +3339,7 @@ Public Class frmMainPageV2
             End If
 
             StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
+            emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
 
             ' Update main trailing order
             Dim updateOrderPayload As New JObject From {
@@ -3474,6 +3502,7 @@ Public Class frmMainPageV2
             End Select
 
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
+            emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
 
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
@@ -3793,6 +3822,7 @@ Public Class frmMainPageV2
         isTrailingStopLossPlaced = False
         SLTriggered = False
         StopLossTriggerOriginal = 0
+        emergencyBaseline = 0
 
         PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
@@ -4068,6 +4098,8 @@ Public Class frmMainPageV2
                                 seeded = True
                             End If
                             If StopLossTriggerOriginal = 0D Then StopLossTriggerOriginal = If(triggerPrice, 0D)
+                            ' Item 1: restored into an already-triggered SL - the emergency baseline is the actual SL price.
+                            If emergencyBaseline = 0D Then emergencyBaseline = If(price, 0D)
                             UiInvoke(Sub()
                                          If triggerPrice.HasValue Then txtPlacedTrigStopPrice.Text = triggerPrice.Value.ToString("F2")
                                          If seeded AndAlso price.HasValue Then txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
@@ -5162,10 +5194,6 @@ Public Class frmMainPageV2
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error refreshing live data: {ex.Message}", Color.Red)
         End Try
-    End Sub
-
-    Private Sub btnMark_Click(sender As Object, e As EventArgs) Handles btnMark.Click
-        StopLossTriggerOriginal = Decimal.Parse(txtPlacedTrigStopPrice.Text)
     End Sub
 
 End Class
