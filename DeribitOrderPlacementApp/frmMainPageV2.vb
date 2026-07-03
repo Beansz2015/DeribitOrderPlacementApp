@@ -746,6 +746,11 @@ Public Class frmMainPageV2
         ' (id-777 response lands in ProcessPositionData via HandleMarginEstimationResponse).
         Await GetLivePositionData("BTC-PERPETUAL")
 
+        ' Restore hardening: fetch the OTOCO children so a restarted session regains order
+        ' context (entry/TP/SL ids + prices). Send-only; the id-778 response drains through
+        ' HandleOpenOrdersSnapshot once the receive loop starts (same pattern as the id-777 seed).
+        Await RequestOpenOrdersSnapshot()
+
         ' Update UI on success
         Me.BeginInvoke(Sub()
                            btnConnect.Text = "ONLINE"
@@ -818,6 +823,8 @@ Public Class frmMainPageV2
                 HandleRateLimitError(response)
                 ' NEW: Handle margin estimates for liquidation price calculations
                 HandleMarginEstimationResponse(response)
+                ' Restore hardening: OTOCO children snapshot at connect (id 778)
+                HandleOpenOrdersSnapshot(response)
                 ' Decouple v2: placement acks/rejections (ids >= PlacementIdBase)
                 HandlePlacementResponse(response)
                 ' Audit2 F2: surface JSON-RPC errors no dedicated handler owns (silent order rejections)
@@ -1833,6 +1840,28 @@ Public Class frmMainPageV2
         End Try
     End Function
 
+    ' Restore hardening: send-only request for the open OTOCO children (id 778). The response
+    ' drains through HandleOpenOrdersSnapshot once the receive loop starts. type omitted =>
+    ' "all", so untriggered stop/trigger orders come back too.
+    Private Async Function RequestOpenOrdersSnapshot() As Task
+        Try
+            If rateLimiter IsNot Nothing Then rateLimiter.ConsumeCredits()
+
+            Dim payload = New JObject(
+                New JProperty("jsonrpc", "2.0"),
+                New JProperty("id", 778),
+                New JProperty("method", "private/get_open_orders_by_instrument"),
+                New JProperty("params", New JObject(
+                    New JProperty("instrument_name", "BTC-PERPETUAL")
+                ))
+            )
+
+            Await SendWebSocketMessageAsync(payload.ToString())
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error requesting open-orders snapshot: {ex.Message}", Color.Red)
+        End Try
+    End Function
+
     Private Function GetEquityBTC() As Decimal
         ' Cross-thread fix: return the engine field (mirrors lblBTCEquity, set in HandleBalanceUpdates)
         ' so callers on the receive thread (ProcessPositionData) never read the label.
@@ -1995,6 +2024,11 @@ Public Class frmMainPageV2
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
                                                       SLTriggered = True
+
+                                                      ' Restore hardening: defensive mid-session heal - if the baseline was lost
+                                                      ' (0) but the SL triggers now, recover it from this echo's trigger_price so
+                                                      ' the emergency market-stop math has a reference (triggerPrice in scope above).
+                                                      If StopLossTriggerOriginal = 0D Then StopLossTriggerOriginal = If(triggerPrice, 0D)
 
                                                       'This groups CRITICAL SL, Triggered SL messages together
                                                       If orderId = lastSLId Then
@@ -3903,6 +3937,115 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+    ' Restore hardening: restore OTOCO order context from the id-778 snapshot (get_open_orders).
+    ' Receive-thread handler: engine fields written here directly, displays via UiInvoke. Mirrors
+    ' the echo handler's single-writer discipline - prices seed only when the engine field is 0,
+    ' so a lagging echo/active trailing can't be reset backward. Whole body gated on Not cancelPending.
+    Private Sub HandleOpenOrdersSnapshot(response As String)
+        Try
+            Dim json = JObject.Parse(response)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer?)()
+            If Not (messageId.HasValue AndAlso messageId.Value = 778) Then Return
+
+            ' Echo-handler convention: a cancel in flight means the context we'd restore is being torn down.
+            If cancelPending Then Return
+
+            Dim errorField = json.SelectToken("error")
+            If errorField IsNot Nothing Then
+                AppendColoredText(txtLogs, $"Open-orders snapshot error: {errorField.ToString()}", Color.Yellow)
+                Return
+            End If
+
+            Dim result = TryCast(json.SelectToken("result"), JArray)
+            If result Is Nothing OrElse result.Count = 0 Then Return ' flat restart: nothing to restore, no announce
+
+            ' First pass: is a working (unfilled) entry still open? CurrentTPOrderId/CurrentSLOrderId are
+            ' the "there is a live OTOCO working order" ids - only adopt them when the entry leg is open.
+            Dim workingEntryFound As Boolean = False
+            For Each o In result
+                Dim lbl = o.SelectToken("label")?.ToString()
+                Dim st = o.SelectToken("order_state")?.ToString()
+                If (lbl = "EntryLimitOrder" OrElse lbl = "EntryTrailingOrder") AndAlso st = "open" Then workingEntryFound = True
+            Next
+
+            Dim entryDesc As String = "none", tpDesc As String = "none", slDesc As String = "none"
+
+            For Each o In result
+                Dim label = o.SelectToken("label")?.ToString()
+                Dim state = o.SelectToken("order_state")?.ToString()
+                Dim id = o.SelectToken("order_id")?.ToString()
+                Dim price = o.SelectToken("price")?.ToObject(Of Decimal?)()
+                Dim triggerPrice = o.SelectToken("trigger_price")?.ToObject(Of Decimal?)()
+
+                Select Case label
+                    Case "EntryLimitOrder", "EntryTrailingOrder"
+                        If state = "open" Then
+                            CurrentOpenOrderId = id
+                            Dim seeded As Boolean = False
+                            If placedPrice = 0D Then
+                                placedPrice = If(price, 0D)
+                                seeded = True
+                            End If
+                            If seeded AndAlso price.HasValue Then UiInvoke(Sub() txtPlacedPrice.Text = price.Value.ToString("F2"))
+                            entryDesc = $"{id}@{If(price?.ToString("F2"), "?")}"
+                        End If
+
+                    Case "TakeLimitProfit"
+                        If state = "untriggered" OrElse state = "open" Then
+                            PositionTPOrderId = id
+                            If workingEntryFound Then CurrentTPOrderId = id
+                            If price.HasValue Then UiInvoke(Sub() txtPlacedTakeProfitPrice.Text = price.Value.ToString("F2"))
+                            tpDesc = $"{id}@{If(price?.ToString("F2"), "?")}"
+                        End If
+
+                    Case "StopLossOrder"
+                        If state = "untriggered" Then
+                            PositionSLOrderId = id
+                            If workingEntryFound Then CurrentSLOrderId = id
+                            Dim seeded As Boolean = False
+                            If placedStopLossPrice = 0D Then
+                                placedStopLossPrice = If(price, 0D)
+                                seeded = True
+                            End If
+                            If StopLossTriggerOriginal = 0D Then StopLossTriggerOriginal = If(triggerPrice, 0D)
+                            UiInvoke(Sub()
+                                         If triggerPrice.HasValue Then txtPlacedTrigStopPrice.Text = triggerPrice.Value.ToString("F2")
+                                         If seeded AndAlso price.HasValue Then txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
+                                     End Sub)
+                            slDesc = $"{id}@trig {If(triggerPrice?.ToString("F2"), "?")} (untriggered)"
+                        ElseIf state = "open" Then
+                            ' Already triggered: this is the working stop-market leg.
+                            SLTriggered = True
+                            PositionSLOrderId = id
+                            Dim seeded As Boolean = False
+                            If placedStopLossPrice = 0D Then
+                                placedStopLossPrice = If(price, 0D)
+                                seeded = True
+                            End If
+                            If StopLossTriggerOriginal = 0D Then StopLossTriggerOriginal = If(triggerPrice, 0D)
+                            UiInvoke(Sub()
+                                         If triggerPrice.HasValue Then txtPlacedTrigStopPrice.Text = triggerPrice.Value.ToString("F2")
+                                         If seeded AndAlso price.HasValue Then txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
+                                     End Sub)
+                            slDesc = $"{id}@{If(price?.ToString("F2"), "?")} (triggered)"
+                        End If
+
+                    Case "TrailingStopLoss"
+                        ' Out of scope v1: restored trailing context is rarer and hairier - don't guess.
+                        AppendColoredText(txtLogs, "Restore: trailing order found; manual re-attach required (out of scope v1).", Color.Yellow)
+
+                End Select
+            Next
+
+            If entryDesc <> "none" OrElse tpDesc <> "none" OrElse slDesc <> "none" Then
+                AppendColoredText(txtLogs, $"Restored order context: entry={entryDesc}, TP={tpDesc}, SL={slDesc}", Color.Cyan)
+            End If
+
+        Catch ex As Exception
+            ' Ignore parsing errors for non-relevant responses
+        End Try
+    End Sub
+
     Private Sub ProcessPositionData(positionData As JToken)
         Try
             ' Extract live position information from Deribit
@@ -3927,11 +4070,21 @@ Public Class frmMainPageV2
                 positionRestoreAnnounced = True
                 Dim side As String = If(positionSize.Value > 0D, "LONG", "SHORT")
                 AppendColoredText(txtLogs, $"Open position detected: {side} {Math.Abs(positionSize.Value)} @ {If(averagePrice?.ToString("F2"), "?")}", Color.Yellow)
+
+                ' Restore hardening: trade context must match the REAL position, or the SL-trailing
+                ' and emergency branches run the wrong side (TradeMode defaults to LONG at startup).
+                ' SetTradeMode touches controls -> inside the existing UiInvoke.
                 UiInvoke(Sub()
+                             SetTradeMode(positionSize.Value > 0D)
                              lblOrderStatus.Text = "In Position"
                              lblOrderStatus.ForeColor = Color.Yellow
                              If averagePrice.HasValue Then txtPlacedPrice.Text = averagePrice.Value.ToString("F2")
                          End Sub)
+
+                ' placedPrice: restart-restore exception to placement-only seeding (it IS 0 here;
+                ' no working entry exists, so no reposition can act on it) - gives the PnL/display
+                ' path its basis back and stops the 5s "Placed price = 0" warning loop.
+                If placedPrice = 0D Then placedPrice = If(averagePrice, 0D)
             End If
 
             ' CORRECTED: For BTC-PERPETUAL, positionSize is in USD, not BTC
