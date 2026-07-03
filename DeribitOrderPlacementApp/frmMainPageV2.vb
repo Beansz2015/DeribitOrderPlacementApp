@@ -2805,6 +2805,7 @@ Public Class frmMainPageV2
 
 
             ' Send the order and capture the server's response
+            rateLimiter?.ConsumeCredits()   ' F8: placements are the priciest calls - account for them
             Await SendWebSocketMessageAsync(OrderPayload.ToString())
 
             txtPlacedTakeProfitPrice.Text = takeprofitprice.ToString("F2")
@@ -3015,6 +3016,7 @@ Public Class frmMainPageV2
             isTrailingStop = False
 
             ' Send the payload via WebSocket
+            rateLimiter?.ConsumeCredits()   ' F8: placements are the priciest calls - account for them
             Await SendWebSocketMessageAsync(payload.ToString())
 
             If Not isMarketOrder Then
@@ -3528,6 +3530,7 @@ Public Class frmMainPageV2
         )
 
             ' Send the order and capture the server's response
+            rateLimiter?.ConsumeCredits()   ' F8: placements are the priciest calls - account for them
             Await SendWebSocketMessageAsync(OrderPayload.ToString())
 
             If Decimal.Parse(txtManualTP.Text) > 0 Then
