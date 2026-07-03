@@ -853,7 +853,8 @@ Public Class frmMainPageV2
 
     Private accountSummaryTaskCompletionSource As TaskCompletionSource(Of RateLimitInfo)
     Private Async Sub MonitorAuthentication()
-        While webSocketClient.State = WebSocketState.Open
+        Dim mySocket As ClientWebSocket = webSocketClient   ' F9: bound to THIS connection
+        While mySocket Is webSocketClient AndAlso mySocket IsNot Nothing AndAlso mySocket.State = WebSocketState.Open
             Try
                 Await RefreshWebSocketAuthentication()
                 Await Task.Delay(60000) ' Check every minute
