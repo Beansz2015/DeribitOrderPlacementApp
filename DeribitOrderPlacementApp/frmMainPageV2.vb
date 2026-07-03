@@ -2811,7 +2811,7 @@ Public Class frmMainPageV2
     New JProperty("params", params)
 )
 
-            'AppendColoredText(txtLogs, OrderPayload.ToString(), Color.LightGray)
+            AppendColoredText(txtLogs, OrderPayload.ToString(), Color.LightGray)
 
 
             ' Send the order and capture the server's response
@@ -2850,6 +2850,14 @@ Public Class frmMainPageV2
 
 
     Private Async Function CancelOrderAsync() As Task
+
+        ' Connection guard (runtime test 4, 2026-07-03): pre-connect the socket fields are Nothing -
+        ' an unguarded send NREs into the reconnect machinery. Same early-return as the entry paths;
+        ' nothing was sent, so no engine state is touched either.
+        If Not IsWebSocketConnected Then
+            AppendColoredText(txtLogs, "WebSocket is not connected - cancel-all skipped.", Color.Red)
+            Return
+        End If
 
         Dim cancelPayload As New JObject(
         New JProperty("jsonrpc", "2.0"),
@@ -2970,6 +2978,13 @@ Public Class frmMainPageV2
 
     Private Async Function SendReduceOrderAsync(price As Decimal?, amount As Decimal, direction As String, isMarketOrder As Boolean) As Task
         Try
+            ' Connection guard (runtime test 4, 2026-07-03): same early-return as the entry paths,
+            ' before any state mutation (StopLossTriggerOriginal/trailing flags below).
+            If Not IsWebSocketConnected Then
+                AppendColoredText(txtLogs, "WebSocket is not connected - reduce order skipped.", Color.Red)
+                Return
+            End If
+
             'Remember to do a cancel all orders here before sending reduce order
             'Await CancelOrderAsync()
 
@@ -4136,6 +4151,13 @@ Public Class frmMainPageV2
         txtLogs.Clear()
 
     End Sub
+
+#If DEBUG Then
+    Private Async Sub btnApiSmoke_Click(sender As Object, e As EventArgs) Handles btnApiSmoke.Click
+        Dim r = Await Task.Run(Function() PlaceAutomatedOrder("long", "limit"))
+        AppendColoredText(txtLogs, $"API ack: Accepted={r.Accepted} OrderId={If(r.OrderId, "-")} Reason={If(r.Reason, "-")}", Color.Cyan)
+    End Sub
+#End If
 
     ' Decouple v2: mode switching extracted from btnBuy_Click/btnSell_Click (bodies unchanged) so
     ' the automation API can set direction on the UI thread without PerformClick.
