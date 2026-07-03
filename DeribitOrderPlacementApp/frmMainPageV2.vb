@@ -721,6 +721,7 @@ Public Class frmMainPageV2
         ' in the receive loop, which lands in the existing reconnect path.
         webSocketClient.Options.KeepAliveTimeout = TimeSpan.FromSeconds(20)
         cancellationTokenSource = New CancellationTokenSource()
+        positionRestoreAnnounced = False ' fresh connection: the id-777 seed may announce again
 
         ' Connect with timeout
         Using connectTimeout As New CancellationTokenSource(TimeSpan.FromSeconds(30))
@@ -1850,6 +1851,8 @@ Public Class frmMainPageV2
     ' Written on the receive thread; UI buttons read them (accepted Decimal torn-read class).
     Private positionSizeUSD As Decimal = 0D
     Private positionAvgEntry As Decimal = 0D
+    ' Restart restore: one "Open position detected" announcement per connection (display only).
+    Private positionRestoreAnnounced As Boolean = False
 
     ' ============ Decouple v2 (docs/spec-decouple-v2.md) ============
     ' Unique JSON-RPC ids for entry placements (manual + API). Responses are consumed by
@@ -3909,8 +3912,22 @@ Public Class frmMainPageV2
                 End If
             End If
 
+            ' Restart restore (display only - engine fields already correct; placedPrice is
+            ' order-context and is NOT seeded here). Announce once per connection.
+            If positionSize.HasValue AndAlso positionSize.Value <> 0D AndAlso Not positionRestoreAnnounced Then
+                positionRestoreAnnounced = True
+                Dim side As String = If(positionSize.Value > 0D, "LONG", "SHORT")
+                AppendColoredText(txtLogs, $"Open position detected: {side} {Math.Abs(positionSize.Value)} @ {If(averagePrice?.ToString("F2"), "?")}", Color.Yellow)
+                UiInvoke(Sub()
+                             lblOrderStatus.Text = "In Position"
+                             lblOrderStatus.ForeColor = Color.Yellow
+                             If averagePrice.HasValue Then txtPlacedPrice.Text = averagePrice.Value.ToString("F2")
+                         End Sub)
+            End If
+
             ' CORRECTED: For BTC-PERPETUAL, positionSize is in USD, not BTC
             Dim effectiveLeverage As Decimal = 0
+            Dim accountBalanceUSD As Decimal = 0 ' hoisted: 0 = equity not yet received ("pending" display)
 
             If positionSize.HasValue AndAlso markPrice.HasValue Then
                 ' Position value in USD is simply the absolute position size (already in USD)
@@ -3918,7 +3935,7 @@ Public Class frmMainPageV2
 
                 ' Account balance in USD
                 Dim accountBalanceBTC As Decimal = GetEquityBTC()
-                Dim accountBalanceUSD As Decimal = accountBalanceBTC * markPrice.Value
+                accountBalanceUSD = accountBalanceBTC * markPrice.Value
 
                 ' Calculate leverage as position value / account balance
                 If accountBalanceUSD > 0 Then
@@ -3951,7 +3968,8 @@ Public Class frmMainPageV2
                           End If
 
                           ' Display proper leverage based on account balance
-                          lblEstimatedLeverage.Text = $"L.Lev: {effectiveLeverage:F2}x"
+                          ' ("pending" until the first equity update arrives - avoids a misleading 0.00x)
+                          lblEstimatedLeverage.Text = If(accountBalanceUSD = 0D, "L.Lev: pending", $"L.Lev: {effectiveLeverage:F2}x")
 
                           ' Color code leverage risk
                           If effectiveLeverage > 10 Then
@@ -3967,7 +3985,7 @@ Public Class frmMainPageV2
             Dim liquidationText As String = If(estimatedLiquidation.HasValue AndAlso estimatedLiquidation.Value > 0,
                                           "$" & estimatedLiquidation.Value.ToString("F2"), "N/A")
 
-            AppendColoredText(txtLogs, $"LIVE position data - Liq: {liquidationText}, Leverage: {effectiveLeverage:F2}x", Color.Red)
+            AppendColoredText(txtLogs, $"LIVE position data - Liq: {liquidationText}, Leverage: {If(accountBalanceUSD = 0D, "pending", $"{effectiveLeverage:F2}x")}", Color.Red)
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error processing live position data: {ex.Message}", Color.Red)
