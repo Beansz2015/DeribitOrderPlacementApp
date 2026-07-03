@@ -20,6 +20,8 @@
 
 ## 3. How we work (unchanged, binding)
 
+**Git world changed 2026-07-03:** repo is now **PRIVATE**; `housekeeping-now` is merged and deleted; **`master` is the only branch** — implementers commit to master, the owner pushes `origin master` at tested milestones; **`docs/` is tracked** (commit docs alongside work; the "owner manages docs versioning" note in HANDOVER v1 is obsolete).
+
 Spec → implementer conversation → `impl-report-*.md` → **review = verify the actual code, never the report** (`git show` every commit, build, re-run the greps yourself, adversarial pass on invariants). Reports here have been excellent and still get verified. Specs are self-contained with model/effort headers (see audit §H: Opus/Fable **high** for order/SL/receive-path work; Sonnet medium for mechanical). Commit per fix, never push, 0-error/0-warning gate. Owner runtime-tests on a test sub-account under the VS debugger before pushing. Scope discipline: suspicious-nearby goes in the report, not the diff.
 
 ## 4. Invariants (original §5 of HANDOVER.md still binding; these EXTEND it)
