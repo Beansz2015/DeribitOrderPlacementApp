@@ -4123,38 +4123,29 @@ Public Class frmMainPageV2
         End Try
     End Function
 
-    Private Async Sub btnClose_Click(sender As Object, e As EventArgs) Handles btnClose.Click
+    ' Single shutdown path: X, Alt+F4 and btnClose all land here (CS_NOCLOSE override removed).
+    ' Note for the ergonomics implementer: config save goes at the TOP of this handler, before teardown.
+    Private shutdownStarted As Boolean = False
+    Private Sub frmMainPageV2_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        If shutdownStarted Then Return
+        shutdownStarted = True
+        isClosing = True
         Try
-            ' Signal shutdown intent
-            isClosing = True
-
-            ' Cancel any ongoing operations
             cancellationTokenSource?.Cancel()
-
-            ' Close WebSocket gracefully
-            If webSocketClient?.State = WebSocketState.Open Then
-                Try
-                    Await webSocketClient.CloseAsync(
-                    WebSocketCloseStatus.NormalClosure,
-                    "User closing",
-                    CancellationToken.None)
-                Catch
-                    ' Ignore close errors
-                End Try
+            If webSocketClient IsNot Nothing AndAlso webSocketClient.State = WebSocketState.Open Then
+                ' Bounded: a wedged close handshake must not hang shutdown (worst case 2s).
+                webSocketClient.CloseAsync(WebSocketCloseStatus.NormalClosure, "User closing", CancellationToken.None) _
+                    .Wait(TimeSpan.FromSeconds(2))
             End If
-
-            ' Clean up resources
             webSocketClient?.Dispose()
             cancellationTokenSource?.Dispose()
-
-            ' Close the application cleanly
-            Me.Close()
-
-        Catch ex As Exception
-            ' Log but don't crash
-            AppendColoredText(txtLogs, $"Shutdown error: {ex.Message}", Color.Red)
-            Me.Close()
+        Catch
+            ' Never block shutdown on cleanup errors.
         End Try
+    End Sub
+
+    Private Sub btnClose_Click(sender As Object, e As EventArgs) Handles btnClose.Click
+        Me.Close()
     End Sub
 
 
@@ -4974,15 +4965,6 @@ Public Class frmMainPageV2
     Private Sub btnMark_Click(sender As Object, e As EventArgs) Handles btnMark.Click
         StopLossTriggerOriginal = Decimal.Parse(txtPlacedTrigStopPrice.Text)
     End Sub
-
-    Protected Overrides ReadOnly Property CreateParams As CreateParams
-        Get
-            Dim cp As CreateParams = MyBase.CreateParams
-            ' Disable the maximize and close buttons
-            cp.ClassStyle = cp.ClassStyle Or &H200  ' CS_NOCLOSE: Disables the close button
-            Return cp
-        End Get
-    End Property
 
 End Class
 
