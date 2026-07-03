@@ -22,7 +22,6 @@ Public Class frmMainPageV2
 
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
-    Private lastMessageTime As DateTime
 
     'For refresh authentication token
     Private refreshToken As String = Nothing
@@ -478,10 +477,15 @@ Public Class frmMainPageV2
         'Await SendWebSocketMessageAsync(authPayload)
         Await SendWebSocketMessageAsync(authPayload.ToString())
 
-        ' Read the response
+        ' Read the response (F5: accumulate fragments until EndOfMessage - same fix as the receive loop)
         Dim buffer = New Byte(1024 * 4) {}
-        Dim result = Await webSocketClient.ReceiveAsync(New ArraySegment(Of Byte)(buffer), cancellationTokenSource.Token)
-        Dim response = Encoding.UTF8.GetString(buffer, 0, result.Count)
+        Dim sb As New StringBuilder()
+        Dim result As WebSocketReceiveResult
+        Do
+            result = Await webSocketClient.ReceiveAsync(New ArraySegment(Of Byte)(buffer), cancellationTokenSource.Token)
+            sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count))
+        Loop Until result.EndOfMessage
+        Dim response = sb.ToString()
 
         Dim json = JObject.Parse(response)
         Dim errorField = json.SelectToken("error")
@@ -713,6 +717,9 @@ Public Class frmMainPageV2
         ' Create fresh instances
         webSocketClient = New ClientWebSocket()
         webSocketClient.Options.KeepAliveInterval = TimeSpan.FromSeconds(30)
+        ' F7: abort ReceiveAsync when pongs stop - dead links now surface as a WebSocketException
+        ' in the receive loop, which lands in the existing reconnect path.
+        webSocketClient.Options.KeepAliveTimeout = TimeSpan.FromSeconds(20)
         cancellationTokenSource = New CancellationTokenSource()
 
         ' Connect with timeout
@@ -768,9 +775,7 @@ Public Class frmMainPageV2
     Private Async Function ReceiveWebSocketMessagesAsync() As Task
         Dim buffer(65535) As Byte ' Larger buffer
         Dim reconnectNeeded As Boolean = False
-
-        ' Initialize lastMessageTime to the current time
-        lastMessageTime = DateTime.Now
+        Dim sb As New StringBuilder()
 
         While webSocketClient.State = WebSocketState.Open
             Try
@@ -786,10 +791,13 @@ Public Class frmMainPageV2
                     Exit While
                 End If
 
-                Dim response = Encoding.UTF8.GetString(buffer, 0, result.Count)
+                ' F5: accumulate fragments; dispatch only complete text messages (a >64KB or
+                ' intermediary-fragmented frame previously decoded as broken JSON halves).
+                sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count))
+                If Not (result.EndOfMessage AndAlso result.MessageType = WebSocketMessageType.Text) Then Continue While
 
-                ' Update last message time on any valid message
-                lastMessageTime = DateTime.Now
+                Dim response = sb.ToString()
+                sb.Clear()
 
                 ' Call the function to handle heartbeat requests from server
                 HandleHeartbeat(response)
@@ -828,13 +836,6 @@ Public Class frmMainPageV2
                 reconnectNeeded = True
                 Exit While
             End Try
-
-            ' Timeout check
-            If DateTime.Now.Subtract(lastMessageTime).TotalSeconds > 75 Then
-                AppendColoredText(txtLogs, "Message timeout - connection may be dead", Color.Yellow)
-                reconnectNeeded = True
-                Exit While
-            End If
         End While
 
         ' Only trigger reconnect if we detected a problem
@@ -882,30 +883,6 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "Heartbeat setup failed: " & ex.Message, Color.Red)
         End Try
     End Function
-
-    Private Async Function MonitorConnectionHealth() As Task
-        While webSocketClient?.State = WebSocketState.Open
-            Try
-                ' Send periodic ping using Deribit's official heartbeat API
-                Dim pingPayload As New JObject From {
-                {"jsonrpc", "2.0"},
-                {"id", 9999},
-                {"method", "public/ping"},
-                {"params", New JObject()}
-            }
-
-                Await SendWebSocketMessageAsync(pingPayload.ToString())
-
-                ' Wait 60 seconds before next health check
-                Await Task.Delay(60000)
-
-            Catch ex As Exception
-                AppendColoredText(txtLogs, $"Connection health check failed: {ex.Message}", Color.Orange)
-                Exit While
-            End Try
-        End While
-    End Function
-
 
     'Rate limiter functions below
     Private Sub HandleAccountSummaryResponse(response As String)
@@ -1286,7 +1263,6 @@ Public Class frmMainPageV2
                 ' Update engine fields first (cross-thread fix: HandleBalanceUpdates reads indexPriceVal,
                 ' not lblIndexPrice.Text), then mirror the display via UiInvoke.
                 If indexPrice IsNot Nothing And IsNumeric(indexPrice) Then
-                    lastMessageTime = DateTime.Now
                     indexPriceVal = CDec(indexPrice)
                     commsVal = comms
                     UiInvoke(Sub()
