@@ -3964,12 +3964,26 @@ Public Class frmMainPageV2
 
             ' First pass: is a working (unfilled) entry still open? CurrentTPOrderId/CurrentSLOrderId are
             ' the "there is a live OTOCO working order" ids - only adopt them when the entry leg is open.
+            ' Also capture the entry's side. A restart with a working entry leaves the POSITION flat, so the
+            ' id-777 announce (gated on size <> 0) can't call SetTradeMode - TradeMode would stay at its LONG
+            ' default and the SL-trailing/emergency branches would run the wrong side once the entry fills
+            ' (owner runtime test 2026-07-03: SHORT restored with Buy highlighted; SL never repositioned).
             Dim workingEntryFound As Boolean = False
+            Dim entryIsLong As Boolean = False
             For Each o In result
                 Dim lbl = o.SelectToken("label")?.ToString()
                 Dim st = o.SelectToken("order_state")?.ToString()
-                If (lbl = "EntryLimitOrder" OrElse lbl = "EntryTrailingOrder") AndAlso st = "open" Then workingEntryFound = True
+                If (lbl = "EntryLimitOrder" OrElse lbl = "EntryTrailingOrder") AndAlso st = "open" Then
+                    workingEntryFound = True
+                    entryIsLong = (o.SelectToken("direction")?.ToString() = "buy")
+                End If
             Next
+
+            ' Restore hardening (owner runtime fix): set the trade side from the working entry's own
+            ' direction, so trailing/emergency run the correct branch the moment the entry fills.
+            ' SetTradeMode touches controls -> UiInvoke. Harmless if id-777 already set the same side for a
+            ' filled position; the filled-at-connect case is still handled by the id-777 announce block.
+            If workingEntryFound Then UiInvoke(Sub() SetTradeMode(entryIsLong))
 
             Dim entryDesc As String = "none", tpDesc As String = "none", slDesc As String = "none"
 
