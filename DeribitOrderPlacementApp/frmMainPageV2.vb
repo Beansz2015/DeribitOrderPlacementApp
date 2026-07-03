@@ -3268,8 +3268,11 @@ Public Class frmMainPageV2
             ' Consume credits and proceed with update
             rateLimiter.ConsumeCredits()
 
-            ' Validate amount input (cross-thread fix: read engine field, not txtAmount)
-            Dim amount As Decimal = orderAmountVal
+            ' Restore hardening: a triggered SL covers the POSITION - size edits from the position
+            ' model, falling back to the input mirror only when the model is unseeded. After a restart
+            ' (or whenever txtAmount <> position size) orderAmountVal would resize the stop off the position.
+            ' (cross-thread fix retained: read engine fields, not txtAmount.)
+            Dim amount As Decimal = If(positionSizeUSD <> 0D, Math.Abs(positionSizeUSD), orderAmountVal)
             If amount <= 0 Then
                 AppendColoredText(txtLogs, "Invalid amount for SL update", Color.Red)
                 Return
