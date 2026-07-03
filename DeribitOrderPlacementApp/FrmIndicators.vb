@@ -46,6 +46,11 @@ Public Class FrmIndicators
     Public Sub New(host As Form)
         InitializeComponent()               ' designer code
         _host = host
+        ' Deeper handle-race fix (owner runtime crash 2026-07-04): realize the window handle NOW, on the
+        ' UI thread (New is called from the host's Load), so ConnectAndStream's background receive loop can
+        ' never marshal (Me.Invoke -> UpdateSignals) before the handle exists. UiInvokeSafe additionally
+        ' guards the reconnect/teardown windows where the handle can momentarily be absent.
+        Dim forceHandle As IntPtr = Me.Handle
     End Sub
 
     Public ReadOnly Property IsAutoTradingEnabled As Boolean
@@ -208,6 +213,18 @@ Public Class FrmIndicators
         End Try
     End Sub
 
+    ' Handle-race guard for background marshals. The receive loop and the poll/reconnect timer run on
+    ' threadpool threads and can call this before the window handle is realized (fast restart burst) or
+    ' during teardown; a raw Me.Invoke throws "handle not created" then. Drops the UI update rather than
+    ' crashing when there is no live handle (the next message re-runs it once the form is up).
+    Private Sub UiInvokeSafe(action As Action)
+        Try
+            If Me.IsHandleCreated AndAlso Not Me.IsDisposed Then Me.Invoke(action)
+        Catch
+            ' handle went away between the check and the invoke - drop this UI update
+        End Try
+    End Sub
+
     ' ── Message Processor ─────────────────────────────────────────────────────
     Private Sub ProcessMessage(raw As String)
         Try
@@ -253,9 +270,7 @@ Public Class FrmIndicators
                     If Not pollTimer.Enabled Then pollTimer.Start()
                 End SyncLock
 
-                Task.Run(Sub()
-                             Me.Invoke(Sub() UpdateSignals())
-                         End Sub)
+                Task.Run(Sub() UiInvokeSafe(Sub() UpdateSignals()))
 
                 Return
             End If
@@ -297,9 +312,7 @@ Public Class FrmIndicators
                         End If
                     End SyncLock
 
-                    Task.Run(Sub()
-                                 Me.Invoke(Sub() UpdateSignals())
-                             End Sub)
+                    Task.Run(Sub() UiInvokeSafe(Sub() UpdateSignals()))
                 End If
             End If
         Catch ex As JsonException

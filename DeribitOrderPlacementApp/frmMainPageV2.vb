@@ -3709,14 +3709,21 @@ Public Class frmMainPageV2
             skipNext = False                        ' any other message resets flag
         End If
 
-        ' 2. Normal logging
-        Me.Invoke(Sub()
-                      rtb.SelectionStart = rtb.TextLength
-                      rtb.SelectionLength = 0
-                      rtb.SelectionColor = color
-                      rtb.AppendText(text & Environment.NewLine)
-                      rtb.SelectionColor = rtb.ForeColor
-                  End Sub)
+        ' 2. Normal logging. Handle-race guard: AppendColoredText is called from the receive thread; a raw
+        ' Me.Invoke throws "handle not created" if a background log fires before the form handle exists or
+        ' during teardown. Drop the line in that window rather than crash (matches the UiInvoke guard).
+        If Not (Me.IsHandleCreated AndAlso Not Me.IsDisposed) Then Return
+        Try
+            Me.Invoke(Sub()
+                          rtb.SelectionStart = rtb.TextLength
+                          rtb.SelectionLength = 0
+                          rtb.SelectionColor = color
+                          rtb.AppendText(text & Environment.NewLine)
+                          rtb.SelectionColor = rtb.ForeColor
+                      End Sub)
+        Catch
+            ' handle went away between the check and the invoke - drop this log line
+        End Try
     End Sub
 
     Private Sub ButtonDisabler()
