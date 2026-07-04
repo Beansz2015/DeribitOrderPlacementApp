@@ -1613,6 +1613,13 @@ Public Class frmMainPageV2
                                 End If
                             End If
 
+                            ' [DIAG - TEMPORARY, Issue-1 no-reposition investigation 2026-07-04] trace the chase
+                            ' decision whenever price is at/below the SL. Shows whether shouldUpdate fired and the
+                            ' exact ask/sl/emg/movement. REMOVE once the cause is confirmed.
+                            If bestAsk < currentStopPrice Then
+                                AppendColoredText(txtLogs, $"[DIAG] chase: ask={bestAsk} sl={currentStopPrice} emg={emgBaseline} mv={priceMovement:F1} shouldUpd={shouldUpdate}", Color.Gray)
+                            End If
+
                             ' Execute update if conditions are met
                             If shouldUpdate Then
                                 Try
@@ -1645,8 +1652,11 @@ Public Class frmMainPageV2
                     Else
                         ' Log rate limiting (optional - can be removed to reduce noise)
                         Dim remainingMs = MinStopLossUpdateInterval - (currentTime - lastStopLossUpdate).TotalMilliseconds
-                        If remainingMs > 1000 Then ' Only log if significant time remaining
-                            AppendColoredText(txtLogs, $"SL update rate limited: {remainingMs / 1000:F1}s remaining", Color.Gray)
+                        ' [DIAG - TEMPORARY, Issue-1] surface an active backoff (lastStopLossUpdate pushed into the
+                        ' future by BackoffStopLossRetry) that would block the chase for >1 tick. REMOVE with the
+                        ' other DIAG line. (>400ms remaining = more than the normal 333ms throttle = a real backoff.)
+                        If remainingMs > 400 Then
+                            AppendColoredText(txtLogs, $"[DIAG] chase throttled: {remainingMs:F0}ms left, fails={slUpdateFailures}", Color.Gray)
                         End If
                     End If
                 End If
