@@ -1,6 +1,8 @@
 # Spec — Reconcile the app's triggered-SL state with manual exchange-side edits
 
-**Status:** DRAFT for the spec writer. **Date:** 2026-07-04. **Priority:** high — **RUNTIME-CONFIRMED to disable the chase entirely** (not just a display nicety). **Base:** `f42a6a7` on `master`. **File:** `DeribitOrderPlacementApp/frmMainPageV2.vb`. Model/effort: Opus/Fable **high** (order/SL path).
+**Status:** APPROVED — decisions locked by the owner 2026-07-04 (see §10). Ready to implement. **Priority:** high — **RUNTIME-CONFIRMED to disable the chase entirely** (not just a display nicety). **Base:** `2381766` on `master`. **File:** `DeribitOrderPlacementApp/frmMainPageV2.vb`. Model/effort: Opus/Fable **high** (order/SL path).
+
+**DECIDED:** discriminator = **4a (commanded-price set)**; policy = **P1 (keep chasing from the corrected reference** — it is the maker mechanism, so it serves the owner's maker-over-taker preference); **TP (§7) deferred** to a separate change (SL first); **log a detected manual edit** (`Manual SL edit: $X`, cyan). Implement exactly to these; do not re-open them.
 
 **One-line:** after the SL triggers, a manual SL move on the Deribit chart is **not** reflected in `placedStopLossPrice` or the "Stop Loss" display, and the app's chase-to-fill logic keeps running off the stale value — it can override the manual placement. Make the app track the true live SL from the exchange while still rejecting stale echoes of its own repositions, and decide whether the app should defer to a manual edit.
 
@@ -104,9 +106,16 @@ The same open-echo gap affects a **post-fill** manual TP move (`:2046` updates n
 5. **TP (if in scope):** post-fill manual TP move updates the TP box.
 6. **Regression:** full trigger→chase→fill cycle; restart-into-triggered restore; flat/new-trade start (state clean).
 
-## 10. Open questions for the spec writer
+## 10. Decisions (locked by the owner 2026-07-04)
 
-1. **Policy §6:** P1, P2, or P3?
-2. **Discriminator §4:** commanded-set (4a) or timestamp (4b)? If timestamp, confirm `last_update_timestamp` is on the raw-channel order object.
-3. **TP §7:** in scope or separate?
-4. Should a manual edit be **logged** (e.g. `Manual SL edit detected: $X`) so it's visible in the trade log?
+1. **Policy:** **P1** — keep chasing from the corrected reference (the chase is the maker fill; deferring risks the taker emergency).
+2. **Discriminator:** **4a (commanded-price set).** Track the app's recently-commanded SL prices; an open-echo `price` NOT in the set ⇒ a manual edit ⇒ update `placedStopLossPrice` + display + `emergencyBaseline`; a `price` in the set ⇒ the app's own reposition/lagging echo ⇒ ignore (preserves today's runaway protection). Size the set by the reposition rate (≥333ms apart) vs echo latency — a ~2s time-window or last ~5 prices is ample; evict on age/size.
+3. **TP:** **deferred** — SL only in this change; note the analogous TP gap (§7) for a follow-up.
+4. **Logging:** **yes** — on a detected manual edit, `AppendColoredText(txtLogs, $"Manual SL edit: ${price:F2}", Color.Cyan)`.
+
+## 11. Implementation notes (as-decided)
+
+- The two references are ALREADY split: `emergencyBaseline` follows the live SL via the ungated open echo (commit `f42a6a7`); `placedStopLossPrice` is still seed-if-zero (`:2083`). The commanded-set discriminator makes them consistent: on an accepted manual echo set `placedStopLossPrice = price`, mirror the display, and set `emergencyBaseline = price` too (so both stay the live SL). The app's own reposition still advances `placedStopLossPrice` synchronously (`:1627`) — that's the "in the set" path that must keep being ignored by the echo.
+- **New field(s):** the commanded-price set/ring + its reset. Reset it (like `emergencyBaseline`/`StopLossTriggerOriginal`) at the four SL-placement sites, `CompletePositionClose`, nuclear cancel, and the market-reduce path (grep `emergencyBaseline = 0` for the exact anchors — mirror those).
+- **Record each commanded price** where the chase repositions (`:1627`, `placedStopLossPrice = newStopPrice`) AND wherever the app edits the SL (the emergency `ForceStopLossUpdate` path also changes the order — decide whether those count; simplest: record every `newStopPrice`/`newPrice` the app sends as an SL edit).
+- **Verify the runaway protection still holds:** after the fix, a normal app-only chase must show no "Manual SL edit" lines and no backward `placedStopLossPrice` blips (re-add the temporary DIAG from commit `04d708a` if needed to confirm, then revert).
