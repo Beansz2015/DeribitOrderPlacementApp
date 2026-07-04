@@ -1,9 +1,9 @@
 # Spec-back — M.SL emergency baseline (`emergencyBaseline`) + trigger auto-sync (as-built)
 
-**What this is:** a specification reconstructed **from the committed code** (commit `57dd0fe` on `master`), not from a forward spec. It states the behavior contract the code now enforces, with anchors, so a reviewer can diff it against `git show 57dd0fe`. Written 2026-07-04. File: `DeribitOrderPlacementApp/frmMainPageV2.vb` (+ `frmMainPageV2.Designer.vb` for the btnMark removal). Diff: 42 insertions, 29 deletions.
+**What this is:** a specification reconstructed **from the committed code** (`57dd0fe` = fields/wiring/btnMark removal; `HEAD` = the follow-live-SL refinement), not from a forward spec. It states the behavior contract the code now enforces, with anchors, so a reviewer can diff it against those commits. Written 2026-07-04, updated same day after the owner's follow-up test. Files: `DeribitOrderPlacementApp/frmMainPageV2.vb` (+ `frmMainPageV2.Designer.vb` for the btnMark removal).
 
 **Origin (owner design, runtime testing):**
-- **Item 1** — the M.SL emergency market-reduce should measure from the **actual stop-loss price at the moment it triggers** (unknown until then), staying offset from the **trigger** price before that. Market reduce is the last resort (taker fees).
+- **Item 1** — the M.SL emergency market-reduce should measure from the **actual stop-loss price** once triggered (unknown until then), staying offset from the **trigger** price before that. Market reduce is the last resort (taker fees). *Refined after a follow-up test:* it should track the **live** SL (following manual post-trigger adjustments), not stay pinned at the trigger moment — see Region 2.
 - **Item 2** — the app should track exchange-side OTOCO moves. It already syncs the displays / `placedStopLossPrice` / ids from untriggered echoes, but did **not** sync the M.SL baseline — which is what the manual **btnMark** button re-synced. Auto-syncing it makes btnMark redundant.
 
 ---
@@ -30,11 +30,12 @@ Both are written on the receive/UI thread and read on the receive thread by the 
 
 ---
 
-## Region 2 — pinning `emergencyBaseline` at the trigger moment (item 1)
+## Region 2 — `emergencyBaseline` follows the live SL (item 1, refined 2026-07-04)
 
-- Open `StopLossOrder` echo (`:2059`), on the `SLTriggered` False→True flip: `If Not SLTriggered Then emergencyBaseline = If(price, emergencyBaseline)`, immediately before `SLTriggered = True`. `price` is the triggered SL limit price (the `Triggered SL placed @ $price` value). Captured **only on the flip**, so it stays fixed while the SL trails afterward (subsequent open echoes have `SLTriggered = True` and skip it).
-- **Consequence:** the market-reduce point moves from `trigger − M.SL` to `actualSL@trigger − M.SL`. Since the SL limit usually sits a little below the trigger, it fires slightly further out — measuring from where the stop actually is.
-- **Post-trigger exchange moves do not change it** (it's pinned), matching "at the point it is triggered."
+- Open `StopLossOrder` echo (`:2059`): `emergencyBaseline = If(price, emergencyBaseline)` on **every** triggered (open) echo — the trigger flip and every one after. `price` is the current SL limit price. So the baseline is set to the actual SL at the trigger moment and then **tracks the live SL** as it moves — following both the app's own trailing edits (which return as open echoes) and **manual exchange-side SL adjustments**.
+- **Consequence:** the emergency stays `M.SL` below the **live** stop (not the trigger-moment stop). Manual post-trigger SL moves are followed (owner runtime test 2026-07-04: adjusting the SL on the exchange re-anchors the emergency).
+- **Single source = the exchange's SL state** (the echo), so manual and app-trailing moves converge without a second writer to fight. A rare out-of-order echo self-corrects on the next one; a fast adverse move — exactly when the emergency fires — is unaffected in practice.
+- **Design history:** initially *pinned* at the trigger moment ("at the point it is triggered"); the owner's follow-up test showed the intent is to track the live SL, so the trigger-flip gate (`If Not SLTriggered`) was removed.
 
 ---
 
@@ -70,7 +71,7 @@ Both are written on the receive/UI thread and read on the receive thread by the 
 ## Behavior contract / invariants (post-change)
 
 1. **Baseline selection:** emergency measures from `emergencyBaseline` if set (actual SL @ trigger), else `StopLossTriggerOriginal` (trigger). One value, chosen per-quote.
-2. **Pinned, not trailing:** `emergencyBaseline` is captured once at the trigger flip and held; the SL trailing afterward does not move it.
+2. **Follows the live SL:** `emergencyBaseline` is set at the trigger flip and updated on every subsequent triggered echo, so it tracks the live SL (manual moves + the app's trailing). The emergency stays M.SL below the current stop.
 3. **Pre-trigger tracks the exchange:** `StopLossTriggerOriginal` mirrors exchange-side trigger moves while untriggered → btnMark is unnecessary.
 4. **Clean per-trade:** both fields are 0 at every new SL placement and every position end; a new trade cannot inherit a stale baseline.
 5. **Zero disables:** an unknown combined baseline (`emgBaseline = 0`) disables the emergency market-stop (restore-hardening rule, unchanged) — e.g. immediately after a restart before the snapshot lands.
@@ -80,7 +81,7 @@ Both are written on the receive/UI thread and read on the receive thread by the 
 
 ## Residuals / known-theoretical
 
-1. **Post-trigger manual SL move on the exchange:** `emergencyBaseline` stays pinned at the trigger-moment SL price and does not follow a post-trigger drag. This matches the stated "at the point it is triggered" design; flagged in case the owner later wants it to follow.
+1. **App trailing vs manual SL divergence:** `emergencyBaseline` follows the live SL via the echo, but `placedStopLossPrice` (which the app's own trailing logic reads) is **not** updated by post-trigger manual echoes — its seed-if-zero single-writer guard blocks that. So after a manual post-trigger SL move, the emergency baseline reflects it while the app's trailing still runs off its own `placedStopLossPrice`. Pre-existing gap (the trailing design assumed the app is the only mover post-trigger); out of scope here, flagged for a future "reconcile app trailing with manual SL edits" pass.
 2. **Null `price` at the trigger flip:** `emergencyBaseline` stays 0 and the emergency falls back to `StopLossTriggerOriginal` (the synced trigger). Safe (measures from the trigger), not a crash.
 3. **`StopLossTriggerOriginal` now read only via the `emgBaseline` fallback** — retained deliberately as the trigger price of record and the pre-trigger baseline (owner request), and still seeded by placement / untriggered echo / restore / heal.
 4. **Stale `CustomLabel7` tooltip** ("To mark the current stop loss price…") remains after btnMark's removal — cosmetic only.
@@ -89,8 +90,8 @@ Both are written on the receive/UI thread and read on the receive thread by the 
 
 ## Owner runtime tests to run
 
-1. **Emergency actually fires:** with M.SL checked + a tight threshold, drive price past `actualSL@trigger − M.SL` faster than the trailing limit fills (a sharp move) → `Emergency Sell/Buy Market Order Executed.`
-2. **Baseline is the actual SL, not the trigger:** confirm the fire point is `actualSL − M.SL` (a bit further out than `trigger − M.SL`).
-3. **Exchange-side trigger move, no btnMark:** drag the SL trigger on Deribit while untriggered → the M.SL baseline follows (verify the fire point shifts) with no button press.
-4. **Restart into a triggered SL:** emergency baseline restored to the actual SL price; emergency still armed.
+1. **Emergency actually fires:** with M.SL checked + a tight threshold, drive price past `liveSL − M.SL` faster than the trailing limit fills (a sharp move) → `Emergency Sell/Buy Market Order Executed.` (execution price is the orderbook fill, not the arming price.) — **passed 2026-07-04.**
+2. **Baseline tracks the live SL (manual):** once triggered, adjust the SL on the exchange chart → the emergency arming point moves to `newSL − M.SL` (no btnMark). — **the case that drove the follow-live-SL refinement.**
+3. **Exchange-side trigger move, no btnMark:** drag the SL trigger on Deribit while **untriggered** → the pre-trigger baseline (`StopLossTriggerOriginal`) follows. — **passed 2026-07-04.**
+4. **Restart into a triggered SL:** emergency baseline restored to the actual SL price, then follows subsequent echoes; emergency still armed. — **passed 2026-07-04.**
 5. **Regression:** normal trailing + close cycle; flat/new-trade start (baseline clean).

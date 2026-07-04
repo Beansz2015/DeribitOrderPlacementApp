@@ -43,10 +43,11 @@ Public Class frmMainPageV2
 
     ' M.SL emergency-reduce baseline (docs/spec-back-msl-emergency-baseline.md). The price the emergency
     ' market-reduce measures from: 0 until the SL triggers -> the emergency falls back to
-    ' StopLossTriggerOriginal (the trigger price). At the moment the SL triggers it is pinned to the
-    ' ACTUAL SL price then, and held there while the SL trails. Reset to 0 wherever StopLossTriggerOriginal
-    ' is (close / nuclear cancel / market reduce). Written on the receive/UI thread; read on the receive
-    ' thread by the emergency (accepted Decimal torn-read class, same as StopLossTriggerOriginal).
+    ' StopLossTriggerOriginal (the trigger price). Once triggered it tracks the LIVE SL price (updated on
+    ' every triggered echo - manual exchange-side moves + the app's own trailing), so the emergency stays
+    ' M.SL below the current stop. Reset to 0 wherever StopLossTriggerOriginal is (placement / close /
+    ' nuclear cancel / market reduce). Written on the receive/UI thread; read on the receive thread by the
+    ' emergency (accepted Decimal torn-read class, same as StopLossTriggerOriginal).
     Public emergencyBaseline As Decimal = 0
     'For auto trading logging
     Public AutoPlacedPrice, AutoTakeProfit, AutoStopLoss As Decimal
@@ -2052,11 +2053,13 @@ Public Class frmMainPageV2
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
 
-                                                      ' Item 1: at the moment of trigger (SLTriggered False->True flip), pin the M.SL
-                                                      ' emergency baseline to the ACTUAL SL price now (the triggered SL limit), not the
-                                                      ' trigger price. Captured only on the flip, so it stays fixed as the SL trails after.
-                                                      ' (price in scope from the open-state extraction above.)
-                                                      If Not SLTriggered Then emergencyBaseline = If(price, emergencyBaseline)
+                                                      ' Item 1 + follow-live-SL (owner 2026-07-04): the M.SL emergency baseline tracks the
+                                                      ' CURRENT SL price on EVERY triggered (open) echo - so it follows both manual exchange-side
+                                                      ' SL adjustments and the app's own trailing edits (which come back as open echoes). The
+                                                      ' emergency therefore stays M.SL below the LIVE stop, not the trigger-moment stop. price in
+                                                      ' scope above; null keeps the prior value. (Single source = the exchange's SL state; a rare
+                                                      ' out-of-order echo self-corrects on the next one - a fast adverse move is when it fires anyway.)
+                                                      emergencyBaseline = If(price, emergencyBaseline)
                                                       SLTriggered = True
 
                                                       ' Restore hardening: defensive mid-session heal - if the baseline was lost
