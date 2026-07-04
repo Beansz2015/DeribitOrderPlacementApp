@@ -1,6 +1,8 @@
 # Session spec-back — 2026-07-04 (restore-hardening → M.SL emergency work)
 
-**For:** the orchestrator and any implementer of a pipeline spec that touches the same files. This reconstructs **everything changed this session** so parallel work doesn't collide. Session range: **`0d078eb..2381766`** on `master` (16 commits), base `7fb075a` (resilience impl-report). Build **0/0** throughout. **Nothing pushed** (owner is the only pusher). Owner runtime-tested and PASSED all of it except the one open item (§9).
+**For:** the orchestrator and any implementer of a pipeline spec that touches the same files. This reconstructs **everything changed this session** so parallel work doesn't collide. Session range: **`0d078eb..968b26d`** on `master` (18 commits), base `7fb075a` (resilience impl-report). Build **0/0** throughout. **Nothing pushed** (owner is the only pusher). Owner has runtime-tested and PASSED everything except the SL reconciliation (§9), which is now IMPLEMENTED (`968b26d`) and code-reviewed (agree), pending the owner's runtime test.
+
+**Update 2026-07-04 (post-handover):** §9 was open at handover (`2381766`); a follow-on Opus seat implemented it (`968b26d`) and it was reviewed/agreed. This doc now reflects that — sections updated: header, §0, §1, §6, §8, §9, §10.
 
 Line numbers drift — anchors below are **function/symbol names**; grep for them.
 
@@ -8,7 +10,7 @@ Line numbers drift — anchors below are **function/symbol names**; grep for the
 
 | File | Δ | What |
 |---|---|---|
-| `frmMainPageV2.vb` | +326/−171 (~497 lines changed) | the bulk — restore, close, emergency, UX. **Most collision-prone.** |
+| `frmMainPageV2.vb` | +479/−138 (~617 lines changed) | the bulk — restore, close, emergency, UX, SL reconciliation. **Most collision-prone.** |
 | `frmMainPageV2.Designer.vb` | ±34 | removed `btnClose` and `btnMark` controls |
 | `FrmIndicators.vb` | ±25 | handle-race guard (`UiInvokeSafe` + constructor handle realize) |
 | `docs/*` | new | specs, spec-backs, impl-reports, 1 review (all listed below) |
@@ -16,14 +18,16 @@ Line numbers drift — anchors below are **function/symbol names**; grep for the
 ## 1. New engine fields / methods / removals in `frmMainPageV2.vb` (the coordination-critical list)
 
 **New public/private fields:**
-- `emergencyBaseline As Decimal` — M.SL emergency baseline; the live SL once triggered (see §6). Read by the emergency; reset at 7 sites (grep `emergencyBaseline = 0`).
+- `emergencyBaseline As Decimal` — M.SL emergency baseline; the live SL once triggered (see §6, §9). Read by the emergency; reset at 7 sites (grep `emergencyBaseline = 0`).
 - `pendingCloseValid/PorLAmt/PorL/Label/AmountUSD/WasLong/ExecPrice` (7 fields) — persisted close-fill capture (see §3).
 - `positionRestoreAnnounced As Boolean` — one restore announce per connection (see §2).
+- **`commandedSLPrices : List(Of CommandedSLEntry)` + `commandedSLLock` + consts `CommandedSLWindowMs`(2000ms)/`CommandedSLMatchTol`(0.25) + `Structure CommandedSLEntry {Price, Stamp}`** — the SL-reconciliation commanded-price set (§9). Lock-guarded; cleared at the same 7 SL-context reset sites as `emergencyBaseline`.
 
 **New methods:**
 - `RequestOpenOrdersSnapshot()` — send-only `get_open_orders_by_instrument`, id **778** (new JSON-RPC id; added to HANDOVER-2 §4.5 map).
 - `HandleOpenOrdersSnapshot(response)` — drains id-778; restores OTOCO order context at connect. Wired in the receive-loop dispatch after `HandleMarginEstimationResponse`.
 - `CompletePositionClose()` — async; the single position-close completion path (see §3).
+- `RecordCommandedSLPrice` / `IsRecentlyCommandedSLPrice` / `ResetCommandedSLPrices` / `PurgeCommandedSLPrices` — the commanded-price-set helpers (§9). All `commandedSLLock`-guarded; **no `Await` inside the lock**.
 
 **Changed signature:** `ApplyCloseFill(order, execPrice, label)` — **dropped its 5 ByRef out-params**; now writes the `pendingClose*` fields (see §3). All 5 call sites updated.
 
@@ -58,7 +62,7 @@ Spec-back `spec-back-handle-race-hardening.md`. Owner restart crashed at `FrmInd
 
 Spec-back `spec-back-msl-emergency-baseline.md`.
 - **`57dd0fe`:** new `emergencyBaseline` field. The emergency (both `HandleQuoteUpdates` and `UpdateStopLossForTriggeredStopLossOrder`) reads `emgBaseline = If(emergencyBaseline>0, emergencyBaseline, StopLossTriggerOriginal)`. `StopLossTriggerOriginal` kept as the trigger price of record + pre-trigger fallback, and now **synced from exchange-side trigger moves** in the untriggered SL echo (this made `btnMark` vestigial → removed). `emergencyBaseline` reset at 7 sites (4 placement + close + nuclear cancel + market-reduce).
-- **`f42a6a7` follow-live-SL:** removed the trigger-flip gate so `emergencyBaseline` updates on EVERY triggered (open) echo — follows manual + the app's own trailing. Owner-confirmed working.
+- **`f42a6a7` follow-live-SL:** removed the trigger-flip gate so `emergencyBaseline` updates on EVERY triggered (open) echo — follows manual + the app's own trailing. Owner-confirmed working. **SUPERSEDED by `968b26d` (§9):** that ungated per-echo write was removed (it also swallowed lagging/out-of-order echoes of the app's own reposition and could walk the baseline backward). `emergencyBaseline` now moves under the commanded-price discriminator — seeded at trigger, advanced with the chase (`= newStopPrice`), and set on a detected manual edit. Same net "follows the live SL", no race.
 
 ## 7. DIAG cycle (`04d708a` added, `2381766` reverted) — net-zero on code
 
@@ -70,16 +74,22 @@ Temporary `[DIAG]` tracing in the `HandleQuoteUpdates` chase block to diagnose �
 - Emergency baseline selection = `emergencyBaseline` (live SL post-trigger) else `StopLossTriggerOriginal` (trigger). Unknown (0) disables the emergency.
 - Close completion fires once per `positionSizeUSD` !=0→0 transition via `CompletePositionClose`, echo-batching-independent.
 - id **778** = `get_open_orders_by_instrument` restore snapshot.
-- Seed-only-when-zero still governs `placedStopLossPrice` (the §9 bug) and `placedPrice`; `emergencyBaseline` and the untriggered-echo `StopLossTriggerOriginal` sync are the deliberate exceptions.
+- Seed-only-when-zero still governs `placedPrice`. **For `placedStopLossPrice` it is now the trigger-moment seed only** — post-trigger it follows the live SL via the commanded-price discriminator (§9): a triggered-echo price that differs from the reference AND was not app-commanded ⇒ manual edit ⇒ followed; an app-commanded/unchanged price ⇒ ignored (runaway protection). `emergencyBaseline` moves with it. The untriggered-echo `StopLossTriggerOriginal` sync remains a deliberate exception.
 
-## 9. OPEN ITEM — the one thing NOT done: triggered-SL reconciliation
+## 9. Triggered-SL reconciliation — IMPLEMENTED (`968b26d`) + reviewed (agree)
 
-Spec `spec-reconcile-manual-sl-edits.md` (APPROVED, 4a+P1 locked). **Runtime-confirmed bug:** `placedStopLossPrice` is seed-if-zero, so after trigger it freezes at the placement value and never follows manual SL edits; the chase (`bestBid/ask` vs `placedStopLossPrice ± $5`) then never fires and the taker emergency fires instead (`emergencyBaseline` follows correctly, so the two references diverge). Fix = make `placedStopLossPrice` follow the live SL via a **commanded-price-set discriminator** (distinguishes manual edits from lagging echoes of the app's own reposition). Handover = `HANDOVER-reconcile-sl.md`.
+Spec `spec-reconcile-manual-sl-edits.md` (4a+P1); impl-report `impl-report-reconcile-manual-sl-edits.md`; spec-back `spec-back-reconcile-manual-sl-edits.md`. Implemented by a follow-on Opus seat, code-reviewed here (**agree**; I built it 0/0 and traced the SL-edit paths).
+
+- **Bug (was runtime-confirmed via the §7 DIAG):** `placedStopLossPrice` was seed-if-zero, so after trigger it froze at the placement value and never followed manual SL edits; the chase (`bestBid/ask` vs `placedStopLossPrice ± $5`) then never fired and the taker emergency fired instead (`emergencyBaseline` followed correctly, so the two references diverged).
+- **Fix:** commanded-price-set discriminator. `RecordCommandedSLPrice(newPrice)` is called at the single **auto**-chase send point (inside `UpdateStopLossForTriggeredStopLossOrder`, right after the `private/edit` send — before the echo can return). The open `StopLossOrder` echo: a `price` that differs from `placedStopLossPrice` AND is not in the commanded set ⇒ **manual edit** ⇒ set `placedStopLossPrice`+`emergencyBaseline`+display, log `Manual SL edit: $X` (cyan); a commanded/unchanged price ⇒ ignore (runaway/transition-race protection preserved). `emergencyBaseline` is advanced with the chase (`= newStopPrice`) instead of the removed ungated echo write. `ResetCommandedSLPrices()` at all 7 SL-context reset sites.
+- **Review note (recorded for coordination):** the impl-report's "single send point for every triggered-SL edit" is about the **auto-chase** paths only. **`btnEditSLPrice_Click` (the "Edit T.S." button, id 223346) is a second path that edits the triggered SL** and does NOT record — but that is **correct by construction**: it's a *user*-initiated edit, so the discriminator rightly treats its echo as a manual edit and follows it (visible effect: clicking Edit T.S. on a triggered SL now logs `Manual SL edit`). The design correctly splits **auto** (recorded ⇒ ignored) from **user/manual** (not recorded ⇒ followed).
+- **Owner runtime test pending** (spec §9 + review additions: the original failing scenario now chases before the emergency; Edit T.S. is followed; a normal app-only chase shows no spurious `Manual SL edit` and no backward `placedStopLossPrice` blip). **Not pushed.**
 
 ## 10. Coordination warnings for parallel specs touching these files
 
-- **`HandleQuoteUpdates`** (the triggered-SL chase + emergency block) and **`HandleOrderPositionUpdates`** (echo handler) are the hottest, most-changed regions. The §9 fix will touch `HandleQuoteUpdates` chase + the open-SL echo + placement/reset sites again — coordinate.
+- **`HandleQuoteUpdates`** (the triggered-SL chase + emergency block) and **`HandleOrderPositionUpdates`** (the open `StopLossOrder` echo) are the hottest, most-changed regions — restore hardening, the emergency baseline, AND the §9 reconciliation all live here. Coordinate any further SL-path work.
+- **SL edits go through two paths:** the auto-chase (`UpdateStopLossForTriggeredStopLossOrder`, which records to the commanded set) and the user "Edit T.S." button (`btnEditSLPrice_Click`, id 223346, which deliberately does NOT). Any **new auto/programmatic SL-edit path MUST call `RecordCommandedSLPrice`**, or its echo will be misread as a manual edit (spurious `Manual SL edit` and, if aged past the ~2s window, the backward-reset the discriminator exists to prevent).
 - Don't re-introduce a raw `Me.Invoke`/`AppendColoredText` without the handle guard.
-- The 7 `emergencyBaseline = 0` reset sites and the 4 SL-placement sites are the canonical "SL context reset/seed" anchors — any new SL-context field (e.g. §9's commanded set) must mirror them.
+- The 7 `emergencyBaseline = 0` reset sites (4 SL-placement + nuclear cancel `CancelOrderAsync` + market-reduce `isMarketOrder` + `CompletePositionClose`) are the canonical "SL context reset" anchors — `ResetCommandedSLPrices()` already mirrors them; any new SL-context field must too.
 - `ApplyCloseFill` is fields-only now — don't pass ByRef.
 - Deleted controls `btnClose`/`btnMark`: don't reference them.
