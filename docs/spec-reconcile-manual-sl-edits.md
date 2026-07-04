@@ -1,8 +1,10 @@
 # Spec — Reconcile the app's triggered-SL state with manual exchange-side edits
 
-**Status:** DRAFT for the spec writer. **Date:** 2026-07-04. **Priority:** high (owner manages the SL/TP manually on the exchange; the app's state and chase logic silently diverge). **Base:** `f42a6a7` on `master`. **File:** `DeribitOrderPlacementApp/frmMainPageV2.vb`. Model/effort: Opus/Fable **high** (order/SL path).
+**Status:** DRAFT for the spec writer. **Date:** 2026-07-04. **Priority:** high — **RUNTIME-CONFIRMED to disable the chase entirely** (not just a display nicety). **Base:** `f42a6a7` on `master`. **File:** `DeribitOrderPlacementApp/frmMainPageV2.vb`. Model/effort: Opus/Fable **high** (order/SL path).
 
 **One-line:** after the SL triggers, a manual SL move on the Deribit chart is **not** reflected in `placedStopLossPrice` or the "Stop Loss" display, and the app's chase-to-fill logic keeps running off the stale value — it can override the manual placement. Make the app track the true live SL from the exchange while still rejecting stale echoes of its own repositions, and decide whether the app should defer to a manual edit.
+
+**Runtime confirmation (owner test 2026-07-04, temporary DIAG instrumentation, since removed):** on a SHORT, `placedStopLossPrice` stayed frozen at the *placement* value `62656.5` while the live SL (tracked by `emergencyBaseline`) moved to `62636.5`→`62642` via manual edits. The chase condition `bestBid > placedStopLossPrice + 5` therefore required `> 62661.5`, which the market (peak ~`62655.5`) never reached, so `shouldUpdate` was **False on every tick** — the SL never repositioned and the **market emergency fired instead**. With the correct live SL (`62642`) the threshold would have been `> 62647`, which the market *did* cross, so the chase would have fired *before* the emergency. This proves: (a) the defect silently disables the maker chase and forces the taker emergency; (b) the `emergencyBaseline` follow-live-SL mechanism already works and `placedStopLossPrice` needs the same; (c) with a stale reference the chase point can sit *above* the emergency point, inverting the intended maker-before-taker ordering.
 
 ---
 
