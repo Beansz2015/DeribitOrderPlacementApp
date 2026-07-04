@@ -49,6 +49,28 @@ Public Class frmMainPageV2
     ' nuclear cancel / market reduce). Written on the receive/UI thread; read on the receive thread by the
     ' emergency (accepted Decimal torn-read class, same as StopLossTriggerOriginal).
     Public emergencyBaseline As Decimal = 0
+
+    ' Commanded-SL-price set - triggered-SL reconciliation (docs/spec-reconcile-manual-sl-edits.md, 4a + P1).
+    ' Post-trigger the app is the single writer of placedStopLossPrice, but a MANUAL SL edit on the exchange
+    ' arrives as the SAME open StopLossOrder echo as a lagging echo of the app's OWN chase reposition. We tell
+    ' them apart by remembering every SL price the app has commanded in the last ~2s: an open-echo price we did
+    ' NOT command (and that differs from our current reference) is a manual edit -> follow it (correct the chase
+    ' reference AND the emergency baseline to the true live SL). A price we DID command is our own (possibly
+    ' out-of-order) echo -> ignore it, preserving the runaway/transition-race single-writer protection.
+    ' Written on the receive thread (each SL edit send) and read on the UI thread (the open echo), so ALL access
+    ' is under commandedSLLock. Cleared wherever the SL context resets (mirrors the 7 emergencyBaseline = 0
+    ' sites). Match tolerance = half a tick (BTC-PERPETUAL tick is 0.5) so echo rounding can't cause a spurious
+    ' "manual" detection while a real >= 1-tick manual move is still caught.
+    Private ReadOnly commandedSLLock As New Object()
+    Private ReadOnly commandedSLPrices As New List(Of CommandedSLEntry)()
+    Private Const CommandedSLWindowMs As Double = 2000.0
+    Private Const CommandedSLMatchTol As Decimal = 0.25D
+
+    Private Structure CommandedSLEntry
+        Public Price As Decimal
+        Public Stamp As DateTime
+    End Structure
+
     'For auto trading logging
     Public AutoPlacedPrice, AutoTakeProfit, AutoStopLoss As Decimal
 
@@ -1624,7 +1646,11 @@ Public Class frmMainPageV2
                                     End If
 
                                     ' Runaway fix: advance engine state synchronously before the display mirror.
+                                    ' Reconcile fix (spec §4a): tie the emergency baseline to the same value so the M.SL
+                                    ' emergency follows the app's OWN chase without relying on the (now-discriminated) echo -
+                                    ' which is ignored for our own repositions. The commanded price was recorded at the send.
                                     placedStopLossPrice = newStopPrice
+                                    emergencyBaseline = newStopPrice
                                     UiInvoke(Sub() txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2"))
                                     lastStopLossUpdate = currentTime
                                     slUpdateFailures = 0   ' success clears the backoff
@@ -2053,13 +2079,13 @@ Public Class frmMainPageV2
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
 
-                                                      ' Item 1 + follow-live-SL (owner 2026-07-04): the M.SL emergency baseline tracks the
-                                                      ' CURRENT SL price on EVERY triggered (open) echo - so it follows both manual exchange-side
-                                                      ' SL adjustments and the app's own trailing edits (which come back as open echoes). The
-                                                      ' emergency therefore stays M.SL below the LIVE stop, not the trigger-moment stop. price in
-                                                      ' scope above; null keeps the prior value. (Single source = the exchange's SL state; a rare
-                                                      ' out-of-order echo self-corrects on the next one - a fast adverse move is when it fires anyway.)
-                                                      emergencyBaseline = If(price, emergencyBaseline)
+                                                      ' Reconcile fix (spec-reconcile-manual-sl-edits.md): the M.SL emergency baseline still
+                                                      ' follows the LIVE SL, but no longer via an UNGATED update on every echo (that also swallowed
+                                                      ' lagging/out-of-order echoes of the app's own reposition and could walk the baseline
+                                                      ' backward). It now moves under the SAME commanded-price discriminator as placedStopLossPrice,
+                                                      ' in the reconciliation block below: seeded at the trigger moment, advanced with the app's own
+                                                      ' chase at the reposition (placedStopLossPrice = newStopPrice), and set to the true value on
+                                                      ' a detected manual edit.
                                                       SLTriggered = True
 
                                                       ' Restore hardening: defensive mid-session heal - if the baseline was lost
@@ -2077,12 +2103,35 @@ Public Class frmMainPageV2
                                                           AppendColoredText(txtLogs, $"Triggered SL placed @ ${price}", Color.Red)
                                                       End If
 
-                                                      ' Transition-race fix: single-writer for the triggered-SL price. Seed only when the
-                                                      ' engine doesn't already own it (0) and no cancel is pending, so a lagging echo can't
-                                                      ' reset placedStopLossPrice backward while the quote handler is trailing the SL.
-                                                      If placedStopLossPrice = 0D AndAlso Not cancelPending Then
-                                                          placedStopLossPrice = If(price, 0D)
-                                                          txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
+                                                      ' Triggered-SL reconciliation (spec-reconcile-manual-sl-edits.md, discriminator 4a +
+                                                      ' policy P1). Both a MANUAL exchange-side SL move and a lagging echo of the app's OWN chase
+                                                      ' arrive here with a price; the commanded-price set tells them apart. All under the existing
+                                                      ' Not cancelPending gate (scoped/nuclear cancel semantics, invariant #3).
+                                                      If Not cancelPending Then
+                                                          ' Seed the emergency baseline at the trigger moment: it starts 0, while placedStopLossPrice
+                                                          ' carries over non-zero from the untriggered leg (same order, same limit price), so its own
+                                                          ' seed-if-zero below won't fire now. Keeps the M.SL emergency measuring from the live SL.
+                                                          If emergencyBaseline = 0D Then emergencyBaseline = If(price, emergencyBaseline)
+
+                                                          If placedStopLossPrice = 0D Then
+                                                              ' Trigger-moment seed (transition-race single-writer): only when the engine doesn't
+                                                              ' already own the price. A lagging echo can't reset placedStopLossPrice backward - that
+                                                              ' path is the ElseIf, guarded by the commanded-price set.
+                                                              placedStopLossPrice = If(price, 0D)
+                                                              txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
+                                                          ElseIf price.HasValue AndAlso price.Value <> placedStopLossPrice _
+                                                                 AndAlso Not IsRecentlyCommandedSLPrice(price.Value) Then
+                                                              ' A triggered-SL price that DIFFERS from our reference and that we did NOT command == a
+                                                              ' manual exchange-side edit. P1: follow it - correct BOTH the chase reference and the
+                                                              ' emergency baseline to the true live SL, then keep chasing from there (the maker fill).
+                                                              placedStopLossPrice = price.Value
+                                                              emergencyBaseline = price.Value
+                                                              txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
+                                                              AppendColoredText(txtLogs, $"Manual SL edit: ${price.Value:F2}", Color.Cyan)
+                                                          End If
+                                                          ' else (price is in the commanded set, or unchanged): the app's own reposition or a lagging
+                                                          ' echo of it -> ignore. placedStopLossPrice + emergencyBaseline were already advanced at the
+                                                          ' reposition (placedStopLossPrice = newStopPrice). Preserves today's runaway/transition-race protection.
                                                       End If
 
                                                       lblOrderStatus.Text = "Stop Loss Triggered"
@@ -2743,6 +2792,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
@@ -2904,6 +2954,7 @@ Public Class frmMainPageV2
         SLTriggered = False
         StopLossTriggerOriginal = 0
         emergencyBaseline = 0
+        ResetCommandedSLPrices() ' reconcile: nuclear cancel - triggered-SL context is gone
 
         'PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
@@ -2994,6 +3045,7 @@ Public Class frmMainPageV2
             If isMarketOrder Then
                 StopLossTriggerOriginal = 0
                 emergencyBaseline = 0
+                ResetCommandedSLPrices() ' reconcile: market reduce - triggered-SL context is gone
             End If
 
             ' Construct the JSON payload for the reduce-only order
@@ -3108,6 +3160,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Send all three updates with rate limiting
             Await SendRateLimitedUpdate("main", CurrentOpenOrderId, newPrice, amount)
@@ -3273,6 +3326,13 @@ Public Class frmMainPageV2
             Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
             UpdateFlag = True
 
+            ' Reconcile fix (spec-reconcile-manual-sl-edits.md 4a): this is the SINGLE send point for every
+            ' triggered-SL edit (normal chase and the emergency ForceStopLossUpdate path both route here), so
+            ' recording newPrice here means the open echo of THIS edit - or a lagging one - is recognised as ours
+            ' and not misread as a manual SL move. The echo can only arrive after this send completes, so the
+            ' record is always in place first.
+            RecordCommandedSLPrice(newPrice)
+
             ' Store pending message for confirmation
             pendingLocalMsg = $"CRITICAL SL repositioned to: ${newPrice:F2}"
             lastSLId = PositionSLOrderId
@@ -3343,6 +3403,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Update main trailing order
             Dim updateOrderPayload As New JObject From {
@@ -3506,6 +3567,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Construct the JSON payload for the reduce-only order
             Dim params As New JObject(
@@ -3670,6 +3732,51 @@ Public Class frmMainPageV2
         Await UpdateStopLossForTriggeredStopLossOrder(newPrice)
     End Function
 
+    ' --- Commanded-SL-price set helpers (docs/spec-reconcile-manual-sl-edits.md 4a) -----------------------
+    ' Record every SL price the app sends to the exchange. Called from the single SL-edit send point
+    ' (UpdateStopLossForTriggeredStopLossOrder) on the receive thread. Purges entries older than the window so
+    ' an idle-then-manual-edit to a long-ago commanded price is still detected as manual.
+    Private Sub RecordCommandedSLPrice(price As Decimal)
+        Dim nowUtc As DateTime = DateTime.UtcNow
+        SyncLock commandedSLLock
+            PurgeCommandedSLPrices(nowUtc)
+            commandedSLPrices.Add(New CommandedSLEntry With {.Price = price, .Stamp = nowUtc})
+            ' Backstop against unbounded growth; the window keeps this a handful of entries in practice.
+            If commandedSLPrices.Count > 32 Then commandedSLPrices.RemoveAt(0)
+        End SyncLock
+    End Sub
+
+    ' True if price matches an SL price the app commanded within the window => our own (possibly out-of-order)
+    ' echo, not a manual edit. Read on the UI thread from the open StopLossOrder echo handler.
+    Private Function IsRecentlyCommandedSLPrice(price As Decimal) As Boolean
+        SyncLock commandedSLLock
+            PurgeCommandedSLPrices(DateTime.UtcNow)
+            For Each e In commandedSLPrices
+                If Math.Abs(e.Price - price) <= CommandedSLMatchTol Then Return True
+            Next
+            Return False
+        End SyncLock
+    End Function
+
+    ' Clear the commanded set wherever the SL context resets (mirrors the 7 emergencyBaseline = 0 sites:
+    ' 4 SL-placement paths + CompletePositionClose + nuclear cancel + market-reduce).
+    Private Sub ResetCommandedSLPrices()
+        SyncLock commandedSLLock
+            commandedSLPrices.Clear()
+        End SyncLock
+    End Sub
+
+    ' Drop expired commanded prices. Caller MUST hold commandedSLLock.
+    Private Sub PurgeCommandedSLPrices(nowUtc As DateTime)
+        Dim i As Integer = commandedSLPrices.Count - 1
+        While i >= 0
+            If (nowUtc - commandedSLPrices(i).Stamp).TotalMilliseconds > CommandedSLWindowMs Then
+                commandedSLPrices.RemoveAt(i)
+            End If
+            i -= 1
+        End While
+    End Sub
+
 
     'Non-order execution functions below
     '------------------------------------------------
@@ -3826,6 +3933,7 @@ Public Class frmMainPageV2
         SLTriggered = False
         StopLossTriggerOriginal = 0
         emergencyBaseline = 0
+        ResetCommandedSLPrices() ' reconcile: position closed - triggered-SL context is gone
 
         PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
