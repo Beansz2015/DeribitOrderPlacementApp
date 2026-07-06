@@ -3205,7 +3205,9 @@ Public Class frmMainPageV2
                     {"order_id", orderId},
                     {"price", price},
                     {"trigger_price", triggerPrice.Value},
-                    {"amount", amount}
+                    {"amount", amount},
+                    {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                    {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
                 }}
             }
             Else
@@ -3217,7 +3219,9 @@ Public Class frmMainPageV2
                 {"params", New JObject From {
                     {"order_id", orderId},
                     {"price", price},
-                    {"amount", amount}
+                    {"amount", amount},
+                    {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                    {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
                 }}
             }
             End If
@@ -3240,7 +3244,9 @@ Public Class frmMainPageV2
                 {"params", New JObject From {
                     {"order_id", ReduceOrderId},
                     {"price", newPrice},
-                    {"amount", reduceOrderAmount}
+                    {"amount", reduceOrderAmount},
+                    {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                    {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
                 }}
             }
             Await SendWebSocketMessageAsync(editPayload.ToString())
@@ -3334,7 +3340,9 @@ Public Class frmMainPageV2
             {"params", New JObject From {
                 {"order_id", PositionSLOrderId},
                 {"price", newPrice},
-                {"amount", amount}
+                {"amount", amount},
+                {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
             }}
         }
 
@@ -3428,7 +3436,9 @@ Public Class frmMainPageV2
             {"params", New JObject From {
                 {"order_id", CurrentOpenOrderId},
                 {"price", newPrice},
-                {"amount", amount}
+                {"amount", amount},
+                {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
             }}
         }
 
@@ -3446,7 +3456,9 @@ Public Class frmMainPageV2
                 {"order_id", CurrentSLOrderId},
                 {"price", newSLprice},
                 {"trigger_price", newTrigSLprice},
-                {"amount", amount}
+                {"amount", amount},
+                {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
             }}
         }
 
@@ -4826,7 +4838,9 @@ Public Class frmMainPageV2
                 {"params", New JObject From {
                     {"order_id", TPOrderID}, ' Replace with the take profit order ID
                     {"price", newTPprice},
-                    {"amount", amount}
+                    {"amount", amount},
+                    {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                    {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
                 }}
             }
 
@@ -4883,7 +4897,9 @@ Public Class frmMainPageV2
                 {"order_id", SLOrderID}, ' Replace with the take profit order ID
                 {"price", newSLprice},
                 {"trigger_price", newTSprice},
-                {"amount", amount}
+                {"amount", amount},
+                {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
+                {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
             }}
         }
 
