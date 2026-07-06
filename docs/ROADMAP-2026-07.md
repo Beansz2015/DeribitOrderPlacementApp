@@ -68,6 +68,7 @@ Ordered; each from a pre-written spec, reviewed by an Opus conversation using th
 | `integration-contract-verdictengine.md` | ✅ **FROZEN v1, Jul 3** (brief→reply→ack converged in one round; both lanes may implement) | n/a (contract) |
 | `spec-resilience.md` | ✅ written Jul 3 (pulled forward; 6 commits: fragmentation+keepalive, limiter-at-connect, monitor leak, crash backstops, restart restore, X-close) | Opus high (after decouple-v2 push, before tie-in impl) |
 | `spec-autotrade-tiein.md` | ✅ written Jul 3 (pulled forward; 4 commits incl. the TimedOut ack hardening; testable without the engine via hand-crafted payloads) | Opus high (post-window; after decouple-v2 push) |
+| `spec-execution-ergonomics.md` | ✅ written Jul 3 (owner-selected bundle; reconciled 2026-07-04 to the new base). Phase A = input persistence, risk-based SIZE, MAE/MFE+R+fees journal, alerts, break-even — post-resilience (landed), queued behind entry-chase-v2 + tie-in per §2. Phase B = post-tie-in (USE-ENGINE-LEVELS, signal columns, bridge alerts) | Opus high |
 | `spec-medium-housekeeping.md` + F14–F18 addendum | ✅ addendum written 2026-07-06 (items 6–16, all re-verified vs `fc7bb6c`; bundle turnkey) | Sonnet medium (item 15 diff gets coordinator review) |
 | `spec-entry-chase-v2.md` | ✅ written 2026-07-06 (best-non-crossing target + time throttle + entry-only chase default-ON; slots at §2 item 2.5) | Opus high (after §9 push, before tie-in) |
 | `spec-medium-dispatcher.md` (#9) | ⛔ skip (standing decision) | — |
