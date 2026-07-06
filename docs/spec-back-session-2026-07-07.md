@@ -21,7 +21,7 @@
 2. **Already triggered + price ≠ reference + NOT in the commanded set** → **manual edit**: follow it (both references + display), log `Manual SL edit: $X` (cyan). P1: the chase keeps running from the corrected reference.
 3. **Else** (commanded or unchanged) → ignore (runaway/transition-race protection).
 
-**References move together post-trigger** — exactly three write sites for the pair: the flip adopt, the chase reposition (`placedStopLossPrice`/`emergencyBaseline = newStopPrice`, `~:1665–1666`), and the manual-edit acceptance.
+**References move together post-trigger** — exactly three write sites for the pair: the flip adopt, the chase reposition (`placedStopLossPrice`/`emergencyBaseline = newStopPrice`, `~:1665–1666`), and the manual-edit acceptance. *(Orchestrator review note: a grep for writers finds a fourth — the id-778 restore snapshot seeds `emergencyBaseline` when 0 (`HandleOpenOrdersSnapshot`, `~:4240`), for a restart with an already-triggered SL. It's a seed-only-when-zero restore site, not a post-trigger move; listed so nobody thinks the inventory above is stale.)*
 
 **Commanded-price set:** recorded at the single SL-edit send point (`UpdateStopLossForTriggeredStopLossOrder`, after the send — all chase/emergency paths route through it); lock-guarded; ~2 s window, 0.25 match tolerance (half a tick); cleared at the 7 SL-context reset sites (the `emergencyBaseline = 0` anchors).
 
