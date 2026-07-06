@@ -97,3 +97,16 @@ Related: `impl-report-post-only-edits.md` (this change), `spec-back-reconcile-ma
 - **Preserved →** no code change; record the finding here; question closed.
 - **Dropped (or explicitly editable) →** one micro-commit adding `{"reduce_only", True}` to exactly the **223346 / 223348 / 223349 / 223350** payloads + the manual SL button — **never 223344 (entry), never 223345 (TP — the `:2855` landmine: reduce_only on the TP cancels BOTH legs at SL trigger, leaving the position unprotected)**. Sequence it **before** `spec-entry-chase-v2.md` (same payload lines).
 - The §2 pairing argument is confirmed and is stronger than stated: `btnReduceLimit_Click` (`:4714`) also sizes to the **full model** (`Math.Abs(positionSizeUSD)`, direction from the position sign) and its comment says outright "reduce_only caps there anyway". So **three** paths — the triggered-SL chase (`c6a893c`), reduce limit, reduce market — deliberately over-ask at full modelled size and lean on `reduce_only` as the cap. The flag is load-bearing; this question was right to raise.
+
+---
+
+## 6. PROBE RESULT — `reduce_only` preserved; question CLOSED (2026-07-07, owner runtime test)
+
+Owner ran the §5 probe on the test sub-account (trade #45: SHORT 10, SL triggered @ 63686, **five** chase repositions 63686→63729.5, maker fill, no spurious `Manual SL edit`, no backward blips): after the chase edits, the live order on Deribit **still reported BOTH `post_only` and `reduce_only`**.
+
+- **Outcome per the §5 decision: preserved → NO code change.** No `reduce_only` micro-commit; nothing blocks `spec-entry-chase-v2.md` on this question.
+- Unknown (2) is answered directly (Deribit preserves `reduce_only` across a `private/edit` that omits it — observed across five consecutive edits); unknown (1) is moot.
+- The `post_only` observation confirms the edit payloads work end-to-end (runtime test §4.1 ✅). Note it does not isolate preservation-when-omitted for `post_only` — the edits now always re-send it — but that distinction no longer matters.
+- Standing rules unchanged: `reduce_only` stays placement-only; **never** add it to the entry (223344) or TP (223345 — the `:2855` landmine); it remains load-bearing as the cap for the three over-ask paths (§5).
+
+Full session context + the code-review findings: `spec-back-session-2026-07-07.md`.
