@@ -1059,6 +1059,19 @@ Public Class frmMainPageV2
             If errorCode.HasValue AndAlso errorCode.Value = 10028 Then Return ' HandleRateLimitError owns 10028
 
             Dim errorMessage = errorField.SelectToken("message")?.ToString()
+
+            ' Expected chase race: a triggered-SL / trailing edit (order-edit ids 223344-223350, see
+            ' RequestNameForId) can reach the exchange just after the limit has filled - the order is gone,
+            ' so the edit is rejected "already_closed". This is benign (the fill already closed the leg,
+            ' usually at a better price than the chase target), so downgrade it from a red API ERROR to a quiet
+            ' gray note - still logged for visibility, just not alarming. Any OTHER edit error stays loud below.
+            If messageId.HasValue AndAlso messageId.Value >= 223344 AndAlso messageId.Value <= 223350 _
+               AndAlso errorMessage IsNot Nothing _
+               AndAlso errorMessage.IndexOf("already_closed", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                AppendColoredText(txtLogs, $"Order edit skipped (id {messageId.Value}): already filled/closed - benign chase race", Color.Gray)
+                Return
+            End If
+
             Dim errorData = errorField.SelectToken("data")?.ToString(Newtonsoft.Json.Formatting.None)
 
             AppendColoredText(txtLogs,
