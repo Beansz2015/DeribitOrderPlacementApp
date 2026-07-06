@@ -4,7 +4,8 @@
 **Contract:** `docs/integration-contract-verdictengine.md` — **FROZEN v1, accepted by both coordinators.** This spec implements the consumer side. Read the contract first; where this spec and the contract disagree, the contract wins and the deviation gets reported.
 **Also read:** `docs/spec-decouple-v2.md` (the API this consumer calls) + `docs/HANDOVER-2.md` §4 (invariants).
 **Recommended implementer:** Opus at **high** (or Fable at high if in-window). New subsystem + threading + a dying-module touch.
-**Pre-req:** decouple-v2 (`da288e6..fccdec5`) pushed after owner tests. Anchors reflect that HEAD; locate by symbol.
+**Pre-req:** decouple-v2 + resilience + restore-hardening + close-completion + SL-reconciliation all landed (base ≥ `968b26d`; see `spec-back-session-2026-07-04.md` for the ~617-line delta in `frmMainPageV2.vb`). **Locate strictly by symbol — line anchors from before 2026-07-04 are stale.**
+**Coordination (from the session spec-back §10):** this spec does NOT touch the triggered-SL chase/echo regions — keep it that way. If any future revision adds a programmatic SL edit, it MUST call `RecordCommandedSLPrice` or its echo will be misread as a manual edit. `ApplyCloseFill` is fields-only now (no ByRef). `btnClose`/`btnMark` no longer exist — don't reference them. All UI marshals must be handle-guarded (`UiInvoke`/guarded `AppendColoredText`).
 **Ground rules:** standing — build 0/0 per commit, local commits, never push, scope discipline, impl report. **New files start `Option Strict On` / `Option Explicit On`.**
 
 ---

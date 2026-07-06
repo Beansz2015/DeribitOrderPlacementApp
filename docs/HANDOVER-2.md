@@ -25,6 +25,8 @@
 
 Spec → implementer conversation → `impl-report-*.md` → **review = verify the actual code, never the report** (`git show` every commit, build, re-run the greps yourself, adversarial pass on invariants). Reports here have been excellent and still get verified. Specs are self-contained with model/effort headers (see audit §H: Opus/Fable **high** for order/SL/receive-path work; Sonnet medium for mechanical). Commit per fix, never push, 0-error/0-warning gate. Owner runtime-tests on a test sub-account under the VS debugger before pushing. Scope discipline: suspicious-nearby goes in the report, not the diff.
 
+**STATE DELTA 2026-07-04 — read `spec-back-session-2026-07-04.md` (authoritative for the 18-commit session `0d078eb..968b26d`):** restore-hardening, close-completion (`CompletePositionClose`, `ApplyCloseFill` fields-only), handle-race guards, `Position entered` UX, `btnClose`/`btnMark` REMOVED, M.SL `emergencyBaseline`, and the **commanded-price SL-reconciliation** (`968b26d` — owner runtime test pending, then push). New invariants live in that doc's §8/§10; the binding ones: emergency baseline = `emergencyBaseline` else `StopLossTriggerOriginal`, 0 disables; close completes once per ≠0→0 transition via `CompletePositionClose`; **any new programmatic SL edit must `RecordCommandedSLPrice`** (user paths must NOT); the 7 SL-context reset sites are canonical anchors; id 778 = restore snapshot. Outstanding specs (tie-in, ergonomics) were updated 2026-07-04 for these changes.
+
 ## 4. Invariants (original §5 of HANDOVER.md still binding; these EXTEND it)
 
 1. **Receive thread touches engine fields only** — never controls. `UiInvoke`/`AppendColoredText` self-marshal. (Original rule; every new subsystem below obeys it.)

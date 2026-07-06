@@ -38,10 +38,10 @@
 
 **Design — tracking (receive thread, engine fields only):**
 - New fields: `mfePrice`, `maePrice` (extremes since entry), `plannedStopAtEntry`, `cumFeesBTC`.
-- **Reset on flat→nonzero transition** — detect in the §2b position pass (`positionSizeUSD` was 0, incoming `sz ≠ 0`): set both extremes to the incoming `average_price`, `plannedStopAtEntry = StopLossTriggerOriginal`, `cumFeesBTC = 0`.
+- **Reset on flat→nonzero transition** — the model loop **already computes this transition** since the close-completion fix (`wasOpen` local + the 0→≠0 branch that clears `pendingClose*`): add the resets THERE — do not duplicate the detection. Set both extremes to the incoming `average_price`, `plannedStopAtEntry = StopLossTriggerOriginal`, `cumFeesBTC = 0`.
 - **Update per quote tick** in `HandleQuoteUpdates`, guarded `positionSizeUSD <> 0D`: `maePrice`/`mfePrice` min/max against `BestBidPrice`/`BestAskPrice` (two compares — hot-path budget is fine; no controls, no allocation).
 - **Fees:** `user.changes` messages carry a `trades` array the handler currently ignores. In `HandleOrderPositionUpdates`, alongside the §2b pass, sum `trades[*].fee` (BTC) into `cumFeesBTC` (null-safe; fee_currency is BTC on this instrument).
-- **At close** (the `size = 0` record block): compute direction-aware `MAE_USD`/`MFE_USD` vs `entryPriceAtClose` and the closed size, `PlannedRiskUSD = |entryPriceAtClose − plannedStopAtEntry| × size/entryPriceAtClose`, `RMultiple = signedPL ÷ PlannedRiskUSD` (0 when risk unknown), `FeesUSD = cumFeesBTC × indexPriceVal`.
+- **At close — UPDATED 2026-07-04:** the close path now lives in **`CompletePositionClose()`** (the `size = 0` branch was extracted by the close-completion fix; accounting reads the `pendingClose*` fields, not locals). Compute the new metrics THERE, next to the existing `RecordCompletedTrade` call: direction-aware `MAE_USD`/`MFE_USD` vs `entryPriceAtClose` and `pendingCloseAmountUSD`, `PlannedRiskUSD = |entryPriceAtClose − plannedStopAtEntry| × amount/entryPriceAtClose`, `RMultiple` (0 when risk unknown), `FeesUSD = cumFeesBTC × indexPriceVal`. Reset `cumFeesBTC`/extremes after recording.
 
 **Design — storage:** new `TradeRecord` properties (`MaeUSD`, `MfeUSD`, `PlannedStop`, `RMultiple`, `FeesUSD`, `SignalId`, `SignalConfidence`) + SQLite migration: on `InitializeDatabase`, `ALTER TABLE Trades ADD COLUMN …` for each, individually try/caught (SQLite throws on existing columns — swallow those; anything else surfaces via `DatabaseError`). Extend the insert, `CreateTradeFromReader`, and the trade-history grid (MAE/MFE/R/Fees columns; keep it readable — drop the old unused-width columns if space demands, note what moved). `SignalId`/`SignalConfidence` are written empty in Phase A and populated by the bridge consumer in **Phase B**.
 
@@ -54,6 +54,8 @@
 **Acceptance:** each event audibly fires once (no per-tick spam); toggling the config key silences it.
 
 ## Item E — one-click break-even stop
+
+**UPDATED 2026-07-04 — SL-reconciliation interaction (binding):** `btnEditSLPrice_Click` is a **user** edit path; the commanded-price discriminator deliberately treats its echo as a manual edit and follows it. The BE button is likewise user-initiated, so the shared core inherits the correct behavior — **`EditStopLossTo` must NOT call `RecordCommandedSLPrice`** (that's for auto/programmatic edits only; recording here would make the discriminator *ignore* the user's own move). See `spec-back-session-2026-07-04.md` §9/§10.
 
 **Design:** extract the core of `btnEditSLPrice_Click` into `Private Async Function EditStopLossTo(newTrigger As Decimal) As Task` (id resolution incl. the audit-2 fixed fallbacks, limit = trigger ∓ `txtStopLoss` offset, payload, send, logs); the button calls it with its textbox value. New `BE` button: gates `positionSizeUSD <> 0D` and `positionAvgEntry > 0D`, computes `trigger = avgEntry ± commsVal` (+ for long, − for short — covers round-trip cost), **rounds to the 0.5 tick**, calls `EditStopLossTo`. UI thread only; refuse with a yellow log when flat or no SL order id resolves.
 
