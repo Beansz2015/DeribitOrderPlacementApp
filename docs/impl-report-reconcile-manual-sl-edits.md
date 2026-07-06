@@ -108,3 +108,15 @@ The untriggered `StopLossOrder` echo (its unconditional `placedStopLossPrice`/`t
 | Pre-trigger echo untouched | ✅ |
 
 **Owner runtime tests remain to be run** on the test sub-account — spec §9 (manual SL move reflected; app doesn't fight its own echoes; P1 re-chase after a manual move; stale/out-of-order under reconnect; full trigger→chase→fill regression; restart-into-triggered). Do **not** push until those pass.
+
+---
+
+## Amendment 1 — trigger-flip false positive (2026-07-06 runtime test)
+
+**Symptom:** owner entered a long, moved the SL **trigger** once (not the limit), and on trigger the log showed a spurious `Manual SL edit: $61510.00` — where 61510 *was* the SL price. Close was correct; the log was wrong.
+
+**Root cause:** the discriminator ran on the **trigger-flip echo** (untriggered → triggered). Moving the trigger left `placedStopLossPrice` holding a pre-move value ≠ the flip price, and the flip price wasn't in the commanded set, so `price <> placedStopLossPrice AND not-commanded` misread the *transition* as a manual edit. The original `price <> placedStopLossPrice` guard was **not** sufficient at the flip (contra the acceptance row above — corrected here): it only suppresses the flip when the pre-trigger mirror already equals the flip price, which a trigger move breaks.
+
+**Fix:** capture `wasTriggered = SLTriggered` **before** setting `SLTriggered = True`. In the reconciliation block, `If Not wasTriggered OrElse emergencyBaseline = 0D` ⇒ this is the trigger flip (or the reference isn't adopted yet, e.g. a null-price flip) ⇒ **adopt** `price` into `placedStopLossPrice` + `emergencyBaseline` + display **silently** (no discriminator, no log). The manual-edit `ElseIf` now runs **only** on echoes that arrive while *already* triggered — which post-trigger can only be a limit move (the trigger no longer exists once triggered) or the app's own chase. The `emergencyBaseline = 0D` half also guarantees the emergency baseline is seeded even if the flip echo carried a null price (a 0 baseline disables the M.SL emergency). This replaces the old seed-if-zero pair inside the block.
+
+Build 0/0. Still not pushed.

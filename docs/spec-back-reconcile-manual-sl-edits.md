@@ -105,3 +105,18 @@ A new trade cannot inherit a stale commanded price. (Scoped cancel — `CancelWo
 5. **Regression:** full trigger → chase → fill; restart-into-triggered restore; flat/new-trade start (commanded set clean).
 
 Build 0/0. Not pushed — owner is the only pusher, after these pass.
+
+---
+
+## Amendment 1 — trigger-flip is adopt-only, not discriminated (2026-07-06)
+
+Runtime test surfaced a false-positive `Manual SL edit` when the owner moved the SL **trigger** (not the limit) before it triggered: the discriminator ran on the trigger-flip echo, where the flip `price` differed from the stale pre-move `placedStopLossPrice` and wasn't commanded, so the *transition* was misread as a manual edit.
+
+**Contract change (supersedes Region 2 steps 1–2):** the open-echo handler captures `wasTriggered = SLTriggered` **before** flipping `SLTriggered = True`. Then:
+
+- **`Not wasTriggered OrElse emergencyBaseline = 0D`** ⇒ **adopt**: set `placedStopLossPrice` + `emergencyBaseline` + display to the exchange's authoritative triggered `price`, **silently** (no discriminator, no log). This is the one-time trigger flip (or a not-yet-adopted state, e.g. a null-price flip). It correctly handles a **trigger-only move** — the flip price may differ from the last untriggered mirror, and that is not a manual edit. The `emergencyBaseline = 0D` arm also guarantees the emergency baseline is seeded (a 0 baseline disables the M.SL emergency).
+- **else (already triggered)** ⇒ the manual-edit discriminator (`price <> placedStopLossPrice AND not-commanded`) and the app's-own-echo ignore, as before. Post-trigger the trigger no longer exists, so a discriminated change can only be a **limit** move (manual) or the app's own chase — exactly the cases the discriminator is for.
+
+Net: manual-edit detection is now scoped to **post-flip** echoes. Invariant 3 ("no spurious detection") is restored — the trigger flip and a trigger-only move no longer log `Manual SL edit`. The seed-if-zero pair that used to live inside the block is replaced by the adopt branch.
+
+Build 0/0. Not pushed.

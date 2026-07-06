@@ -2092,13 +2092,15 @@ Public Class frmMainPageV2
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
 
-                                                      ' Reconcile fix (spec-reconcile-manual-sl-edits.md): the M.SL emergency baseline still
-                                                      ' follows the LIVE SL, but no longer via an UNGATED update on every echo (that also swallowed
-                                                      ' lagging/out-of-order echoes of the app's own reposition and could walk the baseline
-                                                      ' backward). It now moves under the SAME commanded-price discriminator as placedStopLossPrice,
-                                                      ' in the reconciliation block below: seeded at the trigger moment, advanced with the app's own
-                                                      ' chase at the reposition (placedStopLossPrice = newStopPrice), and set to the true value on
-                                                      ' a detected manual edit.
+                                                      ' Reconcile fix (spec-reconcile-manual-sl-edits.md): the M.SL emergency baseline follows the
+                                                      ' LIVE SL, but no longer via an UNGATED update on every echo. It moves under the same
+                                                      ' commanded-price discriminator as placedStopLossPrice (reconciliation block below): ADOPTED at
+                                                      ' the trigger flip, advanced with the app's own chase at the reposition
+                                                      ' (placedStopLossPrice = newStopPrice), and set to the true value on a detected manual edit.
+                                                      ' Capture the pre-echo triggered state BEFORE flipping it, so the block can tell the one-time
+                                                      ' trigger flip (adopt silently) from a later manual edit (discriminate + log). A TRIGGER-only
+                                                      ' move makes the flip price differ from the last untriggered mirror - that must NOT log "manual".
+                                                      Dim wasTriggered As Boolean = SLTriggered
                                                       SLTriggered = True
 
                                                       ' Restore hardening: defensive mid-session heal - if the baseline was lost
@@ -2116,35 +2118,35 @@ Public Class frmMainPageV2
                                                           AppendColoredText(txtLogs, $"Triggered SL placed @ ${price}", Color.Red)
                                                       End If
 
-                                                      ' Triggered-SL reconciliation (spec-reconcile-manual-sl-edits.md, discriminator 4a +
-                                                      ' policy P1). Both a MANUAL exchange-side SL move and a lagging echo of the app's OWN chase
-                                                      ' arrive here with a price; the commanded-price set tells them apart. All under the existing
-                                                      ' Not cancelPending gate (scoped/nuclear cancel semantics, invariant #3).
+                                                      ' Triggered-SL reconciliation (spec-reconcile-manual-sl-edits.md, discriminator 4a + policy P1).
+                                                      ' All under the existing Not cancelPending gate (scoped/nuclear cancel semantics, invariant #3).
                                                       If Not cancelPending Then
-                                                          ' Seed the emergency baseline at the trigger moment: it starts 0, while placedStopLossPrice
-                                                          ' carries over non-zero from the untriggered leg (same order, same limit price), so its own
-                                                          ' seed-if-zero below won't fire now. Keeps the M.SL emergency measuring from the live SL.
-                                                          If emergencyBaseline = 0D Then emergencyBaseline = If(price, emergencyBaseline)
-
-                                                          If placedStopLossPrice = 0D Then
-                                                              ' Trigger-moment seed (transition-race single-writer): only when the engine doesn't
-                                                              ' already own the price. A lagging echo can't reset placedStopLossPrice backward - that
-                                                              ' path is the ElseIf, guarded by the commanded-price set.
-                                                              placedStopLossPrice = If(price, 0D)
-                                                              txtPlacedStopLossPrice.Text = If(price?.ToString("F2"), "0")
+                                                          If Not wasTriggered OrElse emergencyBaseline = 0D Then
+                                                              ' Trigger FLIP (untriggered -> triggered), OR the reference isn't adopted yet (emergencyBaseline
+                                                              ' still 0, e.g. the flip echo had a null price): adopt the exchange's authoritative triggered SL
+                                                              ' price as the post-trigger reference for BOTH the chase and the emergency. This is the
+                                                              ' transition, never a manual edit - no discriminator, no log. Covers a TRIGGER-only move
+                                                              ' (flip price can differ from the last untriggered mirror) with no false "Manual SL edit", and
+                                                              ' guarantees the emergency baseline gets seeded (a 0 baseline disables the M.SL emergency).
+                                                              ' The one-time overwrite is safe: no chase is running yet at the flip.
+                                                              If price.HasValue Then
+                                                                  placedStopLossPrice = price.Value
+                                                                  emergencyBaseline = price.Value
+                                                                  txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
+                                                              End If
                                                           ElseIf price.HasValue AndAlso price.Value <> placedStopLossPrice _
                                                                  AndAlso Not IsRecentlyCommandedSLPrice(price.Value) Then
-                                                              ' A triggered-SL price that DIFFERS from our reference and that we did NOT command == a
-                                                              ' manual exchange-side edit. P1: follow it - correct BOTH the chase reference and the
-                                                              ' emergency baseline to the true live SL, then keep chasing from there (the maker fill).
+                                                              ' ALREADY triggered + a price we did NOT command + it changed == a genuine manual SL (limit)
+                                                              ' edit. P1: follow it - correct the chase reference AND the emergency baseline to the true
+                                                              ' live SL, then keep chasing from there (the maker fill).
                                                               placedStopLossPrice = price.Value
                                                               emergencyBaseline = price.Value
                                                               txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
                                                               AppendColoredText(txtLogs, $"Manual SL edit: ${price.Value:F2}", Color.Cyan)
                                                           End If
-                                                          ' else (price is in the commanded set, or unchanged): the app's own reposition or a lagging
-                                                          ' echo of it -> ignore. placedStopLossPrice + emergencyBaseline were already advanced at the
-                                                          ' reposition (placedStopLossPrice = newStopPrice). Preserves today's runaway/transition-race protection.
+                                                          ' else (already triggered; price in the commanded set or unchanged): the app's own reposition
+                                                          ' or a lagging echo of it -> ignore. placedStopLossPrice + emergencyBaseline were already
+                                                          ' advanced at the reposition. Preserves the runaway/transition-race protection.
                                                       End If
 
                                                       lblOrderStatus.Text = "Stop Loss Triggered"
