@@ -47,7 +47,7 @@ One atomic JSON file `C:\Dev\DeribitBridge\verdict_signal.json`, engine-written 
 
 1. Reviews of whatever the owner's implementers land (likely: resilience, then tie-in), per §3 methodology.
 2. Decouple-v2 runtime tests 2–5 results → push clearance.
-3. Jul 7: refresh this handover with final state + consolidate memory. Optional if idle time remains: extend `spec-medium-housekeeping.md` with the ROADMAP §2.5 addenda so the Sonnet bundle is turnkey.
+3. Jul 7: refresh this handover with final state + consolidate memory. ~~Optional if idle time remains: extend `spec-medium-housekeeping.md` with the ROADMAP §2.5 addenda so the Sonnet bundle is turnkey.~~ ✅ Done 2026-07-06 — addendum items 6–16, every site re-verified against `fc7bb6c`; F10 pass scoped with an explicit exclusion list.
 
 ## 7. Post-window ordering
 

@@ -65,7 +65,7 @@ Ordered; each from a pre-written spec, reviewed by an Opus conversation using th
 | `integration-contract-verdictengine.md` | ✅ **FROZEN v1, Jul 3** (brief→reply→ack converged in one round; both lanes may implement) | n/a (contract) |
 | `spec-resilience.md` | ✅ written Jul 3 (pulled forward; 6 commits: fragmentation+keepalive, limiter-at-connect, monitor leak, crash backstops, restart restore, X-close) | Opus high (after decouple-v2 push, before tie-in impl) |
 | `spec-autotrade-tiein.md` | ✅ written Jul 3 (pulled forward; 4 commits incl. the TimedOut ack hardening; testable without the engine via hand-crafted payloads) | Opus high (post-window; after decouple-v2 push) |
-| `spec-medium-housekeeping.md` + F14–F18 addendum | 📝 extend during window if time, else post | Sonnet medium |
+| `spec-medium-housekeeping.md` + F14–F18 addendum | ✅ addendum written 2026-07-06 (items 6–16, all re-verified vs `fc7bb6c`; bundle turnkey) | Sonnet medium (item 15 diff gets coordinator review) |
 | `spec-medium-dispatcher.md` (#9) | ⛔ skip (standing decision) | — |
 | `HANDOVER-2.md` | 📝 Jul 7 | Fable |
 
