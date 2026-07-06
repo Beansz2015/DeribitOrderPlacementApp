@@ -8,7 +8,7 @@
 2. `docs/CODE_AUDIT_FABLE5.md` — the full Fable-5 trace (findings F1–F20) + §H effort table. `CODE_AUDIT.md` is the older baseline audit.
 3. `docs/integration-contract-verdictengine.md` — **FROZEN v1** cross-app contract; canonical for consumer behavior.
 4. Specs + impl-reports as the task requires (inventory in ROADMAP §4). Superseded: `spec-medium-decouple.md` (→ `spec-decouple-v2.md`). Standing-skip: `spec-medium-dispatcher.md`.
-5. Memory: `fable-window-plan`, `project-component-status`, `receive-loop-threading`, `ws-handler-id-guards`, `credentials-secrets-setup`.
+5. Memory: `fable-window-plan`, `project-component-status`, `receive-loop-threading`, `ws-handler-id-guards`, `credentials-secrets-setup`, `sl-reconciliation-policy`.
 
 ## 2. State at handover-writing (2026-07-03, HEAD `fccdec5`, branch `housekeeping-now`)
 
@@ -47,8 +47,8 @@ One atomic JSON file `C:\Dev\DeribitBridge\verdict_signal.json`, engine-written 
 
 **All window specs are now written** (tie-in + resilience landed Jul 3, ahead of schedule). What remains:
 
-1. Reviews of whatever the owner's implementers land (likely: resilience, then tie-in), per §3 methodology.
-2. Decouple-v2 runtime tests 2–5 results → push clearance.
+1. Reviews of whatever the owner's implementers land, per §3 methodology.
+2. ~~Decouple-v2 runtime tests 2–5 results → push clearance.~~ ✅ Passed + pushed Jul 3.
 3. Jul 7: refresh this handover with final state + consolidate memory. ~~Optional if idle time remains: extend `spec-medium-housekeeping.md` with the ROADMAP §2.5 addenda so the Sonnet bundle is turnkey.~~ ✅ Done 2026-07-06 — addendum items 6–16, every site re-verified against `fc7bb6c`; F10 pass scoped with an explicit exclusion list.
 
 ## 7. Post-window ordering
