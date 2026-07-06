@@ -81,3 +81,19 @@ So every SL chase edit sends an amount equal to the **current modelled position 
 4. **Regression:** entry → trigger → chase → fill with no unexpected taker fills; the rare repriced-chase may log a benign `Manual SL edit` (§1).
 
 Related: `impl-report-post-only-edits.md` (this change), `spec-back-reconcile-manual-sl-edits.md` (the reconciliation the chase interacts with), `spec-back-session-2026-07-04.md` (`c6a893c` amount-sizing, `63bb149` close completion).
+
+---
+
+## 5. Orchestrator review + decision (2026-07-07, Fable coordinator)
+
+**Review — verified against the code (anchors re-read, build 0/0): APPROVED.** Two evidence upgrades:
+
+1. §1's "no rejection risk" claim is *stronger* than stated: the OTOCO **stop_limit** SL leg has carried `post_only: True` since the original placement code (`:2841` — pre-dates all recent work), so Deribit demonstrably accepts the flag on trigger orders at placement; rejection on the trigger-branch **edits** is correspondingly unlikely. Runtime test #1 stays as the confirmation. (The `:2861` "valid only for limit orders" comment contrasts **market** orders — no price field — not trigger orders.)
+2. The §1 placement table omits `TrailingStopLossOrderAsync`'s trailing-stop placement (id 30; `reduce_only` at ~`:3738`) — out of scope for the edit question, but include it in any future flag sweep.
+
+**Decision on §2 (`reduce_only`): adopt the recommended path, empirically gated — the probe joins the CURRENT §9 runtime checklist.**
+
+- **Probe (owner, this test session):** after a chase or manual edit of a triggered SL, and after one reduce-limit chase edit, inspect the order on Deribit — does it still report `reduce_only: true`? Optionally attempt one edit that explicitly sends `reduce_only: true` to learn whether the param is accepted at all.
+- **Preserved →** no code change; record the finding here; question closed.
+- **Dropped (or explicitly editable) →** one micro-commit adding `{"reduce_only", True}` to exactly the **223346 / 223348 / 223349 / 223350** payloads + the manual SL button — **never 223344 (entry), never 223345 (TP — the `:2855` landmine: reduce_only on the TP cancels BOTH legs at SL trigger, leaving the position unprotected)**. Sequence it **before** `spec-entry-chase-v2.md` (same payload lines).
+- The §2 pairing argument is confirmed and is stronger than stated: `btnReduceLimit_Click` (`:4714`) also sizes to the **full model** (`Math.Abs(positionSizeUSD)`, direction from the position sign) and its comment says outright "reduce_only caps there anyway". So **three** paths — the triggered-SL chase (`c6a893c`), reduce limit, reduce market — deliberately over-ask at full modelled size and lean on `reduce_only` as the cap. The flag is load-bearing; this question was right to raise.
