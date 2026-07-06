@@ -73,6 +73,15 @@
 - `scores` — logging/analytics only; never threshold on raw scores (`max` varies by regime). `kelly` — advisory display only in v1; never size from it. `structural` — informational in v1 (0 = unset). `engine.settings_version` — informational; **`schema_version` is the only version gates read.**
 - Serialization: JSON numbers (never strings), invariant culture, ISO-8601 UTC with `Z`.
 
+**Emitter implementation notes (2026-07-06 — informational, from the engine coordinator's A2 go-ahead; schema v1 unchanged):**
+- Output is indented JSON — whitespace is not contractual.
+- `engine.settings_version` drifts without notice (48→50 within days of the freeze) — reaffirming: never pin it; `schema_version` is the only version gates read.
+- `kelly` on a no-edge run emits `{"contracts":0,"risk_usd":0.0,"lev_capped":false}` — zeros, never null (advisory-only in v1 regardless).
+- `SKIPPED` payloads always carry `health.ledger_mismatch: false` — no verdict exists on a skip; the consumer stands down at gate §4.2 and must not read health semantics from skips.
+- `health.ws` precedence as implemented: engine on REST transport → `"REST"`; per-run degradation → `"DEGRADED"`; feed missing/disconnected → `"DOWN"`; else `"OK"`. Only `DOWN` blocks (unchanged).
+- `signal_id` gaps are legal (`SKIPPED` runs consume ids; a rare mid-run abort can burn one). Monotonicity within an `instance_id` is the only guarantee — never infer missed signals from gaps.
+- Soak-review join: as of engine CSV v0.8, every logged engine run carries `InstanceId`/`SignalId` columns equal to the payload identity — the consumer's §4 disposition log (which records the same pair) joins row-for-row. Keep the disposition log faithful and its tokens stable.
+
 ## 4. Consumer gate chain (v1)
 
 An entry may be attempted **only when every clause holds**, evaluated per fresh payload:
@@ -103,6 +112,8 @@ Live auto-trading requires, in order: **engine ARM toggle** (default OFF every s
 
 `off` → **log-only** (a few sessions: would-be orders logged against live payloads, no placement) → **live at minimum size** → normal. The mode switch is order-app-side and independent of engine emissions. v1 soak: **1–2 supervised weeks** before v2 work begins.
 
+**Addendum 2026-07-06 (cross-project rollout gate):** the step to **live at minimum size** is additionally gated on the engine-side "placed-geometry structural-first" pass being live (it changes the origin of `levels.*` from ATR-derived to structural-first; schema and placement semantics untouched — prices stay prices; `cap_reason` may gain new label values, informational as ever). **The trader confirms that pass is live before stepping up. Log-only does NOT wait for it.**
+
 ## 8. v2 (agreed direction, not yet specified)
 
 One **feedback file** (order app → engine, same atomic-write pattern): position state (size, avg entry, flat/holding), last-processed signal disposition, and executor armed/started state (for engine-side interlock display). Unlocks the engine's `hold_status`/exit-guard as actionable exit signals and slippage-aware signal pricing. Gated on the v1 soak.
@@ -110,3 +121,4 @@ One **feedback file** (order app → engine, same atomic-write pattern): positio
 ## 9. Version history
 
 - **v1 — 2026-07-03 — FROZEN.** Initial contract: brief → reply (adds `instance_id`, `autotrade_armed`, enum pins, semantics clarifies, interlock) → ack (accepts all; `health.ws` gains `"REST"`; WEAK-carries-direction clarification; `atr` guarantee proof). Implementation unlocked both lanes: engine `Core/SignalEmitter.vb` + ARM toggle; order-app consumer inside the re-coded AutoTradeSettings (tie-in spec).
+- **2026-07-06 — v1 unchanged; engine emitter LIVE-READY.** Emitter implemented, fixture-pinned to v1 (engine A22a–g: enums, target-cap cases, NO-TRADE→`direction:"NONE"`, invariant culture), live-smoke-tested, pushed (engine repo `23fd8b9`); emission ships OFF (`signal_bridge.enabled: false`) until the trader flips it for the log-only soak. Emitter implementation notes recorded in §3 (informational); rollout addendum in §7 (geometry-pass gate on the live step). Consumer lane (A2) cleared to implement.

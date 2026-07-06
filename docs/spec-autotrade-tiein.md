@@ -10,6 +10,13 @@
 
 ---
 
+**STATUS 2026-07-06 — A2 GO-AHEAD (engine coordinator).** The engine emitter is implemented, coordinator-reviewed, live-smoke-tested and pushed (engine repo `23fd8b9`), fixture-pinned to schema v1; emission ships OFF (`signal_bridge.enabled: false`) until the owner flips it for the log-only soak. The go-ahead was cross-checked against the frozen contract — **no v1 changes**; emitter implementation notes are now recorded in contract §3 (indented JSON; `settings_version` already at 50 and drifting — never pin; `kelly` zeros never null on no-edge runs; `SKIPPED` always carries `ledger_mismatch:false` — never read health semantics from skips; `health.ws` precedence, only `DOWN` blocks; `signal_id` gaps legal — never infer missed signals from gaps). Implementer consequences:
+- **Disposition-log join (soak requirement):** the §3a log line already carries `instance_id | signal_id` — the engine's CSV (v0.8+) logs matching `InstanceId`/`SignalId` columns and the soak reviewers join row-for-row. Keep the §3a format and disposition tokens **stable once the soak starts**. This side's tokens beyond the contract-§4 set: log-only's `would-act: …` and the API-level `rejected: <reason>` — list them in the impl report so the soak reviewers know the full set.
+- **Testing:** §6 mock-file path first (the contract §3 example is byte-representative). When live payloads are wanted for the soak, the owner flips `signal_bridge.enabled` on the engine's bin copy — the engine is live and collecting, so real per-run files arrive immediately, including genuine `SKIPPED`; overnight engine power-downs exercise the staleness stand-down for free.
+- **Rollout change (contract §7 addendum 2026-07-06):** the step to live-at-minimum-size now ALSO waits for the owner's confirmation that the engine-side placed-geometry (structural-first) pass is live. Log-only does not wait. `cap_reason` may gain new labels — informational, never gate.
+
+---
+
 ## 1. Shape
 
 A new engine-side-of-this-app class, **`SignalBridge.vb`** (Option Strict On), owned by `frmMainPageV2`, consuming `verdict_signal.json` per the contract and driving the decouple-v2 public API. `AutoTradeSettings` gains a **SIGNAL BRIDGE panel** (ARM toggle, START/STOP, mode, status, gate config). `FrmIndicators`' own autotrade trigger path is **neutralized** (R1: the engine is the sole signal source) but the form otherwise keeps running until post-soak retirement.
@@ -113,7 +120,7 @@ In `FrmIndicators.UpdateSignals`, remove the auto-trading integration block (the
 
 ## 7. Rollout reminder (contract §7)
 
-Off → **log-only for a few sessions** → live at minimum size → normal. The engine side ships behind `signal_bridge.enabled: false` — coordinate the first joint session through the owner.
+Off → **log-only for a few sessions** → live at minimum size → normal. The engine side ships behind `signal_bridge.enabled: false` — coordinate the first joint session through the owner. **2026-07-06:** the live-at-minimum-size step additionally waits for the owner's confirmation that the engine's placed-geometry (structural-first) pass is live (contract §7 addendum); log-only does not wait.
 
 ## 8. Implementation report
 
