@@ -1439,6 +1439,13 @@ Public Class frmMainPageV2
     ' emergency block or the price/PnL labels - those run every tick.
     Private isRepositioning As Integer = 0
 
+    ' SL-chase v2 (docs/spec-sl-chase-v2.md §3): DEDICATED single-flight for the triggered-SL chase
+    ' EXECUTE section only (NOT isRepositioning - the SL chase must never wedge against the entry/reduce
+    ' chases, or vice versa). lastStopLossUpdate advances only on success, so without this a second quote
+    ' tick can pass the 333 ms gate while a send's Await is in flight and dispatch a duplicate edit. The
+    ' full-emergency market-stop stays OUTSIDE this flag - it must never be blocked by an in-flight chase.
+    Private isSLRepositioning As Integer = 0
+
     ' #6: throttle for hot-path parse warnings so a held-down blank field can't spam the log
     Private lastParseWarn As DateTime = DateTime.MinValue
     Private Sub WarnParseThrottled(message As String)
@@ -1645,9 +1652,11 @@ Public Class frmMainPageV2
                     End Try
                 End If
 
-                'For keeping triggered stop loss order at top of orderbook. +/- 5 leeway to reduce too many edit orders sent
+                'For keeping triggered stop loss order at top of orderbook.
                 ' Cross-thread fix #5: also gate on a live socket so SL edits aren't piled into a closing connection.
-                If IsWebSocketConnected AndAlso SLTriggered AndAlso PositionSLOrderId IsNot Nothing Then
+                ' SL-chase v2 (§3): Not IsCancelPending() - the documented gate-ordering invariant (cancel check
+                ' BEFORE any reposition work) so a chase edit can't race a nuclear cancel and burn a wasted edit.
+                If IsWebSocketConnected AndAlso (Not IsCancelPending()) AndAlso SLTriggered AndAlso PositionSLOrderId IsNot Nothing Then
                     Dim currentTime As DateTime = DateTime.UtcNow
 
                     ' Rate limiting: Only update if minimum time has passed
@@ -1717,7 +1726,12 @@ Public Class frmMainPageV2
                             End If
 
                             ' Execute update if conditions are met
-                            If shouldUpdate Then
+                            ' SL-chase v2 (§3): dedicated single-flight around the EXECUTE section only. Without
+                            ' it a second quote tick can pass the 333 ms gate while a send's Await is in flight
+                            ' (lastStopLossUpdate advances only on success) and dispatch a duplicate edit. The
+                            ' Finally guarantees release. The full-emergency block above is deliberately OUTSIDE
+                            ' this flag - the market-stop must never be blocked by an in-flight chase edit.
+                            If shouldUpdate AndAlso Interlocked.Exchange(isSLRepositioning, 1) = 0 Then
                                 Try
                                     ' Check if we should use force update instead of normal rate-limited update
                                     If emergencyThresholdValid AndAlso baselineKnown AndAlso priceMovement >= (emergencyThreshold * 0.5) Then ' 50% of emergency threshold
@@ -1744,6 +1758,9 @@ Public Class frmMainPageV2
                                     ' #4 retry-amplifier fix: bounded backoff instead of DateTime.MinValue (which reset the
                                     ' throttle and retried every tick on a persistent failure, amplifying the storm).
                                     BackoffStopLossRetry(currentTime)
+                                Finally
+                                    ' SL-chase v2 (§3): release the single-flight even if the send threw.
+                                    Interlocked.Exchange(isSLRepositioning, 0)
                                 End Try
                             End If
                             'Else
