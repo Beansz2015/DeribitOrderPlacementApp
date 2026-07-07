@@ -51,3 +51,22 @@ Direction from `reduceOrderIsBuy` (never `TradeMode`), new separate stamp `lastR
 ## Owner runtime test plan
 
 Spec §8, unchanged — items 1–7 all apply (commit 3 landed, so item 7 is live). Suggested extra eye during item 3: the cyan `Legs re-anchored to fill $…` line should appear exactly once per filled entry whose fill price differs from the leg anchor, and never produce a `Manual SL edit` line (that's the §9-regression check in item 5).
+
+---
+
+## Coordinator review (2026-07-07, Fable seat) — APPROVED
+
+All three commits verified against the code: full diffs read, build re-run **0/0** at HEAD, invariant greps re-run independently — exactly **8** `emergencyBaseline` reset sites, each paired with `ResetCommandedSLPrices()`; **zero** surviving non-short-circuit `And` on the slippage gates; `legAnchorPrice` lifecycle complete (2 placement seeds, 4 chase decisions + advances, 2 fill hooks, 3 resets, 1 re-anchor advance); `HasHeadroom` at the 4 chase gates + the re-anchor; `ConsumeCredits` before every send incl. both re-anchor edits; the bookkeeping order in `ReanchorLegsAsync` is exactly reset-then-record per spec §4. Both mandated doc-count updates landed verbatim.
+
+**Rulings on the flagged items — ALL ACCEPTED:**
+1. Trailing fill re-anchor via SL-only `ReanchorLegsAsync` instead of a literal `UpdateStopLossForTrailingOrder` call — approved; strictly better (no guaranteed-`already_closed` edit against the just-filled main, and it adds the mandated `RecordCommandedSLPrice` the pre-trigger path lacks).
+2. `legAnchorPrice` not reset in the placement-rejection restore — approved as benign (no order ids ⇒ no chase can fire; the next placement re-seeds).
+3. Trailing drift bound's geometrically irrelevant TP term — approved (tighten-only; spec formula verbatim).
+4. Phantom-advance on swallowed skips — accepted (existing F1 class; self-heals against the live book next tick).
+5. Commit 3 (optional scope) implemented — accepted; isolated and trivially revertible, owner concurred.
+
+**One additional accepted edge (reviewer-added):** if the SL triggers inside the fill→re-anchor window, the re-anchor edit's triggered-path echo is commanded ⇒ ignored, so `placedStopLossPrice`/`emergencyBaseline` keep the flip-adopted pre-re-anchor values while the exchange SL rests at the re-anchored geometry. Divergence ≤ `legReanchorDriftMax`, no spurious `Manual SL edit` (the mandatory record covers it), healed by the first triggered-SL chase reposition. Same self-healing class as F1 — accepted.
+
+**Coordinator follow-up done (the report's flagged stale spots):** `spec-medium-housekeeping.md` do-not-touch list now says 8 reset sites, and its addendum item 8 four-gate half is marked DONE by `9c3c351`.
+
+**Remaining gate:** owner runtime test (spec §8 items 1–7 + the cyan-line check above), then push.
