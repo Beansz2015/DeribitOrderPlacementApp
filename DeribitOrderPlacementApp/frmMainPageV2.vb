@@ -41,14 +41,19 @@ Public Class frmMainPageV2
     Public BestBidPrice, BestAskPrice, TPTrailprice As Decimal
     Public StopLossTriggerOriginal As Decimal = 0 ' Original stop loss TRIGGER price (kept in sync with exchange-side moves)
 
-    ' M.SL emergency-reduce baseline (docs/spec-back-msl-emergency-baseline.md). The price the emergency
-    ' market-reduce measures from: 0 until the SL triggers -> the emergency falls back to
-    ' StopLossTriggerOriginal (the trigger price). Once triggered it tracks the LIVE SL price (updated on
-    ' every triggered echo - manual exchange-side moves + the app's own trailing), so the emergency stays
-    ' M.SL below the current stop. Reset to 0 wherever StopLossTriggerOriginal is (placement / close /
-    ' nuclear cancel / market reduce). Written on the receive/UI thread; read on the receive thread by the
+    ' M.SL emergency-reduce baseline = the LOSS-CAP anchor the emergency market-reduce measures from
+    ' (docs/spec-emergency-baseline-fix.md + spec-back-emergency-baseline-hybrid.md).
+    ' 0 until the SL triggers -> the emergency falls back to StopLossTriggerOriginal (the trigger price).
+    ' At the trigger flip it adopts the flip price, then LATCHES onto the ACTUAL top-of-book SL at its first
+    ' post-trigger reposition (emergencyBaselineSettled), and is FROZEN thereafter - it does NOT follow the
+    ' app's ongoing chase (owner ruling 2026-07-08: the cap is a hard loss cap at anchor +/- M.SL, not a
+    ' trailing guard). A detected MANUAL SL edit re-anchors it (and re-freezes). Reset to 0 wherever
+    ' StopLossTriggerOriginal is. Written on the receive/UI thread; read on the receive thread by the
     ' emergency (accepted Decimal torn-read class, same as StopLossTriggerOriginal).
     Public emergencyBaseline As Decimal = 0
+    ' Hybrid fix: False from the trigger adopt until the first post-trigger chase reposition captures the
+    ' actual top-of-book SL (then True = frozen). A manual edit / restore seed sets it True directly.
+    Private emergencyBaselineSettled As Boolean = False
 
     ' Commanded-SL-price set - triggered-SL reconciliation (docs/spec-reconcile-manual-sl-edits.md, 4a + P1).
     ' Post-trigger the app is the single writer of placedStopLossPrice, but a MANUAL SL edit on the exchange
@@ -1746,14 +1751,24 @@ Public Class frmMainPageV2
                                     End If
 
                                     ' Runaway fix: advance the CHASE reference synchronously before the display mirror.
-                                    ' Invariant (2026-07-08, spec-emergency-baseline-fix.md; REPLACES "references move together
-                                    ' post-trigger"): post-trigger the two references serve different masters and deliberately
-                                    ' diverge. placedStopLossPrice is the CHASE reference - it tracks the app's own repositioning
-                                    ' (advanced here). emergencyBaseline is the LOSS-CAP anchor - set at the trigger adopt, moved
-                                    ' ONLY by a detected MANUAL SL edit (and the restore seed), NEVER by the app's own chase - so
-                                    ' the M.SL emergency measures the market against a FIXED anchor and actually fires at
-                                    ' anchor + M.SL (advancing it here made it track the book, disabling the cap: owner #53/#55/#56).
+                                    ' Invariant (2026-07-08, spec-emergency-baseline-fix.md + hybrid; REPLACES "references move
+                                    ' together post-trigger"): post-trigger the two references serve different masters and
+                                    ' deliberately diverge. placedStopLossPrice is the CHASE reference - it tracks the app's own
+                                    ' repositioning (advanced here every tick). emergencyBaseline is the LOSS-CAP anchor - it
+                                    ' LATCHES onto the actual top-of-book SL at the FIRST post-trigger reposition (below), then is
+                                    ' FROZEN; never advanced by subsequent chases. So the M.SL emergency measures the market
+                                    ' against a fixed anchor and fires at anchor +/- M.SL (advancing it every tick made it track
+                                    ' the book, disabling the cap: owner #53/#55/#56; anchoring on the pre-settle flip price fired
+                                    ' it too early: owner #67).
                                     placedStopLossPrice = newStopPrice
+                                    ' Hybrid fix (spec-back-emergency-baseline-hybrid.md, Option 2): capture the actual top-of-book
+                                    ' SL as the loss-cap anchor at the FIRST reposition after the trigger flip, then freeze. The flip
+                                    ' adopt seeded emergencyBaseline with the trailed/live limit; this is where the SL first reaches
+                                    ' the best-non-crossing top of book.
+                                    If Not emergencyBaselineSettled Then
+                                        emergencyBaseline = newStopPrice
+                                        emergencyBaselineSettled = True
+                                    End If
                                     UiInvoke(Sub() txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2"))
                                     lastStopLossUpdate = currentTime
                                     slUpdateFailures = 0   ' success clears the backoff
@@ -2277,21 +2292,29 @@ Public Class frmMainPageV2
                                                               If price.HasValue Then
                                                                   placedStopLossPrice = price.Value
                                                                   emergencyBaseline = price.Value
+                                                                  ' Hybrid fix: the flip price is the SL's live/trailed limit, which may sit BELOW
+                                                                  ' top-of-book. Re-arm the latch so the FIRST post-trigger chase reposition captures
+                                                                  ' the actual top-of-book SL as the frozen loss-cap anchor (owner #67).
+                                                                  emergencyBaselineSettled = False
                                                                   txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
                                                               End If
                                                           ElseIf price.HasValue AndAlso price.Value <> placedStopLossPrice _
                                                                  AndAlso Not IsRecentlyCommandedSLPrice(price.Value) Then
                                                               ' ALREADY triggered + a price we did NOT command + it changed == a genuine manual SL (limit)
-                                                              ' edit. P1: follow it - correct the chase reference AND the emergency baseline to the true
-                                                              ' live SL, then keep chasing from there (the maker fill).
+                                                              ' edit. P1: follow it - correct the chase reference to the true live SL and keep chasing from
+                                                              ' there (the maker fill). Hybrid fix: a manual re-set DEFINES the new loss-cap anchor, so move
+                                                              ' emergencyBaseline to it AND freeze (settled = True) - a subsequent chase pullback must not
+                                                              ' override the owner's manual cap.
                                                               placedStopLossPrice = price.Value
                                                               emergencyBaseline = price.Value
+                                                              emergencyBaselineSettled = True
                                                               txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
                                                               AppendColoredText(txtLogs, $"Manual SL edit: ${price.Value:F2}", Color.Cyan)
                                                           End If
                                                           ' else (already triggered; price in the commanded set or unchanged): the app's own reposition
-                                                          ' or a lagging echo of it -> ignore. placedStopLossPrice + emergencyBaseline were already
-                                                          ' advanced at the reposition. Preserves the runaway/transition-race protection.
+                                                          ' or a lagging echo of it -> ignore. placedStopLossPrice was advanced at the reposition;
+                                                          ' emergencyBaseline is the frozen loss-cap anchor (not touched by the chase). Preserves the
+                                                          ' runaway/transition-race protection.
                                                       End If
 
                                                       lblOrderStatus.Text = "Stop Loss Triggered"
@@ -3152,6 +3175,7 @@ Public Class frmMainPageV2
         SLTriggered = False
         StopLossTriggerOriginal = 0
         emergencyBaseline = 0
+        emergencyBaselineSettled = False   ' hybrid fix: clear the loss-cap latch with the triggered-SL context
         ResetCommandedSLPrices() ' reconcile: nuclear cancel - triggered-SL context is gone
 
         'PositionEmpty = True
@@ -3245,6 +3269,7 @@ Public Class frmMainPageV2
             If isMarketOrder Then
                 StopLossTriggerOriginal = 0
                 emergencyBaseline = 0
+                emergencyBaselineSettled = False   ' hybrid fix: clear the loss-cap latch with the triggered-SL context
                 ResetCommandedSLPrices() ' reconcile: market reduce - triggered-SL context is gone
             End If
 
@@ -4231,6 +4256,7 @@ Public Class frmMainPageV2
         SLTriggered = False
         StopLossTriggerOriginal = 0
         emergencyBaseline = 0
+        emergencyBaselineSettled = False   ' hybrid fix: clear the loss-cap latch with the triggered-SL context
         ResetCommandedSLPrices() ' reconcile: position closed - triggered-SL context is gone
         legAnchorPrice = 0D          ' entry-chase v2: order context is gone (CancelOrderAsync below also clears it)
         pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
@@ -4510,7 +4536,12 @@ Public Class frmMainPageV2
                             End If
                             If StopLossTriggerOriginal = 0D Then StopLossTriggerOriginal = If(triggerPrice, 0D)
                             ' Item 1: restored into an already-triggered SL - the emergency baseline is the actual SL price.
-                            If emergencyBaseline = 0D Then emergencyBaseline = If(price, 0D)
+                            ' Hybrid fix: the restored SL is the live top-of-book stop, so it IS the settled loss-cap
+                            ' anchor - freeze it (settled = True) so the first post-restore chase doesn't override it.
+                            If emergencyBaseline = 0D Then
+                                emergencyBaseline = If(price, 0D)
+                                emergencyBaselineSettled = True
+                            End If
                             UiInvoke(Sub()
                                          If triggerPrice.HasValue Then txtPlacedTrigStopPrice.Text = triggerPrice.Value.ToString("F2")
                                          If seeded AndAlso price.HasValue Then txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
