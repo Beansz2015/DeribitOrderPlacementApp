@@ -35,6 +35,10 @@ Removing the SL edit + its four SL-context writes un-makes the re-anchor as a re
 
 Verified by diffing `8ff358d..66b00cf`: the only SL-referencing lines in the diff are **deletions from the retired `ReanchorLegsAsync`** (its SL edit + bookkeeping). Zero changes to: the untriggered `StopLossOrder` branch (`CurrentSLOrderId`/`PositionSLOrderId`/`StopLossTriggerOriginal` trail-sync, `:2349`-area), the open `StopLossOrder` adopt/discriminator block (`:2230`-area), `UpdateStopLossForTriggeredStopLossOrder` (the SL-chase), or the trailing SL. The three-way echo classification and the trail are exactly as before.
 
+## Follow-up (owner runtime test #49, same local stack)
+
+Trade #49 confirmed the fix end-to-end: chased SHORT entry `63038→63028`, `TP re-anchored to fill $63028.00: $62968.00`, **zero `order_not_found`**, SL trailed/chased normally. It surfaced one display gap: the app's TP field stayed at the stale placement TP (`62978 = 63038−60`) while the live order sat at the re-anchored `62968` — because the post-fill open `TakeLimitProfit` echo never writes `txtPlacedTakeProfitPrice`. Fixed by a one-line `UiInvoke(Sub() txtPlacedTakeProfitPrice.Text = newTPprice.ToString("F2"))` in `ReanchorTPToFillAsync` after the send (mirrors the triggered-SL chase's own display refresh). Display-only; no logic/price change. Build 0/0.
+
 ## Deviations
 
 None of substance. The spec offered "slim `ReanchorLegsAsync` → TP-only **or inline it**" — chose to **delete** the function and add a focused `ReanchorTPToFillAsync` rather than leave a one-caller slimmed shell (the TP dispatch is a clean helper; the open branch stays readable). No SL-interleave code was written (spec §2 decision), so the spec-back's feared adopt/discriminator sequencing never materialised.

@@ -3434,6 +3434,12 @@ Public Class frmMainPageV2
             Await SendRateLimitedUpdate("takeprofit", tpOrderId, newTPprice, amount)
             UpdateFlag = True
 
+            ' Fill-reanchor fix: refresh the TP display to the re-anchored price. The post-fill open
+            ' TakeLimitProfit echo does NOT update txtPlacedTakeProfitPrice, so without this the field
+            ' stays at the stale placement TP while the live order sits at the re-anchored price
+            ' (mirrors how the triggered-SL chase updates txtPlacedStopLossPrice on each reposition).
+            UiInvoke(Sub() txtPlacedTakeProfitPrice.Text = newTPprice.ToString("F2"))
+
             AppendColoredText(txtLogs, $"TP re-anchored to fill ${fillPrice:F2}: ${newTPprice:F2}", Color.Cyan)
 
         Catch ex As Exception
