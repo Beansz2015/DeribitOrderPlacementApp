@@ -1,0 +1,15 @@
+# Consolidated coordinator review — the unpushed stack (2026-07-08) — APPROVED
+
+**Scope:** all 7 code commits on `origin/master = 44cd51e`: `b1b37e7`/`f0a2110` (SL-chase v2), `66b00cf`/`cc51d4d` (fill-reanchor TP-only fix), `3abee26` (post_only-secondary fix), `326cbaf` (emergency-baseline loss-cap fix + manual-TP gate), `25cac5f` (hybrid latch). Method: full diffs read, build re-run **0/0** at HEAD, invariant inventories re-grepped independently.
+
+**Verdicts — all APPROVED:**
+- `b1b37e7`: exact spec §2 — mirrored 1-tick best-non-crossing targets, lifted nullable comparisons, `MinPriceMovementThreshold` gone (tombstone comment only), everything else byte-preserved.
+- `f0a2110`: `IsCancelPending` on the block gate; dedicated `isSLRepositioning` around the execute only, `Finally`-released; full emergency outside the flag. (The cancel-window-gates-emergency interaction: owner-resolved.)
+- `66b00cf`/`cc51d4d`: stage-inside-lambda/dispatch-outside is the correct answer to the no-`Await`-in-`Sub`-lambda constraint; staging locals per-iteration (multi-order messages safe); `Me.Invoke`'s synchronous completion makes the handoff race-free; targets `PositionTPOrderId`; skip-if-equal; trailing hook deleted; 8→7 doc reversal verified; display refresh is display-only.
+- `3abee26`: `postOnly` param defaulted True; omitted exactly on the pre-fill OTOCO secondary edits (bracket TP/SL `:3394/:3396` + trailing SL `:3737`, which builds its own payload); primary/post-fill/triggered edits keep the flags; placement-preservation (trade #45) keeps the maker guarantee.
+- `326cbaf`: the one-line loss-cap fix + new divergence-invariant comments at both sites; manual-TP gate decides at the *filled* echo while `manualTPval` is intact and skips absolute TPs.
+- `25cac5f`: latch lifecycle complete and correct — field `:56`; latch at first post-trigger reposition `:1768`; adopt re-arms False `:2298`; manual freeze `:2310`; restore freeze `:4543`; cleared at the 3 trade-over resets (`:3178` nuclear, `:3272` market-reduce, `:4259` close). Not cleared at placement sites — harmless by design (the adopt re-arms). Adversarial cases checked: pre-settle emergency measures from the flip price for ≤1 reposition (conservative, bounded); no-reposition trades keep the flip anchor (never fires on favorable moves); manual-before-settle freezes the owner's cap; escalation path latches identically.
+
+**Inventories at HEAD:** `emergencyBaseline` writers = adopt / first-settle latch / manual / restore seed (chase-advance gone); 7 paired reset sites; `pendingReanchorFill` reset at consume + all 3 order-context death sites; discriminator untouched by the latch (keys off `placedStopLossPrice` + commanded set).
+
+**Gate cleared.** Remaining before push: the owner confirms the hybrid's runtime items (`spec-emergency-baseline-fix.md` §5: cap fires at anchor+M.SL, maker exit wins below the cap, manual re-set moves the cap, chase doesn't) — several were exercised in trades #47–67. Then push `44cd51e..HEAD`, then tie-in per ROADMAP.
