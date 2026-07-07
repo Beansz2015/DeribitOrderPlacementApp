@@ -1417,7 +1417,8 @@ Public Class frmMainPageV2
     'Modify below to control how often stop loss is repositioned
     Private lastStopLossUpdate As DateTime = DateTime.MinValue
     Private Const MinStopLossUpdateInterval As Integer = 333 ' 0.3 second minimum between updates
-    Private Const MinPriceMovementThreshold As Decimal = 5D ' Minimum $5 movement to trigger update
+    ' MinPriceMovementThreshold ($5 leeway) removed by SL-chase v2 - the triggered-SL chase now uses the
+    ' entry chase's 1-tick best-non-crossing gate (ChaseTickUSD), not a distance gate.
     Private newPricePublic As Decimal = 0 'For storing the price during emergency reduce market order for logging
 
     ' #4 retry-amplifier fix: bounded backoff for a failed triggered-SL reposition. The old code reset
@@ -1691,19 +1692,26 @@ Public Class frmMainPageV2
                             End If
 
                             'Normal conditions operation
+                            ' SL-chase v2 (docs/spec-sl-chase-v2.md §2): chase the triggered SL to the most
+                            ' aggressive NON-CROSSING price - one tick inside the opposite side - on a 1-tick
+                            ' gate, mirroring the entry chase. Replaces the old $5-leeway join-own-side-top.
                             Dim shouldUpdate As Boolean = False
                             Dim newStopPrice As Decimal = 0D
 
                             If TradeMode Then
-                                ' Long position: Update when ask price moves significantly below current stop
-                                If bestAsk < (currentStopPrice - MinPriceMovementThreshold) Then
-                                    newStopPrice = bestAsk
+                                ' Long exit = resting SELL limit: most aggressive non-crossing ask = one tick above the bid.
+                                ' While the sell rests, bestBid < placedStopLossPrice, so chaseTarget <= placedStopLossPrice;
+                                ' "<" is inherent one-tick hysteresis (same argument as the entry chase, mirrored).
+                                Dim chaseTarget As Decimal? = bestBid + ChaseTickUSD
+                                If chaseTarget < currentStopPrice Then
+                                    newStopPrice = chaseTarget
                                     shouldUpdate = True
                                 End If
                             Else
-                                ' Short position: Update when bid price moves significantly above current stop
-                                If bestBid > (currentStopPrice + MinPriceMovementThreshold) Then
-                                    newStopPrice = bestBid
+                                ' Short exit = resting BUY limit: most aggressive non-crossing bid = one tick below the ask.
+                                Dim chaseTarget As Decimal? = bestAsk - ChaseTickUSD
+                                If chaseTarget > currentStopPrice Then
+                                    newStopPrice = chaseTarget
                                     shouldUpdate = True
                                 End If
                             End If
