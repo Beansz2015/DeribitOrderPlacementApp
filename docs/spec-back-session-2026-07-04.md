@@ -18,10 +18,10 @@ Line numbers drift — anchors below are **function/symbol names**; grep for the
 ## 1. New engine fields / methods / removals in `frmMainPageV2.vb` (the coordination-critical list)
 
 **New public/private fields:**
-- `emergencyBaseline As Decimal` — M.SL emergency baseline; the live SL once triggered (see §6, §9). Read by the emergency; reset at 8 sites since entry-chase v2 (grep `emergencyBaseline = 0`).
+- `emergencyBaseline As Decimal` — M.SL emergency baseline; the live SL once triggered (see §6, §9). Read by the emergency; reset at 7 sites (grep `emergencyBaseline = 0`). Was briefly 8 with entry-chase v2's fill re-anchor; reverted to 7 by the TP-only fill-reanchor fix (`spec-fill-reanchor-fix.md`).
 - `pendingCloseValid/PorLAmt/PorL/Label/AmountUSD/WasLong/ExecPrice` (7 fields) — persisted close-fill capture (see §3).
 - `positionRestoreAnnounced As Boolean` — one restore announce per connection (see §2).
-- **`commandedSLPrices : List(Of CommandedSLEntry)` + `commandedSLLock` + consts `CommandedSLWindowMs`(2000ms)/`CommandedSLMatchTol`(0.25) + `Structure CommandedSLEntry {Price, Stamp}`** — the SL-reconciliation commanded-price set (§9). Lock-guarded; cleared at the same 8 SL-context reset sites as `emergencyBaseline` (8th = entry-chase v2's `ReanchorLegsAsync`).
+- **`commandedSLPrices : List(Of CommandedSLEntry)` + `commandedSLLock` + consts `CommandedSLWindowMs`(2000ms)/`CommandedSLMatchTol`(0.25) + `Structure CommandedSLEntry {Price, Stamp}`** — the SL-reconciliation commanded-price set (§9). Lock-guarded; cleared at the same 7 SL-context reset sites as `emergencyBaseline` (was briefly 8 with entry-chase v2's `ReanchorLegsAsync`; reverted to 7 by the TP-only fill-reanchor fix).
 
 **New methods:**
 - `RequestOpenOrdersSnapshot()` — send-only `get_open_orders_by_instrument`, id **778** (new JSON-RPC id; added to HANDOVER-2 §4.5 map).
@@ -90,6 +90,6 @@ Spec `spec-reconcile-manual-sl-edits.md` (4a+P1); impl-report `impl-report-recon
 - **`HandleQuoteUpdates`** (the triggered-SL chase + emergency block) and **`HandleOrderPositionUpdates`** (the open `StopLossOrder` echo) are the hottest, most-changed regions — restore hardening, the emergency baseline, AND the §9 reconciliation all live here. Coordinate any further SL-path work.
 - **SL edits go through two paths:** the auto-chase (`UpdateStopLossForTriggeredStopLossOrder`, which records to the commanded set) and the user "Edit T.S." button (`btnEditSLPrice_Click`, id 223346, which deliberately does NOT). Any **new auto/programmatic SL-edit path MUST call `RecordCommandedSLPrice`**, or its echo will be misread as a manual edit (spurious `Manual SL edit` and, if aged past the ~2s window, the backward-reset the discriminator exists to prevent).
 - Don't re-introduce a raw `Me.Invoke`/`AppendColoredText` without the handle guard.
-- The 8 `emergencyBaseline = 0` reset sites (4 SL-placement + nuclear cancel `CancelOrderAsync` + market-reduce `isMarketOrder` + `CompletePositionClose` + the `ReanchorLegsAsync` fill re-anchor, entry-chase v2) are the canonical "SL context reset" anchors — `ResetCommandedSLPrices()` already mirrors them; any new SL-context field must too. (Was 7 until `spec-entry-chase-v2.md` §4 added the fill re-anchor.)
+- The 7 `emergencyBaseline = 0` reset sites (4 SL-placement + nuclear cancel `CancelOrderAsync` + market-reduce `isMarketOrder` + `CompletePositionClose`) are the canonical "SL context reset" anchors — `ResetCommandedSLPrices()` already mirrors them; any new SL-context field must too. (Was briefly 8 when `spec-entry-chase-v2.md` §4 added `ReanchorLegsAsync`; the TP-only `spec-fill-reanchor-fix.md` removed that SL edit, reverting to 7.)
 - `ApplyCloseFill` is fields-only now — don't pass ByRef.
 - Deleted controls `btnClose`/`btnMark`: don't reference them.

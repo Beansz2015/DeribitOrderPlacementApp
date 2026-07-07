@@ -33,7 +33,7 @@ Decision block only (the `'Normal conditions operation` branch); everything else
 
 ## §4 invariants — confirmed untouched
 
-- **No new SL-edit path** ⇒ no new `RecordCommandedSLPrice`/reset call. **The 8 SL-context reset sites are unchanged; no canonical-count edits in this spec** (explicitly, as §6 requested — nothing to update in `spec-back-session-2026-07-04.md`, `HANDOVER-2.md`, or the code comments).
+- **No new SL-edit path** ⇒ no new `RecordCommandedSLPrice`/reset call. **The SL-context reset sites are unchanged by this spec; no canonical-count edits here** (explicitly, as §6 requested). (Count note: it was 8 at this commit; the later TP-only `spec-fill-reanchor-fix.md` — landing on top before the combined runtime session — removes entry-chase v2's `ReanchorLegsAsync` SL edit and reverts the canonical count to 7. That reversal is that fix's doc change, not this one's.)
 - Single send point (`UpdateStopLossForTriggeredStopLossOrder`) with its record-at-send: untouched.
 - Synchronous reference advance (`placedStopLossPrice`/`emergencyBaseline = newStopPrice`): untouched (accepted F1 phantom-advance class, self-heals).
 - Position-model sizing inside the send function, `reduce_only` placement-only, the three-way echo classification: all untouched (not in the diff).

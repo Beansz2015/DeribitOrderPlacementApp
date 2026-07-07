@@ -58,8 +58,9 @@ Public Class frmMainPageV2
     ' reference AND the emergency baseline to the true live SL). A price we DID command is our own (possibly
     ' out-of-order) echo -> ignore it, preserving the runaway/transition-race single-writer protection.
     ' Written on the receive thread (each SL edit send) and read on the UI thread (the open echo), so ALL access
-    ' is under commandedSLLock. Cleared wherever the SL context resets (mirrors the 8 emergencyBaseline = 0
-    ' sites). Match tolerance = half a tick (BTC-PERPETUAL tick is 0.5) so echo rounding can't cause a spurious
+    ' is under commandedSLLock. Cleared wherever the SL context resets (mirrors the 7 emergencyBaseline = 0
+    ' sites; was briefly 8 with entry-chase v2's fill re-anchor, reverted to 7 by the TP-only fill-reanchor fix).
+    ' Match tolerance = half a tick (BTC-PERPETUAL tick is 0.5) so echo rounding can't cause a spurious
     ' "manual" detection while a real >= 1-tick manual move is still caught.
     Private ReadOnly commandedSLLock As New Object()
     Private ReadOnly commandedSLPrices As New List(Of CommandedSLEntry)()
@@ -143,6 +144,10 @@ Public Class frmMainPageV2
     ' to the SL-context reset sites.
     Private legAnchorPrice As Decimal = 0D                  ' entry price the OTOCO legs' geometry is currently based on
     Private legReanchorDriftMax As Decimal = 0D             ' per-placement bound, computed at placement (see spec §4)
+    ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md): staged at the filled-entry echo, consumed at the
+    ' post-fill open TakeLimitProfit echo (the TP leg's live id doesn't exist until then). ORDER-context
+    ' field - same lifecycle as legAnchorPrice; reset to 0 at the order-context death sites and on consume.
+    Private pendingReanchorFill As Decimal = 0D             ' 0 = no pending TP re-anchor
 
     ' Transition-race fix: True while a cancel is in flight. Auto-clears once the timeout elapses so a
     ' missed cancel confirmation can never wedge repositioning permanently. Read by the hot-path decision
@@ -2167,6 +2172,13 @@ Public Class frmMainPageV2
                                 Dim price = order.SelectToken("price")?.ToObject(Of Decimal?)()
                                 Dim triggerPrice = order.SelectToken("trigger_price")?.ToObject(Of Decimal?)()
 
+                                ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md §3): staged inside the lambda
+                                ' (UI thread, where PositionTPOrderId is set), dispatched after it (receive thread -
+                                ' the lambda is a Sub and cannot Await). 0-id = nothing staged this echo.
+                                Dim tpReanchorFill As Decimal = 0D
+                                Dim tpReanchorTarget As Decimal = 0D
+                                Dim tpReanchorId As String = Nothing
+
                                 ' Update textboxes based on the label
                                 Me.Invoke(Sub()
 
@@ -2198,6 +2210,23 @@ Public Class frmMainPageV2
                                                       lblOrderStatus.ForeColor = Color.Yellow
                                                       OpenPositions = True
                                                       OpenOrderNo = False
+
+                                                      ' Fill-reanchor fix: this is the live post-fill TP leg. If the entry
+                                                      ' chased away from the leg anchor, re-anchor THIS leg to the fill.
+                                                      ' Stage the id/prices here; dispatch the edit after the lambda.
+                                                      If pendingReanchorFill > 0D Then
+                                                          Dim newTP As Decimal = If(manualTPval > 0D, manualTPval,
+                                                                                    If(TradeMode, pendingReanchorFill + takeProfitOffset,
+                                                                                                  pendingReanchorFill - takeProfitOffset))
+                                                          ' Skip a pointless edit when the leg already rests at the target
+                                                          ' (e.g. manual-TP mode - the absolute price didn't move).
+                                                          If (Not price.HasValue) OrElse Math.Abs(newTP - price.Value) > 0.01D Then
+                                                              tpReanchorFill = pendingReanchorFill
+                                                              tpReanchorTarget = newTP
+                                                              tpReanchorId = orderId
+                                                          End If
+                                                          pendingReanchorFill = 0D   ' consumed (edit or skip)
+                                                      End If
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
 
@@ -2318,6 +2347,13 @@ Public Class frmMainPageV2
                                               End Select
                                           End Sub)
 
+                                ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md §3): dispatch the staged TP
+                                ' re-anchor OUTSIDE the lambda (receive thread here; the lambda is a Sub, cannot
+                                ' Await). Targets PositionTPOrderId - the live post-fill leg, not the retired one.
+                                If tpReanchorId IsNot Nothing Then
+                                    Await ReanchorTPToFillAsync(tpReanchorId, tpReanchorFill, tpReanchorTarget)
+                                End If
+
                                 'If UpdateFlag = True Then
                                 ' If label = "StopLossOrder" Then
                                 'AppendColoredText(txtLogs, $"Updated to: ${price}", Color.Crimson)
@@ -2387,12 +2423,16 @@ Public Class frmMainPageV2
                                         OpenOrderNo = False
                                         UpdateFlag = False
 
-                                        ' Entry-chase v2 §4: fill re-anchor - if the entry-only chase left the
-                                        ' TP/SL legs anchored away from the actual fill, re-derive them from it.
+                                        ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md §3): DEFER. At this
+                                        ' filled echo the live post-fill TP leg does not exist under its new id yet
+                                        ' (the OTOCO fill retires the pre-fill legs), so editing here hits
+                                        ' order_not_found. Stage the fill; the post-fill open TakeLimitProfit echo
+                                        ' re-anchors the TP leg. The SL leg is a native trailing stop (trigger_offset)
+                                        ' - the exchange trails it, so it is deliberately NOT re-anchored.
                                         Dim entryFillPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(),
                                                                            If(order.SelectToken("price")?.ToObject(Of Decimal?)(), 0D))
                                         If legAnchorPrice <> 0D AndAlso entryFillPrice > 0D AndAlso entryFillPrice <> legAnchorPrice Then
-                                            Await ReanchorLegsAsync(entryFillPrice, includeTP:=True)
+                                            pendingReanchorFill = entryFillPrice
                                         End If
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
@@ -2417,14 +2457,9 @@ Public Class frmMainPageV2
                                         isTrailingPosition = False   'For sanity confirm that it is not in position
                                         UpdateFlag = False
 
-                                        ' Entry-chase v2 §4: trailing fill re-anchor - SL leg only (this bracket
-                                        ' has no TP leg). Anchor point = this filled-EntryTrailingOrder echo, the
-                                        ' trailing twin of the EntryLimitOrder hook above.
-                                        Dim trailFillPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(),
-                                                                           If(order.SelectToken("price")?.ToObject(Of Decimal?)(), 0D))
-                                        If legAnchorPrice <> 0D AndAlso trailFillPrice > 0D AndAlso trailFillPrice <> legAnchorPrice Then
-                                            Await ReanchorLegsAsync(trailFillPrice, includeTP:=False)
-                                        End If
+                                        ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md §3): the trailing
+                                        ' bracket has no TP leg and its SL is the native trailing stop, so there is
+                                        ' nothing to re-anchor here - the old (buggy) SL re-anchor hook was removed.
                                     Case "TrailingStopLoss"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
@@ -3072,7 +3107,8 @@ Public Class frmMainPageV2
         ' Reset engine state synchronously (cross-thread fix) so no reposition/SL decision reads a stale price.
         placedPrice = 0D
         placedStopLossPrice = 0D
-        legAnchorPrice = 0D   ' entry-chase v2: order context dies with placedPrice
+        legAnchorPrice = 0D          ' entry-chase v2: order context dies with placedPrice
+        pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
 
         ' Transition-race fix: mark the cancel in flight and drop the order context up front. Nulling the IDs
         ' plus the cancelPending gate stops any reposition/edit from firing on the just-cancelled order, and
@@ -3158,7 +3194,8 @@ Public Class frmMainPageV2
         CurrentTPOrderId = Nothing
         CurrentSLOrderId = Nothing
         placedPrice = 0D
-        legAnchorPrice = 0D   ' entry-chase v2: order context dies with placedPrice
+        legAnchorPrice = 0D          ' entry-chase v2: order context dies with placedPrice
+        pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
         ResetOrderAttempt() ' reset ATR slippage tracking for the next attempt
 
         UiInvoke(Sub()
@@ -3368,95 +3405,39 @@ Public Class frmMainPageV2
         End Try
     End Function
 
-    ' Entry-chase v2 §4: after the entry fills at a price the chase moved away from the legs' anchor,
-    ' re-derive the TP/SL geometry from the ACTUAL fill (same formulas as UpdateLimitOrderWithOTOCOAsync,
-    ' honoring the manual-target overrides). includeTP:=False for the trailing-entry bracket (no TP leg).
-    ' This is the 8th SL-context reset site (StopLossTriggerOriginal / emergencyBaseline / commanded set),
-    ' and the RecordCommandedSLPrice call is MANDATORY (HANDOVER-2 §3: every programmatic SL edit records) -
-    ' it covers the race where the SL triggers between the fill and this re-anchor, so this edit's echo on
-    ' the triggered path is recognised as ours and not misread as a manual move. Reset-then-record, never
-    ' the reverse. Runs on the receive thread (fill echo): engine fields only, self-marshalling output.
-    Private Async Function ReanchorLegsAsync(fillPrice As Decimal, includeTP As Boolean) As Task
+    ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md): re-anchor the TP leg ONLY, to the actual fill.
+    ' Called from the post-fill open TakeLimitProfit echo with that echo's live PositionTPOrderId (the
+    ' pre-fill CurrentTPOrderId is retired by the OTOCO fill - the old bug). One edit; the price is derived
+    ' by the caller. The SL leg is a native trailing stop (trigger_offset) - deliberately NOT touched, so
+    ' this is NOT an SL-context reset site (no StopLossTriggerOriginal/emergencyBaseline/commanded writes).
+    ' Runs on the receive thread (after the echo's Me.Invoke): engine fields only, self-marshalling output.
+    Private Async Function ReanchorTPToFillAsync(tpOrderId As String, fillPrice As Decimal, newTPprice As Decimal) As Task
         Try
-            ' Ensure rate limiter exists
             If rateLimiter Is Nothing Then
                 AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter", Color.Yellow)
                 rateLimiter = New DeribitRateLimiter(1000, 50) ' Emergency conservative limiter
             End If
 
-            If (includeTP AndAlso CurrentTPOrderId Is Nothing) OrElse CurrentSLOrderId Is Nothing Then
-                AppendColoredText(txtLogs, "Leg re-anchor skipped - leg order id(s) missing", Color.Orange)
+            ' Cross-thread fix: read engine input fields, never the textboxes.
+            Dim amount As Decimal = orderAmountVal
+            If amount <= 0D Then
+                AppendColoredText(txtLogs, "TP re-anchor skipped - amount blank/zero", Color.Orange)
                 Return
             End If
 
             If Not rateLimiter.CanMakeRequest() Then
-                Dim waitTime = rateLimiter.GetWaitTimeMs()
-                AppendColoredText(txtLogs, $"Rate limit reached, waiting {waitTime}ms before leg re-anchor", Color.Yellow)
-                Await Task.Delay(waitTime)
-            End If
-
-            If Not rateLimiter.HasHeadroom(If(includeTP, 2, 1)) Then
-                AppendColoredText(txtLogs, "Insufficient credits for leg re-anchor - legs stay at placement geometry", Color.Orange)
+                AppendColoredText(txtLogs, "TP re-anchor skipped - credits unavailable (TP stays at placement geometry)", Color.Orange)
                 Return
             End If
 
-            ' Cross-thread fix: read engine input fields, never the textboxes.
-            Dim amount As Decimal = orderAmountVal
-            If amount <= 0D Then
-                AppendColoredText(txtLogs, "Order amount blank/zero - skipping leg re-anchor", Color.Orange)
-                Return
-            End If
-
-            ' Same price derivation as UpdateLimitOrderWithOTOCOAsync, anchored to the fill.
-            Dim newTPprice, newTrigSLprice, newSLprice As Decimal
-            If TradeMode = True Then
-                If manualTPval > 0 Then
-                    newTPprice = manualTPval
-                Else
-                    newTPprice = fillPrice + takeProfitOffset
-                End If
-
-                If manualSLval > 0 Then
-                    newSLprice = manualSLval
-                    newTrigSLprice = newSLprice + stopLossOffset
-                Else
-                    newTrigSLprice = fillPrice - triggerDistance
-                    newSLprice = newTrigSLprice - stopLossOffset
-                End If
-            Else
-                If manualTPval > 0 Then
-                    newTPprice = manualTPval
-                Else
-                    newTPprice = fillPrice - takeProfitOffset
-                End If
-
-                If manualSLval > 0 Then
-                    newSLprice = manualSLval
-                    newTrigSLprice = newSLprice - stopLossOffset
-                Else
-                    newTrigSLprice = fillPrice + triggerDistance
-                    newSLprice = newTrigSLprice + stopLossOffset
-                End If
-            End If
-
-            If includeTP Then
-                rateLimiter.ConsumeCredits()
-                Await SendRateLimitedUpdate("takeprofit", CurrentTPOrderId, newTPprice, amount)
-            End If
             rateLimiter.ConsumeCredits()
-            Await SendRateLimitedUpdate("stoploss", CurrentSLOrderId, newSLprice, amount, newTrigSLprice)
+            Await SendRateLimitedUpdate("takeprofit", tpOrderId, newTPprice, amount)
+            UpdateFlag = True
 
-            ' The SL genuinely moved - full SL-context bookkeeping, in this order (spec §4).
-            StopLossTriggerOriginal = newTrigSLprice
-            emergencyBaseline = 0D
-            ResetCommandedSLPrices()
-            RecordCommandedSLPrice(newSLprice)
-
-            legAnchorPrice = fillPrice
-            AppendColoredText(txtLogs, $"Legs re-anchored to fill ${fillPrice:F2}: {If(includeTP, $"TP ${newTPprice:F2}, ", "")}SL trigger ${newTrigSLprice:F2} / limit ${newSLprice:F2}", Color.Cyan)
+            AppendColoredText(txtLogs, $"TP re-anchored to fill ${fillPrice:F2}: ${newTPprice:F2}", Color.Cyan)
 
         Catch ex As Exception
-            AppendColoredText(txtLogs, "Error in ReanchorLegsAsync: " & ex.Message, Color.Red)
+            AppendColoredText(txtLogs, "Error in ReanchorTPToFillAsync: " & ex.Message, Color.Red)
         End Try
     End Function
 
@@ -4061,9 +4042,10 @@ Public Class frmMainPageV2
         End SyncLock
     End Function
 
-    ' Clear the commanded set wherever the SL context resets (mirrors the 8 emergencyBaseline = 0 sites:
-    ' 4 SL-placement paths + CompletePositionClose + nuclear cancel + market-reduce + the ReanchorLegsAsync
-    ' fill re-anchor, entry-chase v2).
+    ' Clear the commanded set wherever the SL context resets (mirrors the 7 emergencyBaseline = 0 sites:
+    ' 4 SL-placement paths + CompletePositionClose + nuclear cancel + market-reduce). Was briefly 8 with
+    ' entry-chase v2's fill re-anchor (ReanchorLegsAsync); the TP-only fill-reanchor fix removed that SL
+    ' edit, reverting to 7.
     Private Sub ResetCommandedSLPrices()
         SyncLock commandedSLLock
             commandedSLPrices.Clear()
@@ -4238,7 +4220,8 @@ Public Class frmMainPageV2
         StopLossTriggerOriginal = 0
         emergencyBaseline = 0
         ResetCommandedSLPrices() ' reconcile: position closed - triggered-SL context is gone
-        legAnchorPrice = 0D   ' entry-chase v2: order context is gone (CancelOrderAsync below also clears it)
+        legAnchorPrice = 0D          ' entry-chase v2: order context is gone (CancelOrderAsync below also clears it)
+        pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
 
         PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
