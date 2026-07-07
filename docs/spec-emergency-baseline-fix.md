@@ -4,6 +4,8 @@
 **Implementer:** same conversation. **Sequencing:** lands on the current local stack (with the §6(b) mini-fix), then ONE consolidated coordinator review of the whole unpushed stack, then the combined runtime session (this doc's §5 + the pending sl-chase/fill-reanchor items), then push.
 **Ground rules:** standing. Impl report may be a short addendum to this doc's commit message + the doc edits — the change is one line; the doc churn is the bulk.
 
+> **IMPLEMENTED 2026-07-08 (build 0/0).** §2 core fix: deleted `emergencyBaseline = newStopPrice` at the chase execute; rewrote the comment block with the new invariant. §3 doc churn: all six locations done (`spec-back-session-2026-07-07.md` §1 + F1, `spec-back-session-2026-07-04.md` §6 + §8 bullet 5, `HANDOVER-2.md` new 07-08 delta, `spec-back-reconcile-manual-sl-edits.md` + `spec-reconcile-manual-sl-edits.md` 4a-revert, the adopt-block code comment). §6(b) manual-TP mini-fix: the fill-reanchor now decides at the *filled* echo (`manualTPval` still intact, before the position-entry clear) and skips re-anchoring a manual (absolute) TP — placement already honors it; only auto-offset TPs re-anchor. §6(a) documented as a known property; §6(c) left. Latency-hoist backlog item NOT folded in. Owner runtime (§5) + consolidated stack review pending.
+
 ---
 
 ## 1. Ratification — the spec-back is correct on every point I could verify

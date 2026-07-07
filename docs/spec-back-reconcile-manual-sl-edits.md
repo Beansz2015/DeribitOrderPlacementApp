@@ -53,9 +53,10 @@ Both are required: the first alone would let a lagging own-echo reset the refere
 - **Removed** the ungated `emergencyBaseline = If(price, emergencyBaseline)` at the old `:2062` (it updated on *every* echo, including lagging/out-of-order own-echoes → could walk the baseline backward).
 - `emergencyBaseline` now changes in lockstep with `placedStopLossPrice`, at exactly three places:
   - **Trigger seed** — Region 2 step 1.
-  - **App's own chase** — `emergencyBaseline = newStopPrice` at the reposition (`~:1653`), added next to the existing `placedStopLossPrice = newStopPrice` (`~:1652`). The emergency follows the app's own chase synchronously, no longer via the echo.
+  - ~~**App's own chase** — `emergencyBaseline = newStopPrice` at the reposition~~ **REVERTED 2026-07-08 (`spec-emergency-baseline-fix.md`, owner ruling):** this chase-advance half of `4a` was DELETED. `emergencyBaseline` is the M.SL loss-cap anchor and must NOT follow the app's own chase — advancing it tracked the book and disabled the cap entirely (owner #53/#55/#56). `placedStopLossPrice = newStopPrice` stays (chase reference / runaway protection).
   - **Manual edit** — Region 2 step 3.
-- **Net:** `emergencyBaseline` still follows the live SL (owner-confirmed behavior, `f42a6a7`), but without the race-exposed ungated write. The two references stay equal post-trigger.
+- **Net (AMENDED 2026-07-08):** `emergencyBaseline` follows manual SL edits and the trigger adopt but NOT the app chase; `placedStopLossPrice` and `emergencyBaseline` deliberately **diverge** post-trigger (chase reference vs loss-cap anchor). The `f42a6a7` "follows the live SL" intent is kept only for the *manual* follower; the app-chase follower is gone.
+- **Known property (detection reliability, `spec-emergency-baseline-fix.md` §4a):** under the 1-tick/333 ms chase the commanded set is dense near the book, so a near-book manual SL move can match a fresh commanded price (±0.25) and be classified as ours — not followed, no cyan. Accepted by design: the manual re-sets that matter to the loss-cap are *wide* moves (never match a book-hugging commanded price → always detected); near-book moves are overwritten by the chase within ~333 ms regardless.
 
 ---
 

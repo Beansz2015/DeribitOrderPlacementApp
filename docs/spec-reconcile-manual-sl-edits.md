@@ -40,7 +40,7 @@ Post-trigger `placedStopLossPrice` is non-zero, so a **manual SL move on the exc
 
 **Why the seed-if-zero exists (must be preserved):** it stops a **stale / out-of-order echo of the app's own rapid reposition** from resetting `placedStopLossPrice` backward mid-chase (the "runaway"/transition-race fix). The app treats itself as the single writer post-trigger. Naively removing the guard reintroduces that race.
 
-**Already handled (context):** `emergencyBaseline` (the M.SL emergency baseline, commit `f42a6a7`) *does* now follow the live SL by updating on every open echo (`:2062`) — but it's currently **ungated**, so it inherits the same stale/out-of-order exposure. This spec should bring it under the same discriminator as `placedStopLossPrice`.
+**Already handled (context):** `emergencyBaseline` (the M.SL emergency baseline, commit `f42a6a7`) *does* now follow the live SL by updating on every open echo (`:2062`) — but it's currently **ungated**, so it inherits the same stale/out-of-order exposure. This spec should bring it under the same discriminator as `placedStopLossPrice`. **AMENDED 2026-07-08 (`spec-emergency-baseline-fix.md`):** the app-chase follower was later reverted — `emergencyBaseline` follows the trigger adopt + manual edits ONLY (loss-cap anchor), never the app chase; it and `placedStopLossPrice` deliberately diverge post-trigger.
 
 **Parallel gap — Take Profit:** post-fill the TP is a live `open` limit; its open echo (`:2046-2052`) sets only `PositionTPOrderId`, **no price update**, so a manual TP move post-fill isn't reflected either. Pre-fill (untriggered) TP moves *are* reflected. Same class of defect; see §7.
 

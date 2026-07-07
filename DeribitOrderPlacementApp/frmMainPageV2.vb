@@ -1745,12 +1745,15 @@ Public Class frmMainPageV2
                                         Await UpdateStopLossForTriggeredStopLossOrder(newStopPrice)
                                     End If
 
-                                    ' Runaway fix: advance engine state synchronously before the display mirror.
-                                    ' Reconcile fix (spec §4a): tie the emergency baseline to the same value so the M.SL
-                                    ' emergency follows the app's OWN chase without relying on the (now-discriminated) echo -
-                                    ' which is ignored for our own repositions. The commanded price was recorded at the send.
+                                    ' Runaway fix: advance the CHASE reference synchronously before the display mirror.
+                                    ' Invariant (2026-07-08, spec-emergency-baseline-fix.md; REPLACES "references move together
+                                    ' post-trigger"): post-trigger the two references serve different masters and deliberately
+                                    ' diverge. placedStopLossPrice is the CHASE reference - it tracks the app's own repositioning
+                                    ' (advanced here). emergencyBaseline is the LOSS-CAP anchor - set at the trigger adopt, moved
+                                    ' ONLY by a detected MANUAL SL edit (and the restore seed), NEVER by the app's own chase - so
+                                    ' the M.SL emergency measures the market against a FIXED anchor and actually fires at
+                                    ' anchor + M.SL (advancing it here made it track the book, disabling the cap: owner #53/#55/#56).
                                     placedStopLossPrice = newStopPrice
-                                    emergencyBaseline = newStopPrice
                                     UiInvoke(Sub() txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2"))
                                     lastStopLossUpdate = currentTime
                                     slUpdateFailures = 0   ' success clears the backoff
@@ -2230,11 +2233,15 @@ Public Class frmMainPageV2
                                                   Case "StopLossOrder"
                                                       PositionSLOrderId = orderId
 
-                                                      ' Reconcile fix (spec-reconcile-manual-sl-edits.md): the M.SL emergency baseline follows the
-                                                      ' LIVE SL, but no longer via an UNGATED update on every echo. It moves under the same
-                                                      ' commanded-price discriminator as placedStopLossPrice (reconciliation block below): ADOPTED at
-                                                      ' the trigger flip, advanced with the app's own chase at the reposition
-                                                      ' (placedStopLossPrice = newStopPrice), and set to the true value on a detected manual edit.
+                                                      ' Reconcile fix + emergency-baseline fix (spec-emergency-baseline-fix.md, 2026-07-08):
+                                                      ' emergencyBaseline is the M.SL LOSS-CAP anchor. It is ADOPTED here at the trigger flip
+                                                      ' (set to the actual triggered SL price), and moved thereafter ONLY by a detected MANUAL SL
+                                                      ' edit (below) and the id-778 restore seed - NEVER by the app's own chase (that chase-advance
+                                                      ' was deleted; advancing it tracked the book and disabled the cap - owner #53/#55/#56).
+                                                      ' placedStopLossPrice is the separate CHASE reference that DOES track the app's repositioning.
+                                                      ' Capture the pre-echo triggered state BEFORE flipping it, so the block can tell the one-time
+                                                      ' trigger flip (adopt silently) from a later manual edit (discriminate + log). A TRIGGER-only
+                                                      ' move makes the flip price differ from the last untriggered mirror - that must NOT log "manual".
                                                       ' Capture the pre-echo triggered state BEFORE flipping it, so the block can tell the one-time
                                                       ' trigger flip (adopt silently) from a later manual edit (discriminate + log). A TRIGGER-only
                                                       ' move makes the flip price differ from the last untriggered mirror - that must NOT log "manual".
@@ -2429,9 +2436,14 @@ Public Class frmMainPageV2
                                         ' order_not_found. Stage the fill; the post-fill open TakeLimitProfit echo
                                         ' re-anchors the TP leg. The SL leg is a native trailing stop (trigger_offset)
                                         ' - the exchange trails it, so it is deliberately NOT re-anchored.
+                                        ' Manual-TP fix (spec-emergency-baseline-fix.md §6b): a manual TP is an ABSOLUTE
+                                        ' price (placed correctly, fill-independent) - it must NOT be re-anchored to the
+                                        ' fill+offset. Decide here (manualTPval is still intact; the OpenPositions=True
+                                        ' block below clears it), so a later open-TP echo can't re-anchor over it after
+                                        ' the clear. Gate on manualTPval <= 0 => only auto-offset TPs re-anchor.
                                         Dim entryFillPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(),
                                                                            If(order.SelectToken("price")?.ToObject(Of Decimal?)(), 0D))
-                                        If legAnchorPrice <> 0D AndAlso entryFillPrice > 0D AndAlso entryFillPrice <> legAnchorPrice Then
+                                        If legAnchorPrice <> 0D AndAlso entryFillPrice > 0D AndAlso entryFillPrice <> legAnchorPrice AndAlso manualTPval <= 0D Then
                                             pendingReanchorFill = entryFillPrice
                                         End If
                                     Case "TakeLimitProfit"
