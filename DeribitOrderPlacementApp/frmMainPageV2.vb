@@ -137,6 +137,7 @@ Public Class frmMainPageV2
     ' use 700-1000 if EntryOnlyChase is reverted to False
     Private Const EntryOnlyChase As Boolean = True          ' OWNER RULING: default ON. One-line revert switch.
     Private lastEntryChaseUtc As DateTime = DateTime.MinValue ' UTC stamp of the last chase edit (entry + trailing share it)
+    Private lastReduceChaseUtc As DateTime = DateTime.MinValue ' separate stamp: the reduce chase must not be starved by entry-chase stamps
     ' legAnchorPrice/legReanchorDriftMax are ORDER-context fields (same lifecycle as placedPrice:
     ' seeded at placement, reset where placedPrice context dies) - NOT SL context; do not add them
     ' to the SL-context reset sites.
@@ -1612,20 +1613,29 @@ Public Class frmMainPageV2
                    AndAlso reduceOrderPrice > 0D AndAlso reduceOrderAmount > 0D _
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
+                        ' Entry-chase v2 §5: same best-non-crossing target + time throttle as the entry
+                        ' chase, on the reduce chase's own stamp (lastReduceChaseUtc) so it is never
+                        ' starved by entry-chase edits. Direction from reduceOrderIsBuy, NEVER TradeMode.
                         If reduceOrderIsBuy Then
-                            ' Closing a short: reduce BUY rests at the bid - chase up
-                            If bestBid IsNot Nothing AndAlso bestBid > (reduceOrderPrice + 3) Then
+                            ' Closing a short: reduce BUY - most aggressive non-crossing bid, chase up
+                            Dim chaseTarget As Decimal? = bestAsk - ChaseTickUSD
+                            If chaseTarget > reduceOrderPrice _
+                               AndAlso (DateTime.UtcNow - lastReduceChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
                                 If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                     rateLimiter.ConsumeCredits()
-                                    Await SendReduceRepositionEdit(bestBid)
+                                    Await SendReduceRepositionEdit(chaseTarget)
+                                    lastReduceChaseUtc = DateTime.UtcNow
                                 End If
                             End If
                         Else
-                            ' Closing a long: reduce SELL rests at the ask - chase down
-                            If bestAsk IsNot Nothing AndAlso bestAsk < (reduceOrderPrice - 3) Then
+                            ' Closing a long: reduce SELL - most aggressive non-crossing ask, chase down
+                            Dim chaseTarget As Decimal? = bestBid + ChaseTickUSD
+                            If chaseTarget < reduceOrderPrice _
+                               AndAlso (DateTime.UtcNow - lastReduceChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
                                 If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
                                     rateLimiter.ConsumeCredits()
-                                    Await SendReduceRepositionEdit(bestAsk)
+                                    Await SendReduceRepositionEdit(chaseTarget)
+                                    lastReduceChaseUtc = DateTime.UtcNow
                                 End If
                             End If
                         End If
