@@ -78,11 +78,12 @@ Ordered; each from a pre-written spec, reviewed by an Opus conversation using th
 
 | Spec | Status | Implementer |
 |---|---|---|
-| 1. `spec-sl-chase-v2.md` | ✅ written Jul 8, **NEXT** (triggered-SL chase → best-non-crossing target + single-flight; completes the chase-v2 program; §2 item 2.6; owner decision flagged in its §4) | Fable/Opus high (same conversation as entry-chase v2) |
-| 2. `spec-autotrade-tiein.md` | ✅ written Jul 3; A2 go-ahead 2026-07-06 (engine emitter live-ready, emission OFF); testable without the engine via hand-crafted payloads; live step gated on the engine geometry pass | Opus high (§2 item 3) |
-| 3. `spec-execution-ergonomics.md` | ✅ written Jul 3 (owner-selected bundle; reconciled 2026-07-04 to the new base). Phase A = input persistence, risk-based SIZE, MAE/MFE+R+fees journal, alerts, break-even. Phase B = post-tie-in (USE-ENGINE-LEVELS, signal columns, bridge alerts) | Opus high (§2 item 4) |
-| 4. `spec-medium-housekeeping.md` + F14–F18 addendum | ✅ addendum written 2026-07-06 (items 6–16, all re-verified vs `fc7bb6c`; bundle turnkey) | Sonnet medium (§2 item 5; item 15 diff gets coordinator review) |
-| 5. Production-cutover checklist | 📝 **to write** (post-tie-in): production keys via `secrets.json`, delete throwaway sub-account, `.gitignore` verify, first-week size limits, circuit-breaker values | doc; owner-executed (§2 item 6) |
+| 1. `spec-fill-reanchor-fix.md` | ✅ written Jul 8, **NEXT** — TP-only deferred re-anchor (answers `spec-back-fill-reanchor-bug.md`; SL leg is a native trailing stop, so no SL re-anchor; reset-site count reverts 8→7) | Fable/Opus high (same conversation) |
+| 2. `spec-sl-chase-v2.md` | 🔨 IMPLEMENTED Jul 8 (`b1b37e7`/`f0a2110` + impl report `843b05a`) — coordinator review + owner runtime test + push pending (combined runtime session with the fix above; owner decision on P1-pullback tightening flagged in its §4) | Fable (done); review + owner gates remain |
+| 3. `spec-autotrade-tiein.md` | ✅ written Jul 3; A2 go-ahead 2026-07-06 (engine emitter live-ready, emission OFF); testable without the engine via hand-crafted payloads; live step gated on the engine geometry pass | Opus high (§2 item 3) |
+| 4. `spec-execution-ergonomics.md` | ✅ written Jul 3 (owner-selected bundle; reconciled 2026-07-04 to the new base). Phase A = input persistence, risk-based SIZE, MAE/MFE+R+fees journal, alerts, break-even. Phase B = post-tie-in (USE-ENGINE-LEVELS, signal columns, bridge alerts) | Opus high (§2 item 4) |
+| 5. `spec-medium-housekeeping.md` + F14–F18 addendum | ✅ addendum written 2026-07-06 (items 6–16, all re-verified vs `fc7bb6c`; bundle turnkey) | Sonnet medium (§2 item 5; item 15 diff gets coordinator review) |
+| 6. Production-cutover checklist | 📝 **to write** (post-tie-in): production keys via `secrets.json`, delete throwaway sub-account, `.gitignore` verify, first-week size limits, circuit-breaker values | doc; owner-executed (§2 item 6) |
 
 **Standing skip:** `spec-medium-dispatcher.md` (#9) — ⛔ skip until VerdictEngine integration proves a need.
 
