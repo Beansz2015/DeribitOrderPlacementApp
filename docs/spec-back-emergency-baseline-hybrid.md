@@ -4,6 +4,8 @@
 
 **Origin:** owner trade #67 (SHORT, M.SL 5). The cap fired (fix works) but at 64019.5; owner wants **64023**. The 4.5 gap is exactly the SL's trail-to-top-of-book step.
 
+> **IMPLEMENTED 2026-07-08 — Option 2 (owner authorised direct implementation), impl `25cac5f`, build 0/0.** As-built: `docs/impl-report-emergency-baseline-hybrid.md`. New `emergencyBaselineSettled` latch; adopt seeds the flip price + re-arms (False); the first post-trigger chase reposition captures the top-of-book SL + freezes (True); subsequent chases skip; manual edit re-anchors + freezes; restore freezes; latch cleared at the 3 trade-over resets (the 4 pre-trigger placements rely on the adopt re-arm). `spec-emergency-baseline-fix.md` §2 invariant refined; owner runtime (§6) + consolidated stack review pending. The orchestrator's review of this as-built is still welcome.
+
 ---
 
 ## 1. The owner's model (stated + confirmed — authoritative)
