@@ -58,7 +58,7 @@ Public Class frmMainPageV2
     ' reference AND the emergency baseline to the true live SL). A price we DID command is our own (possibly
     ' out-of-order) echo -> ignore it, preserving the runaway/transition-race single-writer protection.
     ' Written on the receive thread (each SL edit send) and read on the UI thread (the open echo), so ALL access
-    ' is under commandedSLLock. Cleared wherever the SL context resets (mirrors the 7 emergencyBaseline = 0
+    ' is under commandedSLLock. Cleared wherever the SL context resets (mirrors the 8 emergencyBaseline = 0
     ' sites). Match tolerance = half a tick (BTC-PERPETUAL tick is 0.5) so echo rounding can't cause a spurious
     ' "manual" detection while a real >= 1-tick manual move is still caught.
     Private ReadOnly commandedSLLock As New Object()
@@ -135,7 +135,13 @@ Public Class frmMainPageV2
     Private Const ChaseTickUSD As Decimal = 0.5D            ' BTC-PERPETUAL tick (matches the NoSpread branches)
     Private Const EntryChaseMinIntervalMs As Integer = 350  ' floor between chase edits (entry-only mode default);
     ' use 700-1000 if EntryOnlyChase is reverted to False
+    Private Const EntryOnlyChase As Boolean = True          ' OWNER RULING: default ON. One-line revert switch.
     Private lastEntryChaseUtc As DateTime = DateTime.MinValue ' UTC stamp of the last chase edit (entry + trailing share it)
+    ' legAnchorPrice/legReanchorDriftMax are ORDER-context fields (same lifecycle as placedPrice:
+    ' seeded at placement, reset where placedPrice context dies) - NOT SL context; do not add them
+    ' to the SL-context reset sites.
+    Private legAnchorPrice As Decimal = 0D                  ' entry price the OTOCO legs' geometry is currently based on
+    Private legReanchorDriftMax As Decimal = 0D             ' per-placement bound, computed at placement (see spec §4)
 
     ' Transition-race fix: True while a cancel is in flight. Auto-clears once the timeout elapses so a
     ' missed cancel confirmation can never wedge repositioning permanently. Read by the hot-path decision
@@ -1508,7 +1514,15 @@ Public Class frmMainPageV2
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
+                                        ' Entry-chase v2 §4 (EntryOnlyChase, owner-ruled default ON): within the
+                                        ' drift bound move ONLY the entry leg (1 edit); beyond it re-anchor the
+                                        ' whole bracket (3 edits) and advance the legs' anchor.
+                                        If EntryOnlyChase AndAlso Math.Abs(chaseTarget.Value - legAnchorPrice) < legReanchorDriftMax Then
+                                            Await UpdateEntryOrderOnlyAsync(chaseTarget)
+                                        Else
+                                            Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
+                                            legAnchorPrice = chaseTarget
+                                        End If
 
                                         ' Runaway fix: advance engine state SYNCHRONOUSLY before the (non-blocking)
                                         ' display update, so the next tick's "chaseTarget > placedPrice" reads the
@@ -1551,7 +1565,13 @@ Public Class frmMainPageV2
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
+                                        ' Entry-chase v2 §4: entry-only within the drift bound, full bracket beyond.
+                                        If EntryOnlyChase AndAlso Math.Abs(chaseTarget.Value - legAnchorPrice) < legReanchorDriftMax Then
+                                            Await UpdateEntryOrderOnlyAsync(chaseTarget)
+                                        Else
+                                            Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
+                                            legAnchorPrice = chaseTarget
+                                        End If
 
                                         ' Runaway fix: advance engine state synchronously before the display mirror.
                                         If placedPrice > 0 Then
@@ -1745,7 +1765,14 @@ Public Class frmMainPageV2
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateStopLossForTrailingOrder(chaseTarget)
+                                        ' Entry-chase v2 §4: entry-only within the drift bound; the full 2-edit
+                                        ' path (which moves the SL and updates the trigger bookkeeping) beyond it.
+                                        If EntryOnlyChase AndAlso Math.Abs(chaseTarget.Value - legAnchorPrice) < legReanchorDriftMax Then
+                                            Await UpdateEntryOrderOnlyAsync(chaseTarget)
+                                        Else
+                                            Await UpdateStopLossForTrailingOrder(chaseTarget)
+                                            legAnchorPrice = chaseTarget
+                                        End If
                                         placedPrice = chaseTarget
                                         lastEntryChaseUtc = DateTime.UtcNow
                                         UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
@@ -1775,7 +1802,13 @@ Public Class frmMainPageV2
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateStopLossForTrailingOrder(chaseTarget)
+                                        ' Entry-chase v2 §4: entry-only within the drift bound, full 2-edit path beyond.
+                                        If EntryOnlyChase AndAlso Math.Abs(chaseTarget.Value - legAnchorPrice) < legReanchorDriftMax Then
+                                            Await UpdateEntryOrderOnlyAsync(chaseTarget)
+                                        Else
+                                            Await UpdateStopLossForTrailingOrder(chaseTarget)
+                                            legAnchorPrice = chaseTarget
+                                        End If
                                         placedPrice = chaseTarget
                                         lastEntryChaseUtc = DateTime.UtcNow
                                         UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
@@ -2318,6 +2351,14 @@ Public Class frmMainPageV2
                                         OpenPositions = True
                                         OpenOrderNo = False
                                         UpdateFlag = False
+
+                                        ' Entry-chase v2 §4: fill re-anchor - if the entry-only chase left the
+                                        ' TP/SL legs anchored away from the actual fill, re-derive them from it.
+                                        Dim entryFillPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(),
+                                                                           If(order.SelectToken("price")?.ToObject(Of Decimal?)(), 0D))
+                                        If legAnchorPrice <> 0D AndAlso entryFillPrice > 0D AndAlso entryFillPrice <> legAnchorPrice Then
+                                            Await ReanchorLegsAsync(entryFillPrice, includeTP:=True)
+                                        End If
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
@@ -2340,6 +2381,15 @@ Public Class frmMainPageV2
                                         isTrailingStop = True 'For checking if is trailing order when executing In Position code
                                         isTrailingPosition = False   'For sanity confirm that it is not in position
                                         UpdateFlag = False
+
+                                        ' Entry-chase v2 §4: trailing fill re-anchor - SL leg only (this bracket
+                                        ' has no TP leg). Anchor point = this filled-EntryTrailingOrder echo, the
+                                        ' trailing twin of the EntryLimitOrder hook above.
+                                        Dim trailFillPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(),
+                                                                           If(order.SelectToken("price")?.ToObject(Of Decimal?)(), 0D))
+                                        If legAnchorPrice <> 0D AndAlso trailFillPrice > 0D AndAlso trailFillPrice <> legAnchorPrice Then
+                                            Await ReanchorLegsAsync(trailFillPrice, includeTP:=False)
+                                        End If
                                     Case "TrailingStopLoss"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("average_price")?.ToObject(Of Decimal?)()
@@ -2931,6 +2981,14 @@ Public Class frmMainPageV2
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
 
+            ' Entry-chase v2 §4: the legs' geometry is anchored to this placement price. Bound the
+            ' geometry error so a chased entry can never overrun its own TP:
+            ' fill <= anchor + driftMax <= anchor + tpOffset/2 < anchor + tpOffset = TP. Same logic
+            ' for the trigger side.
+            legAnchorPrice = BestPrice
+            legReanchorDriftMax = Math.Min(takeProfitOffset, triggerDistance) / 2D
+            If legReanchorDriftMax <= 0D Then legReanchorDriftMax = 10D  ' offsets unset (manual-targets mode) - modest default
+
             If TypeOfOrder = "BuyLimit" Then
                 ' Optional: Handle post-order logic (e.g., display confirmation)
                 AppendColoredText(txtLogs, $"Buy limit order placed For {amount} at {BestPrice}.", Color.MediumSeaGreen)
@@ -2979,6 +3037,7 @@ Public Class frmMainPageV2
         ' Reset engine state synchronously (cross-thread fix) so no reposition/SL decision reads a stale price.
         placedPrice = 0D
         placedStopLossPrice = 0D
+        legAnchorPrice = 0D   ' entry-chase v2: order context dies with placedPrice
 
         ' Transition-race fix: mark the cancel in flight and drop the order context up front. Nulling the IDs
         ' plus the cancelPending gate stops any reposition/edit from firing on the just-cancelled order, and
@@ -3064,6 +3123,7 @@ Public Class frmMainPageV2
         CurrentTPOrderId = Nothing
         CurrentSLOrderId = Nothing
         placedPrice = 0D
+        legAnchorPrice = 0D   ' entry-chase v2: order context dies with placedPrice
         ResetOrderAttempt() ' reset ATR slippage tracking for the next attempt
 
         UiInvoke(Sub()
@@ -3229,6 +3289,139 @@ Public Class frmMainPageV2
 
         Catch ex As Exception
             AppendColoredText(txtLogs, "Error in rate-limited UpdateLimitOrderWithOTOCOAsync: " & ex.Message, Color.Red)
+        End Try
+    End Function
+
+    ' Entry-chase v2 §4: slim chase path - move ONLY the entry leg (1 matching-engine edit instead of
+    ' the bracket's 3). Deliberately does NOT touch StopLossTriggerOriginal, emergencyBaseline, or the
+    ' commanded-SL set: the SL leg did not move, so the recorded trigger stays truthful to the order
+    ' actually resting on the exchange (wider-than-ideal geometry until re-anchor, never a false record).
+    Private Async Function UpdateEntryOrderOnlyAsync(newPrice As Decimal) As Task
+        Try
+            ' Ensure rate limiter exists
+            If rateLimiter Is Nothing Then
+                AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter", Color.Yellow)
+                rateLimiter = New DeribitRateLimiter(1000, 50) ' Emergency conservative limiter
+            End If
+
+            ' Check rate limit before making the API call
+            If Not rateLimiter.CanMakeRequest() Then
+                Dim waitTime = rateLimiter.GetWaitTimeMs()
+                AppendColoredText(txtLogs, $"Rate limit reached, waiting {waitTime}ms", Color.Yellow)
+                Await Task.Delay(waitTime)
+            End If
+
+            If Not rateLimiter.ConsumeCredits() Then
+                AppendColoredText(txtLogs, "Insufficient credits for entry-only update - skipping", Color.Orange)
+                Return
+            End If
+
+            ' Cross-thread fix: read engine input fields, never the textboxes (runs on the receive thread).
+            Dim amount As Decimal = orderAmountVal
+            If amount <= 0D Then
+                ' Preserve the old "no edit on a bad amount" behaviour (Decimal.Parse used to throw on blank).
+                AppendColoredText(txtLogs, "Order amount blank/zero - skipping order update", Color.Orange)
+                Return
+            End If
+
+            Await SendRateLimitedUpdate("main", CurrentOpenOrderId, newPrice, amount)
+
+            UpdateFlag = True
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, "Error in UpdateEntryOrderOnlyAsync: " & ex.Message, Color.Red)
+        End Try
+    End Function
+
+    ' Entry-chase v2 §4: after the entry fills at a price the chase moved away from the legs' anchor,
+    ' re-derive the TP/SL geometry from the ACTUAL fill (same formulas as UpdateLimitOrderWithOTOCOAsync,
+    ' honoring the manual-target overrides). includeTP:=False for the trailing-entry bracket (no TP leg).
+    ' This is the 8th SL-context reset site (StopLossTriggerOriginal / emergencyBaseline / commanded set),
+    ' and the RecordCommandedSLPrice call is MANDATORY (HANDOVER-2 §3: every programmatic SL edit records) -
+    ' it covers the race where the SL triggers between the fill and this re-anchor, so this edit's echo on
+    ' the triggered path is recognised as ours and not misread as a manual move. Reset-then-record, never
+    ' the reverse. Runs on the receive thread (fill echo): engine fields only, self-marshalling output.
+    Private Async Function ReanchorLegsAsync(fillPrice As Decimal, includeTP As Boolean) As Task
+        Try
+            ' Ensure rate limiter exists
+            If rateLimiter Is Nothing Then
+                AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter", Color.Yellow)
+                rateLimiter = New DeribitRateLimiter(1000, 50) ' Emergency conservative limiter
+            End If
+
+            If (includeTP AndAlso CurrentTPOrderId Is Nothing) OrElse CurrentSLOrderId Is Nothing Then
+                AppendColoredText(txtLogs, "Leg re-anchor skipped - leg order id(s) missing", Color.Orange)
+                Return
+            End If
+
+            If Not rateLimiter.CanMakeRequest() Then
+                Dim waitTime = rateLimiter.GetWaitTimeMs()
+                AppendColoredText(txtLogs, $"Rate limit reached, waiting {waitTime}ms before leg re-anchor", Color.Yellow)
+                Await Task.Delay(waitTime)
+            End If
+
+            If Not rateLimiter.HasHeadroom(If(includeTP, 2, 1)) Then
+                AppendColoredText(txtLogs, "Insufficient credits for leg re-anchor - legs stay at placement geometry", Color.Orange)
+                Return
+            End If
+
+            ' Cross-thread fix: read engine input fields, never the textboxes.
+            Dim amount As Decimal = orderAmountVal
+            If amount <= 0D Then
+                AppendColoredText(txtLogs, "Order amount blank/zero - skipping leg re-anchor", Color.Orange)
+                Return
+            End If
+
+            ' Same price derivation as UpdateLimitOrderWithOTOCOAsync, anchored to the fill.
+            Dim newTPprice, newTrigSLprice, newSLprice As Decimal
+            If TradeMode = True Then
+                If manualTPval > 0 Then
+                    newTPprice = manualTPval
+                Else
+                    newTPprice = fillPrice + takeProfitOffset
+                End If
+
+                If manualSLval > 0 Then
+                    newSLprice = manualSLval
+                    newTrigSLprice = newSLprice + stopLossOffset
+                Else
+                    newTrigSLprice = fillPrice - triggerDistance
+                    newSLprice = newTrigSLprice - stopLossOffset
+                End If
+            Else
+                If manualTPval > 0 Then
+                    newTPprice = manualTPval
+                Else
+                    newTPprice = fillPrice - takeProfitOffset
+                End If
+
+                If manualSLval > 0 Then
+                    newSLprice = manualSLval
+                    newTrigSLprice = newSLprice - stopLossOffset
+                Else
+                    newTrigSLprice = fillPrice + triggerDistance
+                    newSLprice = newTrigSLprice + stopLossOffset
+                End If
+            End If
+
+            If includeTP Then
+                rateLimiter.ConsumeCredits()
+                Await SendRateLimitedUpdate("takeprofit", CurrentTPOrderId, newTPprice, amount)
+            End If
+            rateLimiter.ConsumeCredits()
+            Await SendRateLimitedUpdate("stoploss", CurrentSLOrderId, newSLprice, amount, newTrigSLprice)
+
+            ' The SL genuinely moved - full SL-context bookkeeping, in this order (spec §4).
+            StopLossTriggerOriginal = newTrigSLprice
+            emergencyBaseline = 0D
+            ResetCommandedSLPrices()
+            RecordCommandedSLPrice(newSLprice)
+
+            legAnchorPrice = fillPrice
+            AppendColoredText(txtLogs, $"Legs re-anchored to fill ${fillPrice:F2}: {If(includeTP, $"TP ${newTPprice:F2}, ", "")}SL trigger ${newTrigSLprice:F2} / limit ${newSLprice:F2}", Color.Cyan)
+
+        Catch ex As Exception
+            AppendColoredText(txtLogs, "Error in ReanchorLegsAsync: " & ex.Message, Color.Red)
         End Try
     End Function
 
@@ -3702,6 +3895,13 @@ Public Class frmMainPageV2
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
 
+            ' Entry-chase v2 §4: anchor the SL leg's geometry to this placement price. Same spec
+            ' formula as the OTOCO placement; this bracket has no TP leg, so the takeProfitOffset
+            ' term can only tighten the bound (never loosen it) - safe.
+            legAnchorPrice = BestPrice
+            legReanchorDriftMax = Math.Min(takeProfitOffset, triggerDistance) / 2D
+            If legReanchorDriftMax <= 0D Then legReanchorDriftMax = 10D  ' offsets unset (manual-targets mode) - modest default
+
             isTrailingStopLossPlaced = True
 
             If TypeOfOrder = "BuyTrail" Then
@@ -3826,8 +4026,9 @@ Public Class frmMainPageV2
         End SyncLock
     End Function
 
-    ' Clear the commanded set wherever the SL context resets (mirrors the 7 emergencyBaseline = 0 sites:
-    ' 4 SL-placement paths + CompletePositionClose + nuclear cancel + market-reduce).
+    ' Clear the commanded set wherever the SL context resets (mirrors the 8 emergencyBaseline = 0 sites:
+    ' 4 SL-placement paths + CompletePositionClose + nuclear cancel + market-reduce + the ReanchorLegsAsync
+    ' fill re-anchor, entry-chase v2).
     Private Sub ResetCommandedSLPrices()
         SyncLock commandedSLLock
             commandedSLPrices.Clear()
@@ -4002,6 +4203,7 @@ Public Class frmMainPageV2
         StopLossTriggerOriginal = 0
         emergencyBaseline = 0
         ResetCommandedSLPrices() ' reconcile: position closed - triggered-SL context is gone
+        legAnchorPrice = 0D   ' entry-chase v2: order context is gone (CancelOrderAsync below also clears it)
 
         PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
