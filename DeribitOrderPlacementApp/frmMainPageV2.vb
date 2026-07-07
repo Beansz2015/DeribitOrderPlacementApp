@@ -131,6 +131,12 @@ Public Class frmMainPageV2
     Private marketStopThreshold As Decimal = 0D    ' mirrors txtMarketStopLoss
     Private maxSlippageATRmult As Decimal = 0D     ' mirrors txtMaxSlippageATR
 
+    ' --- Entry-chase v2 (docs/spec-entry-chase-v2.md) ---
+    Private Const ChaseTickUSD As Decimal = 0.5D            ' BTC-PERPETUAL tick (matches the NoSpread branches)
+    Private Const EntryChaseMinIntervalMs As Integer = 350  ' floor between chase edits (entry-only mode default);
+    ' use 700-1000 if EntryOnlyChase is reverted to False
+    Private lastEntryChaseUtc As DateTime = DateTime.MinValue ' UTC stamp of the last chase edit (entry + trailing share it)
+
     ' Transition-race fix: True while a cancel is in flight. Auto-clears once the timeout elapses so a
     ' missed cancel confirmation can never wedge repositioning permanently. Read by the hot-path decision
     ' gates (quote thread); the echo handler reads the raw cancelPending flag directly.
@@ -282,6 +288,16 @@ Public Class frmMainPageV2
                 _lastRefillTime = DateTime.UtcNow
             End SyncLock
         End Sub
+
+        ' Entry-chase v2 (docs/spec-entry-chase-v2.md §6): true when at least `requests` full request
+        ' costs are available. The chase gates require headroom of 4 (1 edit + 3 reserve in entry-only
+        ' mode) so chase edits can never starve a nuclear cancel / emergency path of credits.
+        Public Function HasHeadroom(requests As Integer) As Boolean
+            SyncLock _lockObject
+                RefillCredits()
+                Return _currentCredits >= requests * _costPerRequest
+            End SyncLock
+        End Function
 
     End Class
 
@@ -1464,7 +1480,12 @@ Public Class frmMainPageV2
                     WarnParseThrottled("Placed price = 0 while an order context is active - skipping reposition/PnL this tick (expected briefly after a cancel; SL repositioning still runs)")
                 End If
 
-                'For keeping current order at top of orderbook. +/- 3 leeway to reduce too many edit orders sent
+                'Entry-chase v2 (docs/spec-entry-chase-v2.md §2): chase the ENTRY to the most aggressive
+                'NON-CROSSING price - one tick inside the opposite side (preserves the NoSpread edge).
+                'While our buy rests at placedPrice the ask is always above it (a crossing ask would have
+                'filled us), so chaseTarget >= placedPrice and ">" is inherent one-tick hysteresis.
+                'Time-throttled (EntryChaseMinIntervalMs) instead of the old $3 distance gate: bounded
+                'request rate in a fast tape, and no resting $2.99 behind top of book on a quiet one.
                 ' #5: single-flight - acquire only when an order context is present; skip this tick's
                 ' entry reposition if a previous tick's reposition is still in flight.
                 ' Cross-thread fix #5: also gate on a live socket so edits aren't piled into a closing connection.
@@ -1475,25 +1496,30 @@ Public Class frmMainPageV2
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
                         If TradeMode = True Then
-                            If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
-                                ' Add null check for rateLimiter
-                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                    'Stop if repositioned past ATR slippage threshold
-                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestBid, "LONG") Then
+                            Dim chaseTarget As Decimal? = bestAsk - ChaseTickUSD
+                            If placedPriceValid AndAlso bestBid IsNot Nothing AndAlso chaseTarget > placedPrice _
+                               AndAlso (DateTime.UtcNow - lastEntryChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
+                                ' Add null check for rateLimiter; HasHeadroom(4) reserves credits so the
+                                ' chase can never starve a nuclear cancel / emergency path (§6).
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
+                                    'Stop if repositioned past ATR slippage threshold (guard input stays the
+                                    'raw own-side quote - it measures market drift, not our limit price)
+                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestBid, "LONG") Then
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateLimitOrderWithOTOCOAsync(bestBid)
+                                        Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
 
                                         ' Runaway fix: advance engine state SYNCHRONOUSLY before the (non-blocking)
-                                        ' display update, so the next tick's "bestBid > placedPrice + 3" reads the
+                                        ' display update, so the next tick's "chaseTarget > placedPrice" reads the
                                         ' new price even if the textbox write is delayed/fails.
                                         If placedPrice > 0 Then
-                                            AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestBid:F2}", Color.Yellow)
+                                            AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${chaseTarget:F2}", Color.Yellow)
                                         End If
 
-                                        placedPrice = bestBid
-                                        UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
+                                        placedPrice = chaseTarget
+                                        lastEntryChaseUtc = DateTime.UtcNow
+                                        UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
                                     ' Handle both null limiter and rate limiting scenarios
@@ -1516,21 +1542,25 @@ Public Class frmMainPageV2
                                 End If
                             End If
                         Else
-                            If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
-                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                            ' SHORT mirror: most aggressive non-crossing ask = one tick above the bid.
+                            Dim chaseTarget As Decimal? = bestBid + ChaseTickUSD
+                            If placedPriceValid AndAlso bestAsk IsNot Nothing AndAlso chaseTarget < placedPrice _
+                               AndAlso (DateTime.UtcNow - lastEntryChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
+                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateLimitOrderWithOTOCOAsync(bestAsk)
+                                        Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
 
                                         ' Runaway fix: advance engine state synchronously before the display mirror.
                                         If placedPrice > 0 Then
-                                            AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${bestAsk:F2}", Color.Yellow)
+                                            AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${chaseTarget:F2}", Color.Yellow)
                                         End If
 
-                                        placedPrice = bestAsk
-                                        UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
+                                        placedPrice = chaseTarget
+                                        lastEntryChaseUtc = DateTime.UtcNow
+                                        UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
                                     If rateLimiter Is Nothing Then
@@ -1692,7 +1722,9 @@ Public Class frmMainPageV2
 
 
 
-                'For keeping current order at top of orderbook for trailing stop loss orders. +/- 3 leeway to reduce too many edit orders sent
+                'Entry-chase v2 (docs/spec-entry-chase-v2.md §2): trailing-entry chase - same
+                'best-non-crossing target + time throttle as the entry block (the throttle stamp is
+                'shared; only one of the two blocks can own the order context at a time anyway).
                 ' #5: same single-flight guard - serialize trailing repositions with entry repositions.
                 ' Cross-thread fix #5: also gate on a live socket so edits aren't piled into a closing connection.
                 ' Transition-race fix: don't edit a trailing order we're cancelling (gate on Not IsCancelPending()).
@@ -1702,16 +1734,21 @@ Public Class frmMainPageV2
                    AndAlso Interlocked.Exchange(isRepositioning, 1) = 0 Then
                     Try
                         If TradeMode = True Then
-                            If placedPriceValid AndAlso bestBid > (placedPrice + 3) Then
-                                ' Add null check for rateLimiter
-                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "LONG") Then
+                            Dim chaseTarget As Decimal? = bestAsk - ChaseTickUSD
+                            If placedPriceValid AndAlso chaseTarget > placedPrice _
+                               AndAlso (DateTime.UtcNow - lastEntryChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
+                                ' Add null check for rateLimiter; HasHeadroom(4) per §6.
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
+                                    ' NOTE: bestAsk as the LONG slippage-guard input predates v2 (entry block
+                                    ' passes bestBid) - left as-is deliberately, flagged for an owner decision.
+                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestAsk, "LONG") Then
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateStopLossForTrailingOrder(bestBid)
-                                        placedPrice = bestBid
-                                        UiInvoke(Sub() txtPlacedPrice.Text = bestBid)
+                                        Await UpdateStopLossForTrailingOrder(chaseTarget)
+                                        placedPrice = chaseTarget
+                                        lastEntryChaseUtc = DateTime.UtcNow
+                                        UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
                                     ' Handle both null limiter and rate limiting scenarios
@@ -1729,15 +1766,19 @@ Public Class frmMainPageV2
                                 End If
                             End If
                         Else
-                            If placedPriceValid AndAlso bestAsk < (placedPrice - 3) Then
-                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() Then
-                                    If maxSlippageATRchecked And IsATRSlippageExcessive(bestAsk, "SHORT") Then
+                            ' SHORT mirror: most aggressive non-crossing ask = one tick above the bid.
+                            Dim chaseTarget As Decimal? = bestBid + ChaseTickUSD
+                            If placedPriceValid AndAlso bestAsk IsNot Nothing AndAlso chaseTarget < placedPrice _
+                               AndAlso (DateTime.UtcNow - lastEntryChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
+                                If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
+                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestAsk, "SHORT") Then
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
-                                        Await UpdateStopLossForTrailingOrder(bestAsk)
-                                        placedPrice = bestAsk
-                                        UiInvoke(Sub() txtPlacedPrice.Text = bestAsk)
+                                        Await UpdateStopLossForTrailingOrder(chaseTarget)
+                                        placedPrice = chaseTarget
+                                        lastEntryChaseUtc = DateTime.UtcNow
+                                        UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
                                     If rateLimiter Is Nothing Then
