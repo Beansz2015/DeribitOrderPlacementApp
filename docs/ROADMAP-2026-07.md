@@ -57,24 +57,32 @@ Ordered; each from a pre-written spec, reviewed by an Opus conversation using th
 5. **Failure semantics:** engine behavior on missing ack/heartbeat (alarm, stop signaling); execution behavior on malformed/stale messages (reject + log, never partial-apply).
 6. **Cutover sequencing:** contract ratified → #10 landed (in-process API) → execution-side pipe host + re-coded AutoTradeSettings → engine-side client → integration test ladder (switch off → log-only → min size → normal) → FrmIndicators retirement.
 
-## 4. Spec inventory (status at 2026-07-02)
+## 4. Spec inventory (execution order; last swept 2026-07-07)
+
+**Landed — in the order they were executed:**
 
 | Spec | Status | Implementer |
 |---|---|---|
-| `spec-audit2-quickfixes.md` (7 fixes) | ✅ shipped + tested | done |
-| `spec-reduce-reposition.md` | ✅ shipped + tested | done |
+| `spec-audit2-quickfixes.md` (7 fixes) | ✅ shipped + tested Jul 2 | done |
+| `spec-reduce-reposition.md` | ✅ shipped + tested Jul 2 | done |
 | `spec-position-model.md` | ✅ shipped + runtime-verified Jul 2 (`d314fff..5da2e5b`) | done |
 | `spec-decouple-v2.md` (#10) | ✅ shipped + runtime-verified Jul 3 (tests 1–5 PASS; +3 reviewed follow-up fixes; supersedes `spec-medium-decouple.md`) | done |
 | `integration-contract-verdictengine.md` | ✅ **FROZEN v1, Jul 3**; 2026-07-06: informational emitter notes (§3) + geometry-gate rollout addendum (§7) — schema unchanged; engine emitter LIVE-READY | n/a (contract) |
 | `spec-resilience.md` | ✅ shipped + runtime-verified Jul 3–4 (`0349b17..a42aa76`; base of the 07-04 session) | done |
-| 2026-07-04 session micro-specs: `spec-transition-race-fix.md`, `spec-restore-hardening.md`, `spec-close-completion-fix.md`, `spec-reconcile-manual-sl-edits.md` | ✅ all shipped + runtime-verified (reconcile incl. the Jul-7 trigger-flip amendment). Authoritative deltas: `spec-back-session-2026-07-04.md` / `-07-07.md` (the transient `HANDOVER-reconcile-sl.md` is superseded by them) | done |
-| `spec-autotrade-tiein.md` | ✅ written Jul 3; A2 go-ahead 2026-07-06 (engine emitter live-ready, emission OFF); testable without the engine via hand-crafted payloads; live step gated on the engine geometry pass | Opus high (after entry-chase-v2 — §2 item 3) |
-| `spec-execution-ergonomics.md` | ✅ written Jul 3 (owner-selected bundle; reconciled 2026-07-04 to the new base). Phase A = input persistence, risk-based SIZE, MAE/MFE+R+fees journal, alerts, break-even — post-resilience (landed), queued behind entry-chase-v2 + tie-in per §2. Phase B = post-tie-in (USE-ENGINE-LEVELS, signal columns, bridge alerts) | Opus high |
-| `spec-medium-housekeeping.md` + F14–F18 addendum | ✅ addendum written 2026-07-06 (items 6–16, all re-verified vs `fc7bb6c`; bundle turnkey) | Sonnet medium (item 15 diff gets coordinator review) |
-| `spec-entry-chase-v2.md` | ✅ written 2026-07-06 (best-non-crossing target + time throttle + entry-only chase default-ON; slots at §2 item 2.5) | Opus high (after §9 push, before tie-in) |
-| `spec-medium-dispatcher.md` (#9) | ⛔ skip (standing decision) | — |
+| 2026-07-04→07 session micro-specs: `spec-transition-race-fix.md`, `spec-restore-hardening.md`, `spec-close-completion-fix.md`, `spec-reconcile-manual-sl-edits.md` (+ the spec-less `post_only`-edits change) | ✅ all shipped + runtime-verified (reconcile incl. the Jul-7 trigger-flip amendment). Authoritative deltas: `spec-back-session-2026-07-04.md` / `-07-07.md` (the transient `HANDOVER-reconcile-sl.md` is superseded by them) | done |
 | `HANDOVER-2.md` | ✅ written Jul 3, final state-delta refresh Jul 7 | done |
-| Production-cutover checklist (§2 item 6) | 📝 **to write** (post-tie-in): production keys via `secrets.json`, delete throwaway sub-account, `.gitignore` verify, first-week size limits, circuit-breaker values | doc; owner-executed |
+
+**Queue — execute in this order (mirrors §2):**
+
+| Spec | Status | Implementer |
+|---|---|---|
+| 1. `spec-entry-chase-v2.md` | ✅ written 2026-07-06, **UNBLOCKED — NEXT** (best-non-crossing target + time throttle + entry-only chase default-ON; §2 item 2.5) | Opus/Fable high (after the remaining-commits push) |
+| 2. `spec-autotrade-tiein.md` | ✅ written Jul 3; A2 go-ahead 2026-07-06 (engine emitter live-ready, emission OFF); testable without the engine via hand-crafted payloads; live step gated on the engine geometry pass | Opus high (§2 item 3) |
+| 3. `spec-execution-ergonomics.md` | ✅ written Jul 3 (owner-selected bundle; reconciled 2026-07-04 to the new base). Phase A = input persistence, risk-based SIZE, MAE/MFE+R+fees journal, alerts, break-even. Phase B = post-tie-in (USE-ENGINE-LEVELS, signal columns, bridge alerts) | Opus high (§2 item 4) |
+| 4. `spec-medium-housekeeping.md` + F14–F18 addendum | ✅ addendum written 2026-07-06 (items 6–16, all re-verified vs `fc7bb6c`; bundle turnkey) | Sonnet medium (§2 item 5; item 15 diff gets coordinator review) |
+| 5. Production-cutover checklist | 📝 **to write** (post-tie-in): production keys via `secrets.json`, delete throwaway sub-account, `.gitignore` verify, first-week size limits, circuit-breaker values | doc; owner-executed (§2 item 6) |
+
+**Standing skip:** `spec-medium-dispatcher.md` (#9) — ⛔ skip until VerdictEngine integration proves a need.
 
 ## 5. Working notes for post-Fable conversations
 
