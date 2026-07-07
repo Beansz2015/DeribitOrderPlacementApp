@@ -3350,12 +3350,13 @@ Public Class frmMainPageV2
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
             ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
-            ' Send all three updates with rate limiting
+            ' Send all three updates with rate limiting. main = primary (post_only OK); TP/SL are pre-fill
+            ' OTOCO secondary legs - post_only is REJECTED on their edits (postOnly:=False; see SendRateLimitedUpdate).
             Await SendRateLimitedUpdate("main", CurrentOpenOrderId, newPrice, amount)
             rateLimiter.ConsumeCredits() ' Consume for second call
-            Await SendRateLimitedUpdate("takeprofit", CurrentTPOrderId, newTPprice, amount)
+            Await SendRateLimitedUpdate("takeprofit", CurrentTPOrderId, newTPprice, amount, postOnly:=False)
             rateLimiter.ConsumeCredits() ' Consume for third call
-            Await SendRateLimitedUpdate("stoploss", CurrentSLOrderId, newSLprice, amount, newTrigSLprice)
+            Await SendRateLimitedUpdate("stoploss", CurrentSLOrderId, newSLprice, amount, newTrigSLprice, postOnly:=False)
 
             UpdateFlag = True
 
@@ -3447,40 +3448,33 @@ Public Class frmMainPageV2
         End Try
     End Function
 
-    Private Async Function SendRateLimitedUpdate(orderType As String, orderId As String, price As Decimal, amount As Decimal, Optional triggerPrice As Decimal? = Nothing) As Task
+    ' post_only bug fix (owner runtime trades #53/#56): Deribit rejects post_only as a private/edit param
+    ' on a PRE-fill OTOCO child (secondary) order - code -32602 "post_only not allowed for secondary orders".
+    ' It is accepted at placement (otoco_config) and on primary/post-fill/triggered edits. So callers editing
+    ' a pre-fill TP/SL leg (UpdateLimitOrderWithOTOCOAsync's full-bracket re-anchor) pass postOnly:=False -
+    ' safe, because the leg was created post_only and Deribit preserves flags across an edit that omits them
+    ' (trade #45), and the TP/SL sit far from the book so they can't take anyway. Primary (main entry) and
+    ' post-fill (ReanchorTPToFillAsync) edits keep post_only:=True.
+    Private Async Function SendRateLimitedUpdate(orderType As String, orderId As String, price As Decimal, amount As Decimal, Optional triggerPrice As Decimal? = Nothing, Optional postOnly As Boolean = True) As Task
         Try
-            Dim updatePayload As JObject
-
-            If triggerPrice.HasValue Then
-                ' Stop loss order with trigger price
-                updatePayload = New JObject From {
-                {"jsonrpc", "2.0"},
-                {"id", 223346},
-                {"method", "private/edit"},
-                {"params", New JObject From {
-                    {"order_id", orderId},
-                    {"price", price},
-                    {"trigger_price", triggerPrice.Value},
-                    {"amount", amount},
-                    {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
-                    {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
-                }}
+            Dim params As New JObject From {
+                {"order_id", orderId},
+                {"price", price},
+                {"amount", amount}
             }
-            Else
-                ' Regular limit order
-                updatePayload = New JObject From {
-                {"jsonrpc", "2.0"},
-                {"id", 223344},
-                {"method", "private/edit"},
-                {"params", New JObject From {
-                    {"order_id", orderId},
-                    {"price", price},
-                    {"amount", amount},
-                    {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
-                    {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
-                }}
-            }
+            If triggerPrice.HasValue Then params.Add("trigger_price", triggerPrice.Value)
+            If postOnly Then
+                params.Add("post_only", True)          ' maker guarantee: keep post_only across the edit (matches placement)
+                params.Add("reject_post_only", False)  ' a would-be-taker is repriced to maker, not rejected/filled
             End If
+
+            ' trigger branch = SL edit (id 223346); regular branch = main/TP edit (id 223344).
+            Dim updatePayload As New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", If(triggerPrice.HasValue, 223346, 223344)},
+                {"method", "private/edit"},
+                {"params", params}
+            }
 
             Await SendWebSocketMessageAsync(updatePayload.ToString())
 
@@ -3703,7 +3697,9 @@ Public Class frmMainPageV2
             ' Consume credits for second API call
             rateLimiter.ConsumeCredits()
 
-            ' Update stop loss order
+            ' Update stop loss order. post_only bug fix: this SL is a PRE-fill OTOCO secondary leg - Deribit
+            ' rejects post_only on its edit (-32602), so it is omitted here (the leg keeps its placement
+            ' post_only, which Deribit preserves across the edit). The trailing main above is primary - it keeps it.
             Dim updateStopLossPayload As New JObject From {
             {"jsonrpc", "2.0"},
             {"id", 223348},
@@ -3712,9 +3708,7 @@ Public Class frmMainPageV2
                 {"order_id", CurrentSLOrderId},
                 {"price", newSLprice},
                 {"trigger_price", newTrigSLprice},
-                {"amount", amount},
-                {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
-                {"reject_post_only", False}  ' a would-be-taker is repriced to maker, not rejected/filled
+                {"amount", amount}
             }}
         }
 

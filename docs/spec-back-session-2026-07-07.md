@@ -25,7 +25,7 @@
 
 **Commanded-price set:** recorded at the single SL-edit send point (`UpdateStopLossForTriggeredStopLossOrder`, after the send — all chase/emergency paths route through it); lock-guarded; ~2 s window, 0.25 match tolerance (half a tick); cleared at the 7 SL-context reset sites (the `emergencyBaseline = 0` anchors).
 
-**Maker lifecycle:** every limit order carries `post_only: True` + `reject_post_only: False` at placement **and** on all 8 edit payloads (223344–223350 across 6 paths). The only takers are the market entry (`btnMarket`) and the market reduce / M.SL emergency — both `private/buy`/`sell`, structurally outside the edit paths.
+**Maker lifecycle:** every limit order carries `post_only: True` + `reject_post_only: False` at placement **and** on its edit payloads (223344–223350 across 6 paths). The only takers are the market entry (`btnMarket`) and the market reduce / M.SL emergency — both `private/buy`/`sell`, structurally outside the edit paths. **AMENDED 2026-07-08:** NOT literally "all 8" — Deribit rejects `post_only` on a **pre-fill OTOCO secondary (child) leg** edit (`-32602`, owner trades #53/#56), so the TP/SL leg edits in `UpdateLimitOrderWithOTOCOAsync` and the trailing SL edit (223348) omit it; primary/post-fill/triggered edits keep it. The leg's placement `post_only` is preserved across the flag-omitting edit (trade-#45 finding), so the maker guarantee holds. See `impl-report-postonly-secondary-fix.md`.
 
 **Logging:** `already_closed` on an edit id → gray `Order edit skipped…` note; every other edit error stays red.
 
