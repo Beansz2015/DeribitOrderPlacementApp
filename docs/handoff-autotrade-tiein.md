@@ -48,7 +48,9 @@ Start from the pushed `master` HEAD (`541f185` once the owner pushes the current
 1. **`TimedOut` ack hardening** (decouple-v2 review addendum) — late-response log-only, no rollback.
 2. **`SignalBridge.vb` + host glue** — FSW + debounce + independent 10-s staleness poll; gate chain in exact contract §4 order; `CalculateATRSlippageLimit` bridge-first repoint; `StopLimitOffset` property.
 3. **AutoTradeSettings SIGNAL BRIDGE panel** — ARM / START-STOP / mode / status / gate config; interlock enforcement (contract §6); nothing persists.
-4. **Neutralize FrmIndicators' autotrade trigger** (R1) + `AttachBridgeToSettings`; repoint `IsAutoTradingEnabled` call sites.
+4. **Neutralize FrmIndicators' autotrade trigger** (R1) + `AttachBridgeToSettings`; repoint `IsAutoTradingEnabled` call sites. **Count correction (verified at `de7d87b`): the spec §5 says three call sites — there are FIVE in `frmMainPageV2.vb` (`:2515`, `:2549`, `:2614`, `:4287`, `:4295`; the last two grew in the close path during the 07-04 session). Repoint all five; locate by symbol.**
+
+**Anchor freshness (coordinator-verified 2026-07-13 at `de7d87b`):** commit 1's insertion points are current — the timeout-path `pendingPlacements.TryRemove` at `:455` inside `PlaceAutomatedOrder`, `HandlePlacementResponse` at `:1137` with the success `TryRemove` at `:1145`, the 60-s sweep at `:2123`; no `TimedOut` member exists yet. FrmIndicators: the trigger block is `:689-691` (`If enableAutoTrading AndAlso CanPlaceAutomatedOrder() … ProcessAutomatedSignal`), `IsAutoTradingEnabled` at `:56`, `_autoTradeSettings` created at `:66`. None of the unpushed stack's commits touched these regions.
 
 Then the impl report — `docs/impl-report-autotrade-tiein.md`, standard format + explicitly: (a) the §5 `IsAutoTradingEnabled` repoint choice, (b) any contract-vs-spec friction (contract wins), (c) the §1 design-decision confirmations, (d) your **full disposition-token set** (log-only `would-act:…` + API `rejected:<reason>` beyond the contract-§4 set — the soak reviewers join on these).
 
