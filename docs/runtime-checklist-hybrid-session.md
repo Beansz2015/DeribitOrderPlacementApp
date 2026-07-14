@@ -20,13 +20,16 @@ SHORT entry, small M.SL (5–20). Let the SL trigger, then let the market grind 
 Trade #: **68 — PASSED 2026-07-14.** SHORT 10 @ 64007.5, M.SL 20. F = 64049.5, S (latch) = 64054.0 (step 4.5), cap = 64074.0, market fill 64077.5. **Discriminating evidence:** the last chase edit parked the SL at 64069.5 = F + 20 *exactly* — under a flip-price anchor the send-function's internal check would have market-closed instead of placing that edit; it went through, and the emergency fired later via the quote path (log signature: `Cancelled → Reduce-only MARKET → Emergency Buy Market Order Executed`, no further reposition). Anchor was therefore the latched S, per design. Cleanup clean: one reduce, flat, no `already_closed`, trade recorded.
 
 ### A2. A manual re-set DEFINES the cap; the chase pullback cannot undo it (§5 item 3)
-In a triggered-SL trade, manually move the SL wide off-book (e.g. $30+).
+In a triggered-SL trade, manually move the SL limit **in the RESTING (non-crossing) direction, by LESS than M.SL**:
+- SHORT exit (buy limit): move it **DOWN, below the bid** (e.g. bid − 10 with M.SL 20). ⚠️ Direction matters: moving it UP crosses, and `post_only`/`reject_post_only:False` silently reprices a crossing edit back to the book — net effect nil (the #71 lesson). ⚠️ Gap < M.SL: dropping it ≥ M.SL below the bid fires the emergency INSTANTLY (preserved #44 behavior — correct, but it ends the test).
+- LONG exit (sell limit): mirror — move it UP, above the ask, by < M.SL.
+- Exchange UI or Edit T.S. both work for a non-crossing target (Edit T.S.'s `trigger_price` is moot post-trigger).
 
 - [ ] Cyan `Manual SL edit: $X`
 - [ ] Next tick: orange pullback to best-non-crossing — **expected** (P1 accepted 2026-07-08; the chase reference follows)
 - [ ] BUT a subsequent adverse run fires at **X + M.SL**, not (pulled-back SL) + M.SL — the freeze held
 
-Trade #: ______
+Trade #: ______  *(Attempt #71, 2026-07-14: NOT exercised — the manual 64360 was a CROSSING buy, repriced by post_only back to bestBid 64299 = where the SL already sat; no exchange change, so no cyan (correct). The trade instead re-proved A1 via the SEND-path: cap fired at 64319.5 = latched S 64299.5 + 20 exactly, with the caller's phantom `SL repositioned → 64319.50` line after the emergency = that path's known signature. Bonus: backlog probe answered — `trigger_price` on an already-triggered SL is NOT hard-rejected (no red API ERROR); the edit is accepted and post_only-repriced.)*
 
 ### A3. Manual-TP path — reachable for the first time (§5 item 7 + fill-reanchor §4.3)
 Enter a Manual TP (absolute), place a limit entry that CHASES before filling.
@@ -54,6 +57,9 @@ Trade #: ______
 - **Pre-settle window** (flip → first reposition, ≤ ~333 ms): the cap measures from F. A violent gap inside that window fires from F — conservative, bounded, accepted by design.
 - **Near-book manual moves** within ±0.25 of a just-commanded price may not log cyan and aren't followed (§6(a) accepted; the wide re-sets that matter to the cap always detect).
 - **Post-nuclear-cancel warning repetition** (`Placed price = 0 while an order context is active…`) while a position sits uncovered: deliberate hazard signal (§6(c)).
+- **Edit T.S. post-trigger prints `Updated T.S. to:` optimistically** (after the send, before the outcome) — a post_only-repriced or raced edit still prints it. Trust the echo-driven lines (cyan / flip / reposition), not the button's own line. Backlog: make the button post-trigger-aware.
+- **Duplicate `Triggered SL placed` lines** — the flip-line gate (`UpdateFlag = False`) is weak against Deribit's duplicate/late echoes; two-at-flip (and a re-print on any unchanged-price echo) is cosmetic. Known, pre-existing, hands-off region.
+- **After a send-path emergency fire, one `SL repositioned → $X` line prints AFTER the emergency lines** (the caller's bookkeeping is blind to the internal fire; X = the cap price). Accepted F1-class cosmetic; the stale reference write is inert and self-heals at the next placement. Observed live in #71.
 - **Cancel-all removes the cap with the SL context** (owner ruling 2026-07-13: left as-spec — nuclear cancel resets `SLTriggered`/baseline/latch). If you cancel-all and keep the position open, the M.SL emergency is gone with it: close manually.
 
 ---
