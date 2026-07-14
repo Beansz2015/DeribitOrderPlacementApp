@@ -56,9 +56,31 @@ Partial Class AutoTradeSettings
         Label10 = New Label()
         Label11 = New Label()
         AutoTradingToolTip = New ToolTip(components)
+        grpSignalBridge = New GroupBox()
+        lblBridgeModeCap = New Label()
+        cboBridgeMode = New ComboBox()
+        chkBridgeArm = New CheckBox()
+        btnBridgeStartStop = New Button()
+        lblBridgeStatus = New Label()
+        lblBridgeLast = New Label()
+        lblBridgeTiersCap = New Label()
+        txtBridgeTiers = New TextBox()
+        lblBridgeSizeCap = New Label()
+        txtBridgeSize = New TextBox()
+        lblBridgeCooloffCap = New Label()
+        txtBridgeCooloff = New TextBox()
+        lblBridgeBreakerCap = New Label()
+        txtBridgeBreaker = New TextBox()
+        lblBridgeWindowCap = New Label()
+        txtBridgeWinStart = New TextBox()
+        lblBridgeWinDash = New Label()
+        txtBridgeWinEnd = New TextBox()
+        lblBridgeWinTz = New Label()
+        btnBridgeSave = New Button()
         GroupBox1.SuspendLayout()
         GroupBox2.SuspendLayout()
         GroupBox3.SuspendLayout()
+        grpSignalBridge.SuspendLayout()
         SuspendLayout()
         ' 
         ' txtCircuitBreaker
@@ -464,13 +486,285 @@ Partial Class AutoTradeSettings
         Label11.Size = New Size(89, 24)
         Label11.TabIndex = 202
         Label11.Text = "0.3% - 1%"
-        ' 
+        '
+        ' grpSignalBridge
+        '
+        grpSignalBridge.Controls.Add(lblBridgeModeCap)
+        grpSignalBridge.Controls.Add(cboBridgeMode)
+        grpSignalBridge.Controls.Add(chkBridgeArm)
+        grpSignalBridge.Controls.Add(btnBridgeStartStop)
+        grpSignalBridge.Controls.Add(lblBridgeStatus)
+        grpSignalBridge.Controls.Add(lblBridgeLast)
+        grpSignalBridge.Controls.Add(lblBridgeTiersCap)
+        grpSignalBridge.Controls.Add(txtBridgeTiers)
+        grpSignalBridge.Controls.Add(lblBridgeSizeCap)
+        grpSignalBridge.Controls.Add(txtBridgeSize)
+        grpSignalBridge.Controls.Add(lblBridgeCooloffCap)
+        grpSignalBridge.Controls.Add(txtBridgeCooloff)
+        grpSignalBridge.Controls.Add(lblBridgeBreakerCap)
+        grpSignalBridge.Controls.Add(txtBridgeBreaker)
+        grpSignalBridge.Controls.Add(lblBridgeWindowCap)
+        grpSignalBridge.Controls.Add(txtBridgeWinStart)
+        grpSignalBridge.Controls.Add(lblBridgeWinDash)
+        grpSignalBridge.Controls.Add(txtBridgeWinEnd)
+        grpSignalBridge.Controls.Add(lblBridgeWinTz)
+        grpSignalBridge.Controls.Add(btnBridgeSave)
+        grpSignalBridge.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
+        grpSignalBridge.ForeColor = SystemColors.ButtonFace
+        grpSignalBridge.Location = New Point(18, 630)
+        grpSignalBridge.Name = "grpSignalBridge"
+        grpSignalBridge.Size = New Size(482, 215)
+        grpSignalBridge.TabIndex = 203
+        grpSignalBridge.TabStop = False
+        grpSignalBridge.Text = "SIGNAL BRIDGE"
+        AutoTradingToolTip.SetToolTip(grpSignalBridge, "VerdictEngine signal-bridge consumer (contract v1)." & vbCrLf & "Mode, ARM and START never persist - everything" & vbCrLf & "resets to Off/unarmed/stopped at app start.")
+        '
+        ' lblBridgeModeCap
+        '
+        lblBridgeModeCap.AutoSize = True
+        lblBridgeModeCap.Font = New Font("Calibri", 10F)
+        lblBridgeModeCap.ForeColor = SystemColors.ControlLight
+        lblBridgeModeCap.Location = New Point(8, 34)
+        lblBridgeModeCap.Name = "lblBridgeModeCap"
+        lblBridgeModeCap.Size = New Size(58, 24)
+        lblBridgeModeCap.TabIndex = 0
+        lblBridgeModeCap.Text = "Mode:"
+        '
+        ' cboBridgeMode
+        '
+        cboBridgeMode.BackColor = Color.Black
+        cboBridgeMode.DropDownStyle = ComboBoxStyle.DropDownList
+        cboBridgeMode.Font = New Font("Calibri", 10F)
+        cboBridgeMode.ForeColor = Color.White
+        cboBridgeMode.Items.AddRange(New Object() {"Off", "Log-only", "Live"})
+        cboBridgeMode.Location = New Point(68, 30)
+        cboBridgeMode.Name = "cboBridgeMode"
+        cboBridgeMode.Size = New Size(118, 32)
+        cboBridgeMode.TabIndex = 1
+        AutoTradingToolTip.SetToolTip(cboBridgeMode, "Off = bridge idle. Log-only = full gate chain, logs" & vbCrLf & "would-act instead of placing (soak mode; ignores ARM/START)." & vbCrLf & "Live = places orders once the interlock is satisfied.")
+        '
+        ' chkBridgeArm
+        '
+        chkBridgeArm.AutoSize = True
+        chkBridgeArm.Font = New Font("Calibri", 10F)
+        chkBridgeArm.ForeColor = SystemColors.ControlLight
+        chkBridgeArm.Location = New Point(196, 33)
+        chkBridgeArm.Name = "chkBridgeArm"
+        chkBridgeArm.Size = New Size(160, 28)
+        chkBridgeArm.TabIndex = 2
+        chkBridgeArm.Text = "ARM AUTOTRADE"
+        AutoTradingToolTip.SetToolTip(chkBridgeArm, "Local arm toggle (dual-arm interlock: engine ARM +" & vbCrLf & "this + START). Unchecking force-STOPs. Never persisted.")
+        '
+        ' btnBridgeStartStop
+        '
+        btnBridgeStartStop.BackColor = Color.DarkRed
+        btnBridgeStartStop.Font = New Font("Calibri", 10F, FontStyle.Bold)
+        btnBridgeStartStop.ForeColor = Color.White
+        btnBridgeStartStop.Location = New Point(370, 26)
+        btnBridgeStartStop.Name = "btnBridgeStartStop"
+        btnBridgeStartStop.Size = New Size(100, 38)
+        btnBridgeStartStop.TabIndex = 3
+        btnBridgeStartStop.Text = "START"
+        btnBridgeStartStop.UseVisualStyleBackColor = False
+        AutoTradingToolTip.SetToolTip(btnBridgeStartStop, "START requires: mode Live + ARM + fresh payload +" & vbCrLf & "engine armed + Max Slippage ATR guard checked." & vbCrLf & "Any disarm drops back to STOPPED (not sticky).")
+        '
+        ' lblBridgeStatus
+        '
+        lblBridgeStatus.Font = New Font("Calibri", 10F)
+        lblBridgeStatus.ForeColor = SystemColors.ControlLight
+        lblBridgeStatus.Location = New Point(8, 70)
+        lblBridgeStatus.Name = "lblBridgeStatus"
+        lblBridgeStatus.Size = New Size(466, 26)
+        lblBridgeStatus.TabIndex = 4
+        lblBridgeStatus.Text = "Bridge not attached"
+        '
+        ' lblBridgeLast
+        '
+        lblBridgeLast.Font = New Font("Calibri", 10F)
+        lblBridgeLast.ForeColor = SystemColors.ControlLight
+        lblBridgeLast.Location = New Point(8, 98)
+        lblBridgeLast.Name = "lblBridgeLast"
+        lblBridgeLast.Size = New Size(466, 26)
+        lblBridgeLast.TabIndex = 5
+        lblBridgeLast.Text = "Last: -"
+        '
+        ' lblBridgeTiersCap
+        '
+        lblBridgeTiersCap.AutoSize = True
+        lblBridgeTiersCap.Font = New Font("Calibri", 10F)
+        lblBridgeTiersCap.ForeColor = SystemColors.ControlLight
+        lblBridgeTiersCap.Location = New Point(8, 136)
+        lblBridgeTiersCap.Name = "lblBridgeTiersCap"
+        lblBridgeTiersCap.Size = New Size(53, 24)
+        lblBridgeTiersCap.TabIndex = 6
+        lblBridgeTiersCap.Text = "Tiers:"
+        AutoTradingToolTip.SetToolTip(lblBridgeTiersCap, "Accepted confidence tiers, comma-separated" & vbCrLf & "(HIGH,MEDIUM,LOW). Default HIGH,MEDIUM.")
+        '
+        ' txtBridgeTiers
+        '
+        txtBridgeTiers.BackColor = Color.Black
+        txtBridgeTiers.BorderStyle = BorderStyle.FixedSingle
+        txtBridgeTiers.Font = New Font("Calibri", 10F)
+        txtBridgeTiers.ForeColor = Color.White
+        txtBridgeTiers.Location = New Point(62, 132)
+        txtBridgeTiers.Name = "txtBridgeTiers"
+        txtBridgeTiers.Size = New Size(118, 31)
+        txtBridgeTiers.TabIndex = 7
+        txtBridgeTiers.Text = "HIGH,MEDIUM"
+        '
+        ' lblBridgeSizeCap
+        '
+        lblBridgeSizeCap.AutoSize = True
+        lblBridgeSizeCap.Font = New Font("Calibri", 10F)
+        lblBridgeSizeCap.ForeColor = SystemColors.ControlLight
+        lblBridgeSizeCap.Location = New Point(188, 136)
+        lblBridgeSizeCap.Name = "lblBridgeSizeCap"
+        lblBridgeSizeCap.Size = New Size(52, 24)
+        lblBridgeSizeCap.TabIndex = 8
+        lblBridgeSizeCap.Text = "Size$"
+        AutoTradingToolTip.SetToolTip(lblBridgeSizeCap, "Fixed order size in USD (v1 sizing; payload kelly ignored).")
+        '
+        ' txtBridgeSize
+        '
+        txtBridgeSize.BackColor = Color.Black
+        txtBridgeSize.BorderStyle = BorderStyle.FixedSingle
+        txtBridgeSize.Font = New Font("Calibri", 10F)
+        txtBridgeSize.ForeColor = Color.White
+        txtBridgeSize.Location = New Point(240, 132)
+        txtBridgeSize.Name = "txtBridgeSize"
+        txtBridgeSize.Size = New Size(52, 31)
+        txtBridgeSize.TabIndex = 9
+        txtBridgeSize.Text = "10"
+        txtBridgeSize.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblBridgeCooloffCap
+        '
+        lblBridgeCooloffCap.AutoSize = True
+        lblBridgeCooloffCap.Font = New Font("Calibri", 10F)
+        lblBridgeCooloffCap.ForeColor = SystemColors.ControlLight
+        lblBridgeCooloffCap.Location = New Point(300, 136)
+        lblBridgeCooloffCap.Name = "lblBridgeCooloffCap"
+        lblBridgeCooloffCap.Size = New Size(53, 24)
+        lblBridgeCooloffCap.TabIndex = 10
+        lblBridgeCooloffCap.Text = "Cool'f"
+        AutoTradingToolTip.SetToolTip(lblBridgeCooloffCap, "Cooloff minutes after an acted/would-act signal.")
+        '
+        ' txtBridgeCooloff
+        '
+        txtBridgeCooloff.BackColor = Color.Black
+        txtBridgeCooloff.BorderStyle = BorderStyle.FixedSingle
+        txtBridgeCooloff.Font = New Font("Calibri", 10F)
+        txtBridgeCooloff.ForeColor = Color.White
+        txtBridgeCooloff.Location = New Point(352, 132)
+        txtBridgeCooloff.Name = "txtBridgeCooloff"
+        txtBridgeCooloff.Size = New Size(42, 31)
+        txtBridgeCooloff.TabIndex = 11
+        txtBridgeCooloff.Text = "5"
+        txtBridgeCooloff.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblBridgeBreakerCap
+        '
+        lblBridgeBreakerCap.AutoSize = True
+        lblBridgeBreakerCap.Font = New Font("Calibri", 10F)
+        lblBridgeBreakerCap.ForeColor = SystemColors.ControlLight
+        lblBridgeBreakerCap.Location = New Point(400, 136)
+        lblBridgeBreakerCap.Name = "lblBridgeBreakerCap"
+        lblBridgeBreakerCap.Size = New Size(43, 24)
+        lblBridgeBreakerCap.TabIndex = 12
+        lblBridgeBreakerCap.Text = "Brk$"
+        AutoTradingToolTip.SetToolTip(lblBridgeBreakerCap, "Circuit breaker: session loss (USD) that trips + force-STOPs." & vbCrLf & "0 or less disables.")
+        '
+        ' txtBridgeBreaker
+        '
+        txtBridgeBreaker.BackColor = Color.Black
+        txtBridgeBreaker.BorderStyle = BorderStyle.FixedSingle
+        txtBridgeBreaker.Font = New Font("Calibri", 10F)
+        txtBridgeBreaker.ForeColor = Color.White
+        txtBridgeBreaker.Location = New Point(432, 132)
+        txtBridgeBreaker.Name = "txtBridgeBreaker"
+        txtBridgeBreaker.Size = New Size(42, 31)
+        txtBridgeBreaker.TabIndex = 13
+        txtBridgeBreaker.Text = "50"
+        txtBridgeBreaker.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblBridgeWindowCap
+        '
+        lblBridgeWindowCap.AutoSize = True
+        lblBridgeWindowCap.Font = New Font("Calibri", 10F)
+        lblBridgeWindowCap.ForeColor = SystemColors.ControlLight
+        lblBridgeWindowCap.Location = New Point(8, 176)
+        lblBridgeWindowCap.Name = "lblBridgeWindowCap"
+        lblBridgeWindowCap.Size = New Size(80, 24)
+        lblBridgeWindowCap.TabIndex = 14
+        lblBridgeWindowCap.Text = "Window:"
+        AutoTradingToolTip.SetToolTip(lblBridgeWindowCap, "Session window (UTC+8, HH:mm) - entries allowed only" & vbCrLf & "INSIDE it; blank = unrestricted; start > end wraps midnight.")
+        '
+        ' txtBridgeWinStart
+        '
+        txtBridgeWinStart.BackColor = Color.Black
+        txtBridgeWinStart.BorderStyle = BorderStyle.FixedSingle
+        txtBridgeWinStart.Font = New Font("Calibri", 10F)
+        txtBridgeWinStart.ForeColor = Color.White
+        txtBridgeWinStart.Location = New Point(90, 172)
+        txtBridgeWinStart.Name = "txtBridgeWinStart"
+        txtBridgeWinStart.Size = New Size(62, 31)
+        txtBridgeWinStart.TabIndex = 15
+        txtBridgeWinStart.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblBridgeWinDash
+        '
+        lblBridgeWinDash.AutoSize = True
+        lblBridgeWinDash.Font = New Font("Calibri", 10F)
+        lblBridgeWinDash.ForeColor = SystemColors.ControlLight
+        lblBridgeWinDash.Location = New Point(155, 176)
+        lblBridgeWinDash.Name = "lblBridgeWinDash"
+        lblBridgeWinDash.Size = New Size(20, 24)
+        lblBridgeWinDash.TabIndex = 16
+        lblBridgeWinDash.Text = "-"
+        '
+        ' txtBridgeWinEnd
+        '
+        txtBridgeWinEnd.BackColor = Color.Black
+        txtBridgeWinEnd.BorderStyle = BorderStyle.FixedSingle
+        txtBridgeWinEnd.Font = New Font("Calibri", 10F)
+        txtBridgeWinEnd.ForeColor = Color.White
+        txtBridgeWinEnd.Location = New Point(176, 172)
+        txtBridgeWinEnd.Name = "txtBridgeWinEnd"
+        txtBridgeWinEnd.Size = New Size(62, 31)
+        txtBridgeWinEnd.TabIndex = 17
+        txtBridgeWinEnd.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblBridgeWinTz
+        '
+        lblBridgeWinTz.AutoSize = True
+        lblBridgeWinTz.Font = New Font("Calibri", 10F)
+        lblBridgeWinTz.ForeColor = SystemColors.ControlLight
+        lblBridgeWinTz.Location = New Point(244, 176)
+        lblBridgeWinTz.Name = "lblBridgeWinTz"
+        lblBridgeWinTz.Size = New Size(66, 24)
+        lblBridgeWinTz.TabIndex = 18
+        lblBridgeWinTz.Text = "UTC+8"
+        '
+        ' btnBridgeSave
+        '
+        btnBridgeSave.BackColor = Color.FromArgb(CInt(CByte(64)), CInt(CByte(64)), CInt(CByte(64)))
+        btnBridgeSave.Font = New Font("Calibri", 10F)
+        btnBridgeSave.ForeColor = Color.White
+        btnBridgeSave.Location = New Point(370, 168)
+        btnBridgeSave.Name = "btnBridgeSave"
+        btnBridgeSave.Size = New Size(100, 38)
+        btnBridgeSave.TabIndex = 19
+        btnBridgeSave.Text = "SAVE"
+        btnBridgeSave.UseVisualStyleBackColor = False
+        AutoTradingToolTip.SetToolTip(btnBridgeSave, "Validates + writes bridge.json and reloads it into the bridge.")
+        '
         ' AutoTradeSettings
-        ' 
+        '
         AutoScaleDimensions = New SizeF(10F, 25F)
         AutoScaleMode = AutoScaleMode.Font
         BackColor = SystemColors.ActiveCaptionText
         ClientSize = New Size(512, 856)
+        Controls.Add(grpSignalBridge)
         Controls.Add(Label11)
         Controls.Add(txtTrendStrength)
         Controls.Add(Label10)
@@ -493,6 +787,8 @@ Partial Class AutoTradeSettings
         GroupBox2.PerformLayout()
         GroupBox3.ResumeLayout(False)
         GroupBox3.PerformLayout()
+        grpSignalBridge.ResumeLayout(False)
+        grpSignalBridge.PerformLayout()
         ResumeLayout(False)
         PerformLayout()
     End Sub
@@ -529,4 +825,25 @@ Partial Class AutoTradeSettings
     Friend WithEvents Label10 As Label
     Friend WithEvents Label11 As Label
     Friend WithEvents AutoTradingToolTip As ToolTip
+    Friend WithEvents grpSignalBridge As GroupBox
+    Friend WithEvents lblBridgeModeCap As Label
+    Friend WithEvents cboBridgeMode As ComboBox
+    Friend WithEvents chkBridgeArm As CheckBox
+    Friend WithEvents btnBridgeStartStop As Button
+    Friend WithEvents lblBridgeStatus As Label
+    Friend WithEvents lblBridgeLast As Label
+    Friend WithEvents lblBridgeTiersCap As Label
+    Friend WithEvents txtBridgeTiers As TextBox
+    Friend WithEvents lblBridgeSizeCap As Label
+    Friend WithEvents txtBridgeSize As TextBox
+    Friend WithEvents lblBridgeCooloffCap As Label
+    Friend WithEvents txtBridgeCooloff As TextBox
+    Friend WithEvents lblBridgeBreakerCap As Label
+    Friend WithEvents txtBridgeBreaker As TextBox
+    Friend WithEvents lblBridgeWindowCap As Label
+    Friend WithEvents txtBridgeWinStart As TextBox
+    Friend WithEvents lblBridgeWinDash As Label
+    Friend WithEvents txtBridgeWinEnd As TextBox
+    Friend WithEvents lblBridgeWinTz As Label
+    Friend WithEvents btnBridgeSave As Button
 End Class
