@@ -53,11 +53,22 @@ Public Class FrmIndicators
         Dim forceHandle As IntPtr = Me.Handle
     End Sub
 
+    ' Signal-bridge tie-in: UNUSED since the frmMainPageV2 call sites were repointed to
+    ' signalBridge.IsLiveStarted (spec-autotrade-tiein section 5). enableAutoTrading can no longer
+    ' turn on (btnAutoTrade is inert), so this always returns False; kept only because the form
+    ' retires post-soak.
     Public ReadOnly Property IsAutoTradingEnabled As Boolean
         Get
             Return enableAutoTrading
         End Get
     End Property
+
+    ' Signal-bridge tie-in transition scaffolding: frmMainPageV2 constructs the bridge and hands it
+    ' through here to the settings form's SIGNAL BRIDGE panel (this form still owns/positions the
+    ' settings form until post-soak retirement).
+    Public Sub AttachBridgeToSettings(bridge As SignalBridge)
+        _autoTradeSettings.Bridge = bridge
+    End Sub
 
 
     ' ── Form Load ───────────────────────────────────────────────────────────────
@@ -80,6 +91,12 @@ Public Class FrmIndicators
         AddHandler _host.SizeChanged, AddressOf HostMovedOrResized
 
         AUTO_TRADE_COOLDOWN_MS = 60000 * Integer.Parse(_autoTradeSettings.txtCooloff.Text) ' x minutes between trades
+
+        ' Signal-bridge tie-in (R1): this form's own autotrade trigger is neutralized - the AUTO
+        ' button is inert (kept visible as a pointer to the SIGNAL BRIDGE panel until retirement).
+        btnAutoTrade.Enabled = False
+        btnAutoTrade.Text = "AUTO: see Bridge"
+        btnAutoTrade.BackColor = Color.DimGray
     End Sub
 
     Private Sub HostMovedOrResized(sender As Object, e As EventArgs)
@@ -685,17 +702,10 @@ Public Class FrmIndicators
         ' Log current score for monitoring
         'AppendLog($"Current Signal Score: {score}/21 ({signedBias:F1}%)", Color.LightBlue)
 
-        ' AUTO-TRADING INTEGRATION POINT
-        If enableAutoTrading AndAlso CanPlaceAutomatedOrder() Then
-            Try
-                ProcessAutomatedSignal(score, signedBias)
-            Catch ex As Exception
-                ' Handle exceptions on background thread
-                Me.Invoke(Sub()
-                              AppendLog($"Auto-trading error: {ex.Message}", Color.Red)
-                          End Sub)
-            End Try
-        End If
+        ' AUTO-TRADING INTEGRATION POINT - REMOVED (signal-bridge tie-in, contract R1: the
+        ' VerdictEngine verdict is the SOLE signal source; SignalBridge drives the order API now).
+        ' ProcessAutomatedSignal / ExecuteAutomatedTrade / CanPlaceAutomatedOrder remain below but
+        ' are unreachable - they die with this form at post-soak retirement.
 
         If signedBias > 0 Then
 

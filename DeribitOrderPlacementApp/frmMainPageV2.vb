@@ -538,6 +538,9 @@ Public Class frmMainPageV2
         ' Starts in mode Off (nothing watches, nothing places) until the SIGNAL BRIDGE panel drives it.
         Try
             signalBridge = New SignalBridge(Me, AddressOf BridgeLog)
+            ' Transition scaffolding (spec section 5): FrmIndicators passes the reference through to
+            ' the settings form's SIGNAL BRIDGE panel (_indicators exists - created in Load).
+            _indicators?.AttachBridgeToSettings(signalBridge)
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Signal bridge init failed: {ex.Message}", Color.Red)
         End Try
@@ -2560,7 +2563,7 @@ Public Class frmMainPageV2
 
                                     Case "ReduceMarketOrder"
                                         OpenPositions = True 'Actually no positions but flagged true to use code in openpositions segment for cleanup
-                                        If _indicators.IsAutoTradingEnabled Then
+                                        If signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted Then
                                             LogTradeDecision("Exit Position - Market Order Loss", 0, 0) 'For autotrade log for when trade exit position
                                         End If
                                         ResetOrderAttempt() ' Reset ATR slippage tracking
@@ -2594,7 +2597,7 @@ Public Class frmMainPageV2
                         Next
 
 
-                        If _indicators.IsAutoTradingEnabled And OrderLog = False Then
+                        If (signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted) And OrderLog = False Then
                             '    If Not (txtPlacedPrice.Text = "0") And (txtPlacedTrigStopPrice.Text = "0") And (txtPlacedTakeProfitPrice.Text = "0") Then
                             If (OpenPositions = False) And (OpenOrderNo = True) Then
                                 LogTradeDecision("Order Placed", 0, 0) 'For autotrade log for when order is placed
@@ -2659,7 +2662,7 @@ Public Class frmMainPageV2
                                             isRequestingLiveData = False
                                         End If
 
-                                        If _indicators.IsAutoTradingEnabled And (PositionLog = False) Then
+                                        If (signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted) And (PositionLog = False) Then
                                             LogTradeDecision("In Position", 0, 0) 'For autotrade log for when trade is in position
                                             PositionLog = True ' Set flag to prevent duplicate logging
                                         End If
@@ -4335,7 +4338,7 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.LimeGreen)
                 AppendColoredText(txtLogs, $"Profit made: ${pendingClosePorLAmt}.", Color.LimeGreen)
 
-                If _indicators.IsAutoTradingEnabled Then
+                If signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted Then
                     LogTradeDecision("Exit Position - Profit", pendingClosePorLAmt, pendingCloseExecPrice)
                 End If
 
@@ -4343,7 +4346,7 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.Crimson)
                 AppendColoredText(txtLogs, $"Loss of: ${pendingClosePorLAmt}.", Color.Crimson)
 
-                If _indicators.IsAutoTradingEnabled Then
+                If signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted Then
                     LogTradeDecision("Exit Position - Loss", pendingClosePorLAmt, pendingCloseExecPrice)
                 End If
 
