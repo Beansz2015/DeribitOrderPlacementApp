@@ -448,11 +448,13 @@ Public Class frmMainPageV2
         End If
 
         ' Await the exchange ack with a timeout. Timeout <> rejection: no rollback (the order may
-        ' exist; echoes remain the source of truth) - the caller re-queries state.
+        ' exist; echoes remain the source of truth) - the caller re-queries state. The entry STAYS
+        ' registered, flagged TimedOut, so a >5s-late rejection is logged instead of silently
+        ' swallowed (HandlePlacementResponse handles it log-only; the 60-s sweep still GCs it).
         Dim done = Await Task.WhenAny(tcs.Task, Task.Delay(ackTimeoutMs))
         If done Is tcs.Task Then Return tcs.Task.Result
-        Dim ignored As PendingPlacement = Nothing
-        pendingPlacements.TryRemove(reqId, ignored)
+        Dim lateEntry As PendingPlacement = Nothing
+        If pendingPlacements.TryGetValue(reqId, lateEntry) Then lateEntry.TimedOut = True
         Return New PlacementResult With {.Accepted = False, .Reason = "timeout"}
     End Function
 
@@ -1143,6 +1145,17 @@ Public Class frmMainPageV2
 
             Dim entry As PendingPlacement = Nothing
             If Not pendingPlacements.TryRemove(messageId.Value, entry) Then Return ' unknown/stale id
+
+            If entry.TimedOut Then
+                ' Late response after the ack timed out: LOG ONLY. No rollback (a newer placement's
+                ' state may be live - restoring old snapshots could clobber it), no TCS completion.
+                Dim lateErr = json.SelectToken("error")
+                AppendColoredText(txtLogs,
+                    $"LATE placement response (id {messageId.Value}, after ack timeout): " &
+                    If(lateErr IsNot Nothing, $"REJECTED code {lateErr.SelectToken("code")} - {lateErr.SelectToken("message")}", "accepted"),
+                    Color.Orange)
+                Return
+            End If
 
             Dim errorField = json.SelectToken("error")
             If errorField IsNot Nothing Then
@@ -2099,6 +2112,7 @@ Public Class frmMainPageV2
         Public PrevPlacedPrice As Decimal
         Public PrevPlacedSL As Decimal
         Public CreatedUtc As DateTime = DateTime.UtcNow
+        Public TimedOut As Boolean                               ' ack timed out; a late response is LOG ONLY
     End Class
     Private ReadOnly pendingPlacements As New ConcurrentDictionary(Of Integer, PendingPlacement)
 
