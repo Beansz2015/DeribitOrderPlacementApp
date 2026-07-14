@@ -11,13 +11,13 @@
 ### A1. The cap fires from the LATCHED anchor (§5 items 1 + 4 + 6 in one trade)
 SHORT entry, small M.SL (5–20). Let the SL trigger, then let the market grind adversely while the chase keeps stepping.
 
-- [ ] Red `Triggered SL placed @ $F` (the flip; F is the trailed/live limit and may sit below top-of-book)
-- [ ] First orange `SL repositioned: $F → $S` — **S is the latched anchor** (in #67 the F→S step was 4.5)
-- [ ] Emergency fires when bestBid ≈ **S + M.SL**: red `Emergency Buy Market Order Executed.`
-- [ ] **Fire point is measured from S** — from F (= #67's too-early bug) or never-fires-on-a-grind (= #55's disabled-cap bug) is a **FAIL**
-- [ ] Cleanup (item 6 rides here): position flat, resting SL/TP cleaned up, **no second market reduce**
+- [x] Red `Triggered SL placed @ $F` (the flip; F is the trailed/live limit and may sit below top-of-book)
+- [x] First orange `SL repositioned: $F → $S` — **S is the latched anchor** (in #67 the F→S step was 4.5)
+- [x] Emergency fires when bestBid ≈ **S + M.SL**: red `Emergency Buy Market Order Executed.`
+- [x] **Fire point is measured from S** — from F (= #67's too-early bug) or never-fires-on-a-grind (= #55's disabled-cap bug) is a **FAIL**
+- [x] Cleanup (item 6 rides here): position flat, resting SL/TP cleaned up, **no second market reduce**
 
-Trade #: ______
+Trade #: **68 — PASSED 2026-07-14.** SHORT 10 @ 64007.5, M.SL 20. F = 64049.5, S (latch) = 64054.0 (step 4.5), cap = 64074.0, market fill 64077.5. **Discriminating evidence:** the last chase edit parked the SL at 64069.5 = F + 20 *exactly* — under a flip-price anchor the send-function's internal check would have market-closed instead of placing that edit; it went through, and the emergency fired later via the quote path (log signature: `Cancelled → Reduce-only MARKET → Emergency Buy Market Order Executed`, no further reposition). Anchor was therefore the latched S, per design. Cleanup clean: one reduce, flat, no `already_closed`, trade recorded.
 
 ### A2. A manual re-set DEFINES the cap; the chase pullback cannot undo it (§5 item 3)
 In a triggered-SL trade, manually move the SL wide off-book (e.g. $30+).
@@ -50,6 +50,7 @@ Trade #: ______
 
 ## C. Documented properties — do NOT read these as failures
 
+- **PRE-trigger manual moves are SILENT by design** (owner hit this in #68): the cyan `Manual SL edit` detection exists only POST-trigger (the P1 discriminator on the triggered SL's limit). Pre-trigger, the untriggered-echo branch silently mirrors `trigger_price` into `StopLossTriggerOriginal` (rule 1) — the display updates, no log line. A2 requires the edit AFTER the `Triggered SL placed` state.
 - **Pre-settle window** (flip → first reposition, ≤ ~333 ms): the cap measures from F. A violent gap inside that window fires from F — conservative, bounded, accepted by design.
 - **Near-book manual moves** within ±0.25 of a just-commanded price may not log cyan and aren't followed (§6(a) accepted; the wide re-sets that matter to the cap always detect).
 - **Post-nuclear-cancel warning repetition** (`Placed price = 0 while an order context is active…`) while a position sits uncovered: deliberate hazard signal (§6(c)).
