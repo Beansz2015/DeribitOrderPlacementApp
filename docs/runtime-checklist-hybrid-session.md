@@ -29,25 +29,29 @@ In a triggered-SL trade, manually move the SL limit **in the RESTING (non-crossi
 - [ ] Next tick: orange pullback to best-non-crossing — **expected** (P1 accepted 2026-07-08; the chase reference follows)
 - [ ] BUT a subsequent adverse run fires at **X + M.SL**, not (pulled-back SL) + M.SL — the freeze held
 
-Trade #: ______  *(Attempt #71, 2026-07-14: NOT exercised — the manual 64360 was a CROSSING buy, repriced by post_only back to bestBid 64299 = where the SL already sat; no exchange change, so no cyan (correct). The trade instead re-proved A1 via the SEND-path: cap fired at 64319.5 = latched S 64299.5 + 20 exactly, with the caller's phantom `SL repositioned → 64319.50` line after the emergency = that path's known signature. Bonus: backlog probe answered — `trigger_price` on an already-triggered SL is NOT hard-rejected (no red API ERROR); the edit is accepted and post_only-repriced.)*
+Trade #: ______  *(Attempt #71, 2026-07-14: NOT exercised — the manual 64360 was a CROSSING buy, repriced by post_only back to bestBid 64299 = where the SL already sat; no exchange change, so no cyan (correct). The trade instead re-proved A1 via the SEND-path: cap fired at 64319.5 = latched S 64299.5 + 20 exactly, with the caller's phantom `SL repositioned → 64319.50` line after the emergency = that path's known signature. Bonus: backlog probe answered — `trigger_price` on an already-triggered SL is NOT hard-rejected (owner confirmed no red API ERROR); the edit is accepted and post_only-repriced.)*
+
+*(Attempts #76 + #80, 2026-07-14: still NOT exercised. #76 — Edit T.S. derives the LIMIT as trigger-input ± txtStopLoss (+30 short), so the entered values landed the limit back at/around 64858 (no-op / repriced) — the duplicate `Triggered SL placed @ $64858` was the unchanged-price echo reprinting; no cyan is CORRECT (nothing moved). #80 — the whole triggered phase lasted ~1.5 s (flip → 2 chases → maker fill); the manual move almost certainly landed on/after the fill, invisible to the app. No attempt has ever FAILED an assertion — all three were setup misses.)*
+
+**⚠️ STATUS 2026-07-14 — coordinator recommends DOWNGRADE to best-effort (owner to ratify):** the composite left unproven is only "manual echo → freeze survives the next reposition". Its halves are each proven: cyan+follow live in #52/#58 (discriminator unchanged since), anchor-write + fire-from-anchor live in #68/#71 (both fire paths). Worst case if the freeze failed, the cap falls back to A1 semantics (re-latch at top-of-book) — never naked. Best-effort recipe when a TRENDING trigger occurs: drag the limit on the DERIBIT UI (not Edit T.S.) below the bid by < M.SL → expect cyan → pullback → fire at X + M.SL.
 
 ### A3. Manual-TP path — reachable for the first time (§5 item 7 + fill-reanchor §4.3)
 Enter a Manual TP (absolute), place a limit entry that CHASES before filling.
 
-- [ ] Placed TP on the exchange = the manual absolute value
-- [ ] At fill, `txtManualTP` resets to 0 — **expected one-shot consume, not a bug**
-- [ ] **NO** `TP re-anchored` line at all (manual trades never stage a re-anchor post-`326cbaf`); the TP still rests at the manual absolute
-- [ ] Control, no manual TP (ride-along): chased entry → cyan `TP re-anchored to fill $F: $T` **and** the TP display updates (the #49 fix)
+- [x] Placed TP on the exchange = the manual absolute value
+- [x] At fill, `txtManualTP` resets to 0 — **expected one-shot consume, not a bug**
+- [x] **NO** `TP re-anchored` line at all (manual trades never stage a re-anchor post-`326cbaf`); the TP still rests at the manual absolute
+- [x] Control, no manual TP (ride-along): chased entry → cyan `TP re-anchored to fill $F: $T` **and** the TP display updates (the #49 fix)
 
-Trade #: ______
+Trade #: **80 — PASSED 2026-07-14.** Manual TP 64740; entry chased 64796.5→64780.5 (3 steps — a re-anchor WOULD have fired without the gate); TP placed at 64740 absolute (auto would be 64720.5); no re-anchor line; inputs zeroed at fill (screenshot). Control = #49 (historical). Related intended-semantics note: manual TP/SL inputs consume at FILL only — a slippage-guard abort deliberately leaves them set (retry-friendly); clear-on-abort would be an ergonomics Phase A preference.
 
 ---
 
 ## B. RIDE-ALONGS — confirm opportunistically, no dedicated trades
 
-- [ ] B1 (§5.2): a maker SL fill BELOW the cap → no emergency (position closes maker)   Trade #: ______
-- [ ] B2 (§5.5): M.SL blank/0 → pure chase, emergency never fires   Trade #: ______
-- [ ] B3 (hybrid §6.3): SL triggers already at top-of-book → the first reposition may nudge the anchor one tick — confirm acceptable   Trade #: ______
+- [x] B1 (§5.2): a maker SL fill BELOW the cap → no emergency (position closes maker)   Trade #: **76 + 80** (M.SL 70 armed both; #76 filled at the flip price with zero repositions, #80 filled maker at 64859.5 after two chases — no emergency either time)
+- [ ] B2 (§5.5): M.SL blank/0 → pure chase, emergency never fires   Trade #: ______ *(best-effort; the `marketStopLossChecked AndAlso threshold > 0` gate is triple-reviewed)*
+- [x] B3 (hybrid §6.3): SL triggers already at top-of-book → the first reposition may nudge the anchor one tick — confirm acceptable   Trade #: **76** (no-reposition variant: anchor stays flip, maker fill, benign) **+ 80** (nudge variant: flip 64856.5 → first-repo latch 64859, a 2.5 nudge — benign, accepted)
 
 ---
 
@@ -57,7 +61,7 @@ Trade #: ______
 - **Pre-settle window** (flip → first reposition, ≤ ~333 ms): the cap measures from F. A violent gap inside that window fires from F — conservative, bounded, accepted by design.
 - **Near-book manual moves** within ±0.25 of a just-commanded price may not log cyan and aren't followed (§6(a) accepted; the wide re-sets that matter to the cap always detect).
 - **Post-nuclear-cancel warning repetition** (`Placed price = 0 while an order context is active…`) while a position sits uncovered: deliberate hazard signal (§6(c)).
-- **Edit T.S. post-trigger prints `Updated T.S. to:` optimistically** (after the send, before the outcome) — a post_only-repriced or raced edit still prints it. Trust the echo-driven lines (cyan / flip / reposition), not the button's own line. Backlog: make the button post-trigger-aware.
+- **Edit T.S. post-trigger is a four-trap minefield (backlog: make it post-trigger-aware):** (1) you enter a TRIGGER value but the LIMIT is what acts, derived as trigger ± `txtStopLoss` (+30 short / −30 long) — to place the limit at X on a short, you must enter X − 30; (2) `trigger_price` is moot on a triggered SL (accepted, ignored — probe closed #71/#76); (3) a crossing limit is silently repriced to the book by `post_only`/`reject_post_only:False`; (4) `Updated T.S. to:` prints optimistically after the send regardless of outcome. Trust the echo-driven lines (cyan / flip / reposition), never the button's own line. **Post-trigger manual moves: use the Deribit UI and drag the LIMIT.**
 - **Duplicate `Triggered SL placed` lines** — the flip-line gate (`UpdateFlag = False`) is weak against Deribit's duplicate/late echoes; two-at-flip (and a re-print on any unchanged-price echo) is cosmetic. Known, pre-existing, hands-off region.
 - **After a send-path emergency fire, one `SL repositioned → $X` line prints AFTER the emergency lines** (the caller's bookkeeping is blind to the internal fire; X = the cap price). Accepted F1-class cosmetic; the stale reference write is inert and self-heals at the next placement. Observed live in #71.
 - **Cancel-all removes the cap with the SL context** (owner ruling 2026-07-13: left as-spec — nuclear cancel resets `SLTriggered`/baseline/latch). If you cancel-all and keep the position open, the M.SL emergency is gone with it: close manually.
@@ -70,5 +74,7 @@ sl-chase-v2 §5.1/.2 (bid+0.5 / ask−0.5 stepping, maker exits), §5.3 pullback
 
 ---
 
-**PASS = A1–A3 ticked → push `44cd51e..de7d87b` → fire `handoff-autotrade-tiein.md` at the implementer.**
+**PASS = A1–A3 ticked → push `44cd51e..HEAD` → fire `handoff-autotrade-tiein.md` at the implementer.**
 **Any FAIL: stop, note the trade #, bring me the log lines — do not push.**
+
+**GATE STATE 2026-07-14:** A1 ✅✅ (#68 quote-path + #71 send-path) · A3 ✅ (#80) · B1 ✅ (#76/#80) · B3 ✅ (#76/#80) · A2 = three setup misses, zero assertion failures — coordinator recommends best-effort downgrade (see the A2 block) → **owner ratifies the downgrade ⇒ gate SATISFIED ⇒ push.** B2 best-effort. Post-push backlog additions from this session: Edit T.S. post-trigger rework; (ergonomics-A candidate) clear manual TP/SL inputs on entry-abort — owner preference pending.
