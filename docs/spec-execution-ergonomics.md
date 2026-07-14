@@ -61,6 +61,15 @@
 
 **Acceptance:** in a long position, one click moves the SL trigger to entry+comms (verify on the exchange UI); flat → refusal log; the existing edit button behaves identically to before (shared core, byte-equal payload).
 
+## Item G — clear the stale placed-SL display on entry-abort (Phase A; owner-requested 2026-07-14)
+
+**Context:** after a working-entry abort with no position (typically the ATR-slippage guard's scoped cancel), `txtPlacedStopLossPrice` keeps the dead bracket's SL price until the next placement reseeds it. This staleness is deliberate today: the scoped cancel must NOT touch `placedStopLossPrice`/SL context (HANDOVER-2 §4 invariant 3 — those fields may belong to a live position's legs, and a zero can stall an actively-trailing SL). The owner wants the display honest when nothing is live.
+
+**Design:** at the end of the scoped-cancel path (`CancelWorkingEntryCoreAsync`, after its existing context resets), add a **guarded** clear:
+`If positionSizeUSD = 0D AndAlso Not SLTriggered AndAlso PositionSLOrderId Is Nothing Then` → `placedStopLossPrice = 0D` + `UiInvoke` the `txtPlacedStopLossPrice`/`txtPlacedTrigStopPrice` displays to "0". The guard is the load-bearing part — with any live position/triggered-SL context the clear must NOT run (that is invariant 3's whole point; this item adds a conditional display-hygiene clear for the provably-flat case only, NOT an 8th SL-context reset site — `emergencyBaseline`/commanded-set are already 0 on this path from the placement reset and are not touched).
+
+**Acceptance:** slippage-guard abort while flat → both placed-SL displays read 0 and `placedStopLossPrice = 0`; the same abort with an open position (rare manual double-placement case) → displays untouched; normal placement/fill/trigger flows byte-identical.
+
 ## Item F — engine levels for manual trades (Phase B)
 
 **Design:** button `USE ENGINE LEVELS` (near the manual TP/SL boxes). Reads the tie-in's `BridgeReader.LatestPayload` (the same consumer the autotrade path uses — do **not** build a second file reader): refuse (yellow log) if payload is stale per the contract age gate, `signal_state ≠ OK`, or `direction = NONE`. Otherwise: `txtManualTP = levels.<direction>.target`; **stop mapping per the contract semantics** — `levels.<direction>.stop` is the exit *trigger* level, and the manual-SL path derives trigger = `manualSL ± txtStopLoss`, so write `txtManualSL = stop ∓ txtStopLoss` (long: `stop − txtStopLoss`; short: `stop + txtStopLoss`) so the resulting trigger lands exactly on the engine's stop. Log both levels + `signal_id`. Works regardless of arming (it's a manual-trading aid; the interlock is untouched). If the payload direction disagrees with the current Buy/Sell mode, log the mismatch and still populate (the owner decides — they may be fading; do not block).
@@ -71,11 +80,12 @@
 
 ## Commits
 
-1. `Ergonomics (1/5): orderapp-settings.json - persist standing inputs` (A)
-2. `Ergonomics (2/5): risk-based SIZE button` (B)
-3. `Ergonomics (3/5): journal MAE/MFE, planned R, fees + schema migration` (C, signal columns empty)
-4. `Ergonomics (4/5): alerts` (D)
-5. `Ergonomics (5/5): break-even button via shared EditStopLossTo` (E)
+1. `Ergonomics (1/6): orderapp-settings.json - persist standing inputs` (A)
+2. `Ergonomics (2/6): risk-based SIZE button` (B)
+3. `Ergonomics (3/6): journal MAE/MFE, planned R, fees + schema migration` (C, signal columns empty)
+4. `Ergonomics (4/6): alerts` (D)
+5. `Ergonomics (5/6): break-even button via shared EditStopLossTo` (E)
+6. `Ergonomics (6/6): guarded placed-SL display clear on entry-abort` (G, added 2026-07-14)
 Phase B (post-tie-in, separate mini-handoff): F + C's signal columns + D's two bridge alerts.
 
 ## Implementation report
