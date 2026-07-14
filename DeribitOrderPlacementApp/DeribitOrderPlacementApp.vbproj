@@ -60,6 +60,16 @@
     <None Update="secrets.example.json">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
+    <!-- Local, git-ignored signal-bridge config. Copied to output only if present (defaults apply without it). -->
+    <None Update="bridge.json" Condition="Exists('bridge.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="bridge.example.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+    <None Update="bridge-state.example.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

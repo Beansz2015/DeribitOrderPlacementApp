@@ -1,0 +1,10 @@
+{
+  "path": "C:\\Dev\\DeribitBridge\\verdict_signal.json",
+  "tiers": [ "HIGH", "MEDIUM" ],
+  "size_usd": 10,
+  "cooloff_min": 5,
+  "circuit_breaker_usd": 50,
+  "window_start": "",
+  "window_end": "",
+  "slippage_atr_mult": 0.6
+}

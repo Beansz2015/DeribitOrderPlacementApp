@@ -20,6 +20,10 @@ Public Class frmMainPageV2
     Private _indicators As FrmIndicators
     Private _autotradesettings As AutoTradeSettings
 
+    ' Signal-bridge tie-in (docs/spec-autotrade-tiein.md): the VerdictEngine signal consumer.
+    ' Constructed after Shown init; mode/ARM/START live on the AutoTradeSettings SIGNAL BRIDGE panel.
+    Private signalBridge As SignalBridge
+
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
 
@@ -382,6 +386,22 @@ Public Class frmMainPageV2
         End Get
     End Property
 
+    ' The SL stop-limit execution offset (mirrors txtStopLoss). The bridge derives its manualSL
+    ' (the LIMIT leg) one offset beyond the engine's stop so the TRIGGER lands exactly on it.
+    Public ReadOnly Property StopLimitOffset As Decimal
+        Get
+            Return stopLossOffset
+        End Get
+    End Property
+
+    ' Bridge START precondition (spec-autotrade-tiein section 1): live mode rides the existing
+    ' ATR-slippage guard, so the guard checkbox must be on. Field-backed - safe on any thread.
+    Friend ReadOnly Property IsMaxSlippageGuardChecked As Boolean
+        Get
+            Return maxSlippageATRchecked
+        End Get
+    End Property
+
     ' Writes the trade-input textboxes on the UI thread; TextChanged syncs the engine mirrors -
     ' the same path the manual flow and the old btnATR paste use. Nothing/negative = leave as is.
     Public Sub SetTradeTargets(Optional takeProfit As Decimal? = Nothing,
@@ -513,6 +533,20 @@ Public Class frmMainPageV2
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Failed to initialize trade database: {ex.Message}", Color.Red)
         End Try
+
+        ' Signal-bridge tie-in (docs/spec-autotrade-tiein.md section 3c): construct the consumer.
+        ' Starts in mode Off (nothing watches, nothing places) until the SIGNAL BRIDGE panel drives it.
+        Try
+            signalBridge = New SignalBridge(Me, AddressOf BridgeLog)
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Signal bridge init failed: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
+    ' Bridge log sink: prefixes + routes to the main log. AppendColoredText self-marshals and is
+    ' handle-guarded, so the bridge may call this from any thread.
+    Private Sub BridgeLog(msg As String, c As Color)
+        AppendColoredText(txtLogs, "[BRIDGE] " & msg, c)
     End Sub
 
     ' Event handlers
@@ -2678,9 +2712,12 @@ Public Class frmMainPageV2
     Private currentRequoteCount As Integer = 0
 
     Private Function CalculateATRSlippageLimit() As Decimal
-        ' Cross-thread fix: read the engine fields, not controls. ATR comes from _indicators.CurrentATR
-        ' (a backing field), the multiplier from maxSlippageATRmult (mirrors txtMaxSlippageATR).
-        Dim currentATR As Decimal = If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D)
+        ' Cross-thread fix: read the engine fields, not controls. ATR source is bridge-first
+        ' (docs/spec-autotrade-tiein.md section 3c): the last actionable bridge payload's atr when
+        ' fresh (LastSignalAtr is 0 when none/stale - plain field-backed read, receive-thread safe),
+        ' falling back to _indicators.CurrentATR while FrmIndicators lives, then the $70 constant.
+        Dim bridgeAtr As Decimal = If(signalBridge IsNot Nothing, signalBridge.LastSignalAtr, 0D)
+        Dim currentATR As Decimal = If(bridgeAtr > 0D, bridgeAtr, If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D))
         If currentATR <= 0D Then
             Return 70 ' Fallback to $70 if ATR unavailable
         End If
@@ -4827,6 +4864,7 @@ Public Class frmMainPageV2
         shutdownStarted = True
         isClosing = True
         Try
+            signalBridge?.Dispose() ' stop the watcher/timers before the sockets go down
             cancellationTokenSource?.Cancel()
             If webSocketClient IsNot Nothing AndAlso webSocketClient.State = WebSocketState.Open Then
                 ' Bounded: a wedged close handshake must not hang shutdown (worst case 2s).

@@ -1,0 +1,824 @@
+Option Strict On
+Option Explicit On
+
+Imports System.Globalization
+Imports System.IO
+Imports System.Threading
+Imports Newtonsoft.Json.Linq
+
+' =====================================================================================================
+' SignalBridge - the execution-side consumer of the VerdictEngine signal bridge.
+'
+' Contract: docs/integration-contract-verdictengine.md (FROZEN v1) - canonical for consumer behavior.
+' Spec:     docs/spec-autotrade-tiein.md section 3.
+'
+' Consumes verdict_signal.json (atomic engine writes) via FileSystemWatcher + ~150 ms debounce +
+' an independent 10-s staleness timer (FSW cannot detect a dead engine), runs the contract section-4
+' gate chain in order, and drives the decouple-v2 public API (SetTradeTargets + PlaceAutomatedOrder).
+' Every consumed payload gets exactly one disposition line (host log + bridge-dispositions.log) -
+' the soak reviewers join these rows against the engine CSV on (instance_id, signal_id); keep the
+' line format and disposition tokens STABLE once the soak starts.
+'
+' Threading: FSW callbacks, debounce/staleness timer callbacks, and the settings-form UI thread all
+' enter here; the host's receive thread reads LastSignalAtr. State transitions take _sync briefly;
+' LastSignalAtr is a plain field-backed read (no locking, no controls, allocation-free - receive-path
+' rule). This class NEVER touches WinForms controls: UI output goes through the host log delegate
+' (AppendColoredText self-marshals + handle-guards) and the StatusChanged event, which subscribers
+' must marshal themselves (raised on arbitrary threads).
+'
+' Nothing here persists across app restarts except bridge-state.json (the acted de-dupe pair, a
+' contract section-4.3 requirement) - mode/ARM/Started always reset to Off/unchecked/stopped.
+' =====================================================================================================
+Public Class SignalBridge
+    Implements IDisposable
+
+    Public Enum BridgeMode
+        Off = 0
+        LogOnly = 1
+        Live = 2
+    End Enum
+
+    Private Const DebounceMs As Integer = 150
+    Private Const StalenessPeriodMs As Integer = 10_000
+    Private Const StaleAlertThreshold As Integer = 3
+    Private Const DefaultPayloadPath As String = "C:\Dev\DeribitBridge\verdict_signal.json"
+
+    Private ReadOnly _host As frmMainPageV2
+    Private ReadOnly _log As Action(Of String, Color)
+    Private ReadOnly _sync As New Object()
+
+    ' ---- config (bridge.json beside the exe; missing file => these defaults + yellow log) ----
+    Private _payloadPath As String = DefaultPayloadPath
+    Private _tiers As List(Of String) = New List(Of String) From {"HIGH", "MEDIUM"}
+    Private _sizeUsd As Decimal = 10D
+    Private _cooloffMin As Decimal = 5D
+    Private _circuitBreakerUsd As Decimal = 50D          ' <= 0 disables the breaker
+    Private _windowStart As String = ""                  ' blank = unrestricted (contract section 4.6)
+    Private _windowEnd As String = ""
+    Private _slippageAtrMult As Decimal = 0.6D           ' informational in v1: the operative cap rides the
+    '                                                      host's existing chkMaxSlippageATR machinery (spec section 1)
+
+    ' ---- acted de-dupe pair (bridge-state.json; persisted across restarts per contract section 4.3) ----
+    Private _lastActedInstanceId As String = ""
+    Private _lastActedSignalId As Long = -1
+
+    ' ---- runtime state (all reset at construction; nothing persists) ----
+    Private _mode As BridgeMode = BridgeMode.Off
+    Private _localArmed As Boolean = False
+    Private _started As Boolean = False
+    Private _engineArmed As Boolean = False              ' from the latest parsed payload
+    Private _lastPayloadGeneratedUtc As DateTime = DateTime.MinValue
+    Private _lastExecResMin As Integer = 1
+    Private _lastSignalAtr As Decimal = 0D               ' last actionable payload's atr; 0 when none/stale.
+    '                                                      Read on the receive thread (CalculateATRSlippageLimit):
+    '                                                      plain field, accepted Decimal torn-read class.
+    Private _lastDisposition As String = ""
+    Private _lastSignalSummary As String = ""
+    Private _lastActionUtc As DateTime = DateTime.MinValue   ' cooloff anchor (acted / would-act)
+    Private _staleChecks As Integer = 0                  ' consecutive stale staleness-timer checks
+    Private _staleAlerted As Boolean = False
+    Private _lastSeenInstanceId As String = ""           ' in-memory only: suppresses double-dispositions
+    Private _lastSeenSignalId As Long = Long.MinValue    ' when FSW double-fires on the same payload
+
+    ' ---- machinery ----
+    Private _watcher As FileSystemWatcher
+    Private ReadOnly _debounce As Threading.Timer
+    Private ReadOnly _staleTimer As Threading.Timer
+    Private _processing As Integer = 0                   ' single-flight: one payload evaluated at a time
+    Private _rerun As Integer = 0                        ' a newer file event supersedes a queued one
+    Private _disposed As Boolean = False
+
+    ' Raised on ANY state/status change, on arbitrary threads - UI subscribers must marshal (BeginInvoke).
+    Public Event StatusChanged()
+
+    Public Sub New(host As frmMainPageV2, log As Action(Of String, Color))
+        _host = host
+        _log = log
+        _debounce = New Threading.Timer(AddressOf OnDebounceFired, Nothing, Timeout.Infinite, Timeout.Infinite)
+        _staleTimer = New Threading.Timer(AddressOf OnStalenessTick, Nothing, Timeout.Infinite, Timeout.Infinite)
+        LoadConfig()
+        LoadState()
+        _log($"consumer ready (mode Off) - payload path: {_payloadPath}", Color.Gray)
+    End Sub
+
+    ' ================================ public surface (UI + host) ================================
+
+    Public Property Mode As BridgeMode
+        Get
+            Return _mode
+        End Get
+        Set(value As BridgeMode)
+            Dim changed As Boolean = False
+            SyncLock _sync
+                If _mode <> value Then
+                    _mode = value
+                    changed = True
+                End If
+            End SyncLock
+            If Not changed Then Return
+            ForceStop($"mode changed to {value}")
+            If value = BridgeMode.Off Then
+                StopWatching()
+                _log("mode Off - watcher and staleness checks stopped", Color.Gray)
+            Else
+                StartWatching()
+                _log($"mode {value} - watching {_payloadPath}", Color.DodgerBlue)
+                EvaluateNow() ' initial read so status/dispositions don't wait for the next engine run
+            End If
+            RaiseEvent StatusChanged()
+        End Set
+    End Property
+
+    Public Property LocalArmed As Boolean
+        Get
+            Return _localArmed
+        End Get
+        Set(value As Boolean)
+            Dim changed As Boolean = False
+            SyncLock _sync
+                If _localArmed <> value Then
+                    _localArmed = value
+                    changed = True
+                End If
+            End SyncLock
+            If Not changed Then Return
+            If Not value Then ForceStop("ARM unchecked")
+            _log(If(value, "ARM on (local)", "ARM off (local)"), If(value, Color.DodgerBlue, Color.Gray))
+            RaiseEvent StatusChanged()
+        End Set
+    End Property
+
+    Public ReadOnly Property Started As Boolean
+        Get
+            Return _started
+        End Get
+    End Property
+
+    Public ReadOnly Property EngineArmed As Boolean
+        Get
+            Return _engineArmed
+        End Get
+    End Property
+
+    ' Live-and-started - the state LogTradeDecision gating reads (replaces FrmIndicators.IsAutoTradingEnabled).
+    Public ReadOnly Property IsLiveStarted As Boolean
+        Get
+            Return _mode = BridgeMode.Live AndAlso _started
+        End Get
+    End Property
+
+    Public ReadOnly Property IsFreshNow As Boolean
+        Get
+            Dim gen As DateTime = _lastPayloadGeneratedUtc
+            If gen = DateTime.MinValue Then Return False
+            Return (DateTime.UtcNow - gen).TotalMinutes <= 2.5R * Math.Max(_lastExecResMin, 1)
+        End Get
+    End Property
+
+    Public ReadOnly Property LastDisposition As String
+        Get
+            Return _lastDisposition
+        End Get
+    End Property
+
+    Public ReadOnly Property LastSignalSummary As String
+        Get
+            Return _lastSignalSummary
+        End Get
+    End Property
+
+    ' Read from CalculateATRSlippageLimit on the RECEIVE thread: plain field-backed, no locking,
+    ' no controls, allocation-free. 0 when no actionable payload yet or when stale.
+    Public ReadOnly Property LastSignalAtr As Decimal
+        Get
+            Return _lastSignalAtr
+        End Get
+    End Property
+
+    ' Config read surface for the SIGNAL BRIDGE panel.
+    Public ReadOnly Property TiersCsv As String
+        Get
+            Return String.Join(",", _tiers)
+        End Get
+    End Property
+    Public ReadOnly Property SizeUsd As Decimal
+        Get
+            Return _sizeUsd
+        End Get
+    End Property
+    Public ReadOnly Property CooloffMin As Decimal
+        Get
+            Return _cooloffMin
+        End Get
+    End Property
+    Public ReadOnly Property CircuitBreakerUsd As Decimal
+        Get
+            Return _circuitBreakerUsd
+        End Get
+    End Property
+    Public ReadOnly Property WindowStart As String
+        Get
+            Return _windowStart
+        End Get
+    End Property
+    Public ReadOnly Property WindowEnd As String
+        Get
+            Return _windowEnd
+        End Get
+    End Property
+
+    ' Interlock (contract section 6, trader-fixed) - Nothing on success, else the refusal reason.
+    ' START succeeds only when: mode = Live AND LocalArmed AND latest payload fresh AND engine armed
+    ' AND chkMaxSlippageATR checked (spec section 1 design decision - the slippage-cap commitment
+    ' rides the existing guard machinery).
+    Public Function TryStart() As String
+        Dim reason As String = Nothing
+        SyncLock _sync
+            If _mode <> BridgeMode.Live Then
+                reason = "mode is not Live (log-only runs un-started by design)"
+            ElseIf Not _localArmed Then
+                reason = "ARM AUTOTRADE is unchecked"
+            ElseIf Not IsFreshNow Then
+                reason = "latest payload is stale (or none received yet)"
+            ElseIf Not _engineArmed Then
+                reason = "engine ARM is off in the latest payload"
+            ElseIf Not _host.IsMaxSlippageGuardChecked Then
+                reason = "Max Slippage ATR guard (chkMaxSlippageATR) is unchecked"
+            Else
+                _started = True
+            End If
+        End SyncLock
+        If reason Is Nothing Then
+            _log("STARTED - live auto-trading interlock satisfied", Color.LimeGreen)
+        Else
+            _log($"START refused: {reason}", Color.Yellow)
+        End If
+        RaiseEvent StatusChanged()
+        Return reason
+    End Function
+
+    Public Sub [Stop]()
+        ForceStop("STOP pressed")
+    End Sub
+
+    ' Persists the editable gate config to bridge.json and reloads it into the running bridge.
+    ' Returns Nothing on success, else a validation error (nothing was saved).
+    Public Function SaveConfig(tiersCsv As String, sizeUsd As Decimal, cooloffMin As Decimal,
+                               circuitBreakerUsd As Decimal, windowStart As String, windowEnd As String) As String
+        Dim tiers As New List(Of String)
+        For Each t In If(tiersCsv, "").Split(","c)
+            Dim tt As String = t.Trim().ToUpperInvariant()
+            If tt.Length = 0 Then Continue For
+            If tt <> "HIGH" AndAlso tt <> "MEDIUM" AndAlso tt <> "LOW" Then
+                Return $"unknown tier '{tt}' (pinned enum: HIGH, MEDIUM, LOW)"
+            End If
+            If Not tiers.Contains(tt) Then tiers.Add(tt)
+        Next
+        If tiers.Count = 0 Then Return "at least one confidence tier is required"
+        If sizeUsd <= 0D Then Return "size_usd must be > 0"
+        If cooloffMin < 0D Then Return "cooloff_min cannot be negative"
+        Dim ts As TimeSpan
+        If Not String.IsNullOrWhiteSpace(windowStart) AndAlso Not TimeSpan.TryParse(windowStart.Trim(), ts) Then
+            Return $"invalid window_start '{windowStart}' (HH:mm)"
+        End If
+        If Not String.IsNullOrWhiteSpace(windowEnd) AndAlso Not TimeSpan.TryParse(windowEnd.Trim(), ts) Then
+            Return $"invalid window_end '{windowEnd}' (HH:mm)"
+        End If
+
+        SyncLock _sync
+            _tiers = tiers
+            _sizeUsd = sizeUsd
+            _cooloffMin = cooloffMin
+            _circuitBreakerUsd = circuitBreakerUsd
+            _windowStart = If(windowStart, "").Trim()
+            _windowEnd = If(windowEnd, "").Trim()
+        End SyncLock
+
+        Try
+            Dim jo As New JObject From {
+                {"path", _payloadPath},
+                {"tiers", New JArray(_tiers.ToArray())},
+                {"size_usd", _sizeUsd},
+                {"cooloff_min", _cooloffMin},
+                {"circuit_breaker_usd", _circuitBreakerUsd},
+                {"window_start", _windowStart},
+                {"window_end", _windowEnd},
+                {"slippage_atr_mult", _slippageAtrMult}
+            }
+            File.WriteAllText(ConfigFilePath, jo.ToString())
+        Catch ex As Exception
+            Return $"config save failed: {ex.Message}"
+        End Try
+        _log($"config saved: tiers [{String.Join(",", _tiers)}], size {_sizeUsd.ToString(CultureInfo.InvariantCulture)} USD, " &
+             $"cooloff {_cooloffMin.ToString(CultureInfo.InvariantCulture)} min, breaker {_circuitBreakerUsd.ToString(CultureInfo.InvariantCulture)} USD, " &
+             $"window '{_windowStart}'-'{_windowEnd}' UTC+8", Color.DodgerBlue)
+        RaiseEvent StatusChanged()
+        Return Nothing
+    End Function
+
+    Public Sub Dispose() Implements IDisposable.Dispose
+        If _disposed Then Return
+        _disposed = True
+        StopWatching()
+        _debounce.Dispose()
+        _staleTimer.Dispose()
+    End Sub
+
+    ' ================================ file paths (beside the exe, like secrets.json) ================================
+
+    Private Shared ReadOnly Property ConfigFilePath As String
+        Get
+            Return Path.Combine(AppContext.BaseDirectory, "bridge.json")
+        End Get
+    End Property
+
+    Private Shared ReadOnly Property StateFilePath As String
+        Get
+            Return Path.Combine(AppContext.BaseDirectory, "bridge-state.json")
+        End Get
+    End Property
+
+    Private Shared ReadOnly Property DispositionLogPath As String
+        Get
+            Return Path.Combine(AppContext.BaseDirectory, "bridge-dispositions.log")
+        End Get
+    End Property
+
+    ' ================================ config + state files ================================
+
+    Private Sub LoadConfig()
+        Try
+            If Not File.Exists(ConfigFilePath) Then
+                _log($"bridge.json not found beside the exe - using defaults (payload {DefaultPayloadPath}, " &
+                     "tiers HIGH+MEDIUM, size 10 USD, cooloff 5 min, breaker 50 USD, no window)", Color.Yellow)
+                Return
+            End If
+            Dim json As JObject = JObject.Parse(File.ReadAllText(ConfigFilePath))
+            _payloadPath = If(json.SelectToken("path")?.ToString(), DefaultPayloadPath)
+            Dim tiersTok = TryCast(json.SelectToken("tiers"), JArray)
+            If tiersTok IsNot Nothing AndAlso tiersTok.Count > 0 Then
+                Dim tiers As New List(Of String)
+                For Each t In tiersTok
+                    Dim tt As String = t.ToString().Trim().ToUpperInvariant()
+                    If tt.Length > 0 AndAlso Not tiers.Contains(tt) Then tiers.Add(tt)
+                Next
+                If tiers.Count > 0 Then _tiers = tiers
+            End If
+            _sizeUsd = If(json.SelectToken("size_usd")?.ToObject(Of Decimal)(), _sizeUsd)
+            _cooloffMin = If(json.SelectToken("cooloff_min")?.ToObject(Of Decimal)(), _cooloffMin)
+            _circuitBreakerUsd = If(json.SelectToken("circuit_breaker_usd")?.ToObject(Of Decimal)(), _circuitBreakerUsd)
+            _windowStart = If(json.SelectToken("window_start")?.ToString(), "").Trim()
+            _windowEnd = If(json.SelectToken("window_end")?.ToString(), "").Trim()
+            _slippageAtrMult = If(json.SelectToken("slippage_atr_mult")?.ToObject(Of Decimal)(), _slippageAtrMult)
+        Catch ex As Exception
+            _log($"bridge.json load failed ({ex.Message}) - using defaults", Color.Yellow)
+        End Try
+    End Sub
+
+    Private Sub LoadState()
+        Try
+            If Not File.Exists(StateFilePath) Then Return
+            Dim json As JObject = JObject.Parse(File.ReadAllText(StateFilePath))
+            _lastActedInstanceId = If(json.SelectToken("instance_id")?.ToString(), "")
+            _lastActedSignalId = If(json.SelectToken("last_acted_signal_id")?.ToObject(Of Long)(), -1L)
+            If _lastActedInstanceId.Length > 0 AndAlso _lastActedSignalId >= 0 Then
+                _log($"de-dupe state restored: last acted signal {_lastActedSignalId} (engine {_lastActedInstanceId})", Color.Gray)
+            End If
+        Catch ex As Exception
+            _log($"bridge-state.json load failed ({ex.Message}) - starting with no de-dupe history", Color.Yellow)
+        End Try
+    End Sub
+
+    Private Sub PersistState()
+        Try
+            Dim jo As New JObject From {
+                {"instance_id", _lastActedInstanceId},
+                {"last_acted_signal_id", _lastActedSignalId}
+            }
+            File.WriteAllText(StateFilePath, jo.ToString())
+        Catch ex As Exception
+            _log($"bridge-state.json write failed: {ex.Message}", Color.Yellow)
+        End Try
+    End Sub
+
+    ' ================================ watcher + timers ================================
+
+    Private Sub StartWatching()
+        SyncLock _sync
+            If _watcher Is Nothing Then
+                Try
+                    Dim dir As String = Path.GetDirectoryName(_payloadPath)
+                    If String.IsNullOrEmpty(dir) Then dir = "."
+                    If Not Directory.Exists(dir) Then Directory.CreateDirectory(dir) ' create-if-missing (emitter does too)
+                    Dim w As New FileSystemWatcher(dir, Path.GetFileName(_payloadPath))
+                    w.NotifyFilter = NotifyFilters.LastWrite Or NotifyFilters.FileName Or NotifyFilters.CreationTime Or NotifyFilters.Size
+                    ' File.Replace on the engine side surfaces as rename/change - watch all three.
+                    AddHandler w.Changed, AddressOf OnPayloadFileEvent
+                    AddHandler w.Created, AddressOf OnPayloadFileEvent
+                    AddHandler w.Renamed, AddressOf OnPayloadRenamed
+                    w.EnableRaisingEvents = True
+                    _watcher = w
+                Catch ex As Exception
+                    _log($"watcher start failed: {ex.Message}", Color.Red)
+                End Try
+            End If
+        End SyncLock
+        _staleTimer.Change(StalenessPeriodMs, StalenessPeriodMs) ' independent 10-s staleness poll
+    End Sub
+
+    Private Sub StopWatching()
+        Dim w As FileSystemWatcher = Nothing
+        SyncLock _sync
+            w = _watcher
+            _watcher = Nothing
+            _staleChecks = 0
+            _staleAlerted = False
+        End SyncLock
+        _staleTimer.Change(Timeout.Infinite, Timeout.Infinite)
+        _debounce.Change(Timeout.Infinite, Timeout.Infinite)
+        If w IsNot Nothing Then
+            w.EnableRaisingEvents = False
+            w.Dispose()
+        End If
+    End Sub
+
+    Private Sub OnPayloadFileEvent(sender As Object, e As FileSystemEventArgs)
+        _debounce.Change(DebounceMs, Timeout.Infinite) ' reset per event (~150 ms debounce)
+    End Sub
+
+    Private Sub OnPayloadRenamed(sender As Object, e As RenamedEventArgs)
+        _debounce.Change(DebounceMs, Timeout.Infinite)
+    End Sub
+
+    Private Sub OnDebounceFired(state As Object)
+        EvaluateNow()
+    End Sub
+
+    ' Independent staleness check: FSW cannot detect a dead engine (silence = dead, contract section 2).
+    Private Sub OnStalenessTick(state As Object)
+        If _mode = BridgeMode.Off OrElse _disposed Then Return
+        If IsFreshNow Then
+            SyncLock _sync
+                _staleChecks = 0
+                _staleAlerted = False
+            End SyncLock
+            Return
+        End If
+        Dim checkCount As Integer
+        Dim alertNow As Boolean = False
+        SyncLock _sync
+            _staleChecks += 1
+            checkCount = _staleChecks
+            _lastSignalAtr = 0D ' stale => no bridge ATR (slippage guard falls back to FrmIndicators/$70)
+            If checkCount >= StaleAlertThreshold AndAlso Not _staleAlerted Then
+                _staleAlerted = True
+                alertNow = True
+            End If
+        End SyncLock
+        ForceStop("stale payload (staleness check)") ' stand down; no-op unless Started
+        If alertNow Then
+            _log($"STAND-DOWN ALERT: no fresh payload after {StaleAlertThreshold} consecutive checks - engine dead or stopped?", Color.Red)
+            RaiseEvent StatusChanged()
+        End If
+    End Sub
+
+    ' Any disarm drops to STOPPED (START is not sticky - contract section 6); resuming = full sequence.
+    Private Sub ForceStop(cause As String)
+        Dim wasStarted As Boolean = False
+        SyncLock _sync
+            wasStarted = _started
+            _started = False
+        End SyncLock
+        If wasStarted Then
+            _log($"auto-STOP: {cause}", Color.Red)
+            RaiseEvent StatusChanged()
+        End If
+    End Sub
+
+    ' ================================ payload processing ================================
+
+    ' Single-flight entry point: one payload evaluated at a time; a newer file event supersedes
+    ' a queued one (only the latest file content is ever evaluated - we re-read from disk per pass).
+    Private Sub EvaluateNow()
+        If _mode = BridgeMode.Off OrElse _disposed Then Return
+        If Interlocked.Exchange(_processing, 1) = 1 Then
+            Interlocked.Exchange(_rerun, 1)
+            Return
+        End If
+        ProcessLoopAsync()
+    End Sub
+
+    Private Async Sub ProcessLoopAsync() ' Async Sub: top-level timer/FSW-driven entry; all exceptions caught
+        Try
+            Do
+                Interlocked.Exchange(_rerun, 0)
+                Await EvaluateLatestPayloadAsync()
+            Loop While Interlocked.Exchange(_rerun, 0) = 1
+        Catch ex As Exception
+            _log($"payload processing error: {ex.Message}", Color.Red)
+        Finally
+            Interlocked.Exchange(_processing, 0)
+        End Try
+        ' A supersede that landed between the loop exit and the flag clear re-enters here; anything
+        ' later is picked up by the next FSW event or the 10-s staleness tick.
+        If Interlocked.CompareExchange(_rerun, 0, 0) = 1 Then EvaluateNow()
+    End Sub
+
+    Private Async Function EvaluateLatestPayloadAsync() As Task
+        Dim text As String = Await ReadPayloadTextAsync()
+        If text Is Nothing Then Return
+
+        Dim json As JObject
+        Try
+            json = JObject.Parse(text)
+        Catch ex As Exception
+            _log($"payload parse error: {ex.Message}", Color.Yellow) ' torn files shouldn't happen (atomic writes)
+            Return
+        End Try
+
+        Dim p As PayloadSnapshot
+        Try
+            p = ParsePayload(json)
+        Catch ex As Exception
+            _log($"payload field error: {ex.Message}", Color.Yellow)
+            Return
+        End Try
+
+        ' ---- status snapshot first (informational; updates even when the payload is refused) ----
+        Dim fresh As Boolean = (DateTime.UtcNow - p.GeneratedUtc).TotalMinutes <= 2.5R * Math.Max(p.ExecResolutionMin, 1)
+        SyncLock _sync
+            _engineArmed = p.EngineArmed
+            _lastPayloadGeneratedUtc = p.GeneratedUtc
+            _lastExecResMin = Math.Max(p.ExecResolutionMin, 1)
+            If fresh Then
+                _staleChecks = 0
+                _staleAlerted = False
+                If p.Direction <> "NONE" AndAlso p.Atr > 0D Then _lastSignalAtr = p.Atr
+            Else
+                _lastSignalAtr = 0D
+            End If
+            _lastSignalSummary = $"#{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction})"
+        End SyncLock
+
+        ' Engine ARM off in a payload is a disarm event (contract section 6) - a fresh payload
+        ' clears the stale counter above but never re-starts.
+        If Not p.EngineArmed Then ForceStop("engine ARM off in latest payload")
+
+        ' Same (instance_id, signal_id) already disposed this session (FSW double-fire, startup re-read):
+        ' every consumed payload gets EXACTLY one disposition line - suppress the re-read silently.
+        SyncLock _sync
+            If p.InstanceId = _lastSeenInstanceId AndAlso p.SignalId = _lastSeenSignalId Then
+                RaiseEvent StatusChanged()
+                Return
+            End If
+            _lastSeenInstanceId = p.InstanceId
+            _lastSeenSignalId = p.SignalId
+        End SyncLock
+
+        ' ---- gate chain, exactly contract section 4 order; first failing gate = the disposition ----
+        Dim disposition As String = Nothing
+
+        ' 4.1 schema version (the ONLY version gates read; settings_version is informational)
+        If p.SchemaVersion <> 1 Then
+            disposition = "refused: schema_version"
+            _log($"ALERT: payload schema_version {p.SchemaVersion} <> 1 - consumer update required, no action taken", Color.Red)
+        End If
+
+        ' 4.2 freshness + SKIPPED (stand down; never "hold the last signal")
+        If disposition Is Nothing AndAlso Not fresh Then
+            disposition = "stale"
+            ForceStop("stale payload")
+        End If
+        If disposition Is Nothing AndAlso p.SignalState = "SKIPPED" Then
+            disposition = "skipped"
+            ForceStop("SKIPPED payload (engine stand-down)")
+        End If
+
+        ' 4.3 de-dupe against the persisted acted pair. signal_id is monotonic per instance_id, so
+        ' anything <= the last acted id from the same engine process is a replay, never a new signal.
+        If disposition Is Nothing AndAlso p.InstanceId = _lastActedInstanceId AndAlso p.SignalId <= _lastActedSignalId Then
+            disposition = "duplicate"
+        End If
+
+        ' 4.4 action mapping (informational fields - verdict/skip_reason/cap_reason/scores/kelly/
+        ' structural/settings_version - are NEVER gated on; BELOW_MIN_MOVE is the only pinned
+        ' verdict_context value; WEAK carries its direction and is refused by the TIER gate;
+        ' health.ws: only DOWN blocks - REST/DEGRADED/OK all pass)
+        If disposition Is Nothing Then
+            If p.SignalState <> "OK" Then
+                disposition = "refused: signal_state"
+            ElseIf p.Direction = "NONE" Then
+                disposition = "refused: direction"
+            ElseIf Not _tiers.Contains(p.Confidence) Then
+                disposition = "refused: tier"
+            ElseIf p.MtfBlocked Then
+                disposition = "refused: mtf_blocked"
+            ElseIf p.VerdictContext = "BELOW_MIN_MOVE" Then
+                disposition = "refused: below_min_move"
+            ElseIf p.LedgerMismatch Then
+                disposition = "refused: ledger_mismatch"
+            ElseIf p.WsHealth = "DOWN" Then
+                disposition = "refused: ws_down"
+            End If
+        End If
+
+        ' 4.5 dual-arm interlock - LIVE MODE ONLY (log-only places nothing and may run un-armed)
+        If disposition Is Nothing AndAlso _mode = BridgeMode.Live Then
+            If Not (_localArmed AndAlso _started AndAlso p.EngineArmed) Then
+                disposition = "refused: interlock"
+            End If
+        End If
+
+        ' 4.6 operational gates, contract order: connected, rate-limit, flat, no working entry,
+        ' (cancel-pending lives inside PlaceAutomatedOrder - surfaces as rejected: cancel pending),
+        ' cooloff, circuit breaker, session window
+        If disposition Is Nothing Then
+            Dim breakerBreached As Boolean = _circuitBreakerUsd > 0D AndAlso _host.SessionPnLUSD <= -_circuitBreakerUsd
+            If Not _host.IsWebSocketConnected Then
+                disposition = "refused: not_connected"
+            ElseIf Not _host.CanMakeAPIRequest Then
+                disposition = "refused: rate_limit"
+            ElseIf Not _host.IsFlat Then
+                disposition = "refused: not_flat"
+            ElseIf _host.HasWorkingEntryOrder Then
+                disposition = "refused: working_entry"
+            ElseIf _lastActionUtc <> DateTime.MinValue AndAlso _cooloffMin > 0D AndAlso
+                   (DateTime.UtcNow - _lastActionUtc).TotalMinutes < CDbl(_cooloffMin) Then
+                disposition = "refused: cooloff"
+            ElseIf breakerBreached Then
+                disposition = "refused: circuit_breaker"
+                ForceStop($"circuit breaker tripped (session PnL {_host.SessionPnLUSD.ToString("F2", CultureInfo.InvariantCulture)} USD <= -{_circuitBreakerUsd.ToString(CultureInfo.InvariantCulture)})")
+            ElseIf Not IsInsideSessionWindow() Then
+                disposition = "refused: window"
+            End If
+        End If
+
+        ' ---- all gates green: act (Live) or log the would-be action (LogOnly - the soak's whole point) ----
+        If disposition Is Nothing Then
+            Dim isLong As Boolean = p.Direction = "LONG"
+            Dim inv As CultureInfo = CultureInfo.InvariantCulture
+            If _mode = BridgeMode.Live Then
+                ' Levels per contract section 5 + section 3 semantics: target = TP limit as-is (R2);
+                ' manualSL = the stop-limit's LIMIT leg, one execution offset beyond the engine's stop
+                ' (the app derives trigger = limit +/- StopLimitOffset, so the TRIGGER lands exactly
+                ' on the engine's stop); entry is a reference only - the app enters at top-of-book
+                ' under its own slippage cap.
+                Dim manualSl As Decimal = If(isLong, p.StopLevel - _host.StopLimitOffset, p.StopLevel + _host.StopLimitOffset)
+                _host.SetTradeTargets(manualTP:=p.Target, manualSL:=manualSl, sizeUSD:=_sizeUsd)
+                Dim result As frmMainPageV2.PlacementResult = Await _host.PlaceAutomatedOrder(If(isLong, "long", "short"), "limit")
+                If result.Accepted Then
+                    disposition = $"acted (id {result.OrderId})"
+                    RecordActed(p)
+                Else
+                    disposition = $"rejected: {result.Reason}"
+                End If
+            Else
+                disposition = $"would-act: {p.Direction} @ {p.Entry.ToString(inv)}, stop {p.StopLevel.ToString(inv)}, " &
+                              $"target {p.Target.ToString(inv)}, size {_sizeUsd.ToString(inv)}"
+                ' Advance the de-dupe pair + cooloff anchor in log-only too, so the soak's disposition
+                ' stream is gate-for-gate identical to what live mode would have produced.
+                RecordActed(p)
+            End If
+        End If
+
+        EmitDisposition(p, disposition)
+        RaiseEvent StatusChanged()
+    End Function
+
+    Private Async Function ReadPayloadTextAsync() As Task(Of String)
+        For attempt As Integer = 0 To 1
+            Dim retryable As Boolean = False
+            Try
+                Return File.ReadAllText(_payloadPath)
+            Catch ex As FileNotFoundException
+                Return Nothing ' no payload yet - the staleness timer owns the alerting
+            Catch ex As DirectoryNotFoundException
+                Return Nothing
+            Catch ex As IOException
+                If attempt = 0 Then
+                    retryable = True
+                Else
+                    _log($"payload read failed twice: {ex.Message}", Color.Yellow)
+                End If
+            End Try
+            If retryable Then Await Task.Delay(100) ' one retry on a share violation mid-replace
+        Next
+        Return Nothing
+    End Function
+
+    Private Shared Function ParsePayload(json As JObject) As PayloadSnapshot
+        Dim p As New PayloadSnapshot With {
+            .SchemaVersion = If(json.SelectToken("schema_version")?.ToObject(Of Integer)(), 0),
+            .SignalId = If(json.SelectToken("signal_id")?.ToObject(Of Long)(), -1L),
+            .InstanceId = If(json.SelectToken("engine.instance_id")?.ToString(), ""),
+            .EngineArmed = If(json.SelectToken("engine.autotrade_armed")?.ToObject(Of Boolean)(), False),
+            .SignalState = If(json.SelectToken("signal_state")?.ToString(), ""),
+            .Verdict = If(json.SelectToken("verdict")?.ToString(), ""),
+            .Confidence = If(json.SelectToken("confidence")?.ToString(), ""),
+            .Direction = If(json.SelectToken("direction")?.ToString(), "NONE"),
+            .VerdictContext = If(json.SelectToken("verdict_context")?.ToString(), ""),
+            .MtfBlocked = If(json.SelectToken("mtf_blocked")?.ToObject(Of Boolean)(), False),
+            .ExecResolutionMin = If(json.SelectToken("exec_resolution_min")?.ToObject(Of Integer)(), 1),
+            .Atr = If(json.SelectToken("atr")?.ToObject(Of Decimal)(), 0D),
+            .LedgerMismatch = If(json.SelectToken("health.ledger_mismatch")?.ToObject(Of Boolean)(), False),
+            .WsHealth = If(json.SelectToken("health.ws")?.ToString(), "OK")
+        }
+
+        Dim genTok As String = If(json.SelectToken("generated_at_utc")?.ToString(), "")
+        Dim gen As DateTime
+        If DateTime.TryParse(genTok, CultureInfo.InvariantCulture,
+                             DateTimeStyles.AssumeUniversal Or DateTimeStyles.AdjustToUniversal, gen) Then
+            p.GeneratedUtc = gen
+        Else
+            p.GeneratedUtc = DateTime.MinValue ' unparseable timestamp reads as maximally stale
+        End If
+
+        If p.Direction = "LONG" OrElse p.Direction = "SHORT" Then
+            Dim key As String = p.Direction.ToLowerInvariant()
+            p.Entry = If(json.SelectToken($"levels.{key}.entry")?.ToObject(Of Decimal)(), 0D)
+            p.StopLevel = If(json.SelectToken($"levels.{key}.stop")?.ToObject(Of Decimal)(), 0D)
+            p.Target = If(json.SelectToken($"levels.{key}.target")?.ToObject(Of Decimal)(), 0D)
+        End If
+        Return p
+    End Function
+
+    ' UTC+8 session window, contract section 4.6: entries only INSIDE the configured window; blank =
+    ' unrestricted. Spans-midnight semantics match the old FrmIndicators range check (start > end wraps).
+    Private Function IsInsideSessionWindow() As Boolean
+        Dim ws As String = _windowStart, we As String = _windowEnd
+        If String.IsNullOrWhiteSpace(ws) OrElse String.IsNullOrWhiteSpace(we) Then Return True
+        Dim tStart, tEnd As TimeSpan
+        If Not TimeSpan.TryParse(ws.Trim(), tStart) OrElse Not TimeSpan.TryParse(we.Trim(), tEnd) Then
+            Return True ' invalid = unrestricted (validated at save; matches the old check's failure mode)
+        End If
+        Dim nowT As TimeSpan = DateTime.UtcNow.AddHours(8).TimeOfDay
+        If tStart <= tEnd Then
+            Return nowT >= tStart AndAlso nowT <= tEnd
+        End If
+        Return nowT >= tStart OrElse nowT <= tEnd ' spans midnight (e.g. 22:00 - 02:00)
+    End Function
+
+    Private Sub RecordActed(p As PayloadSnapshot)
+        SyncLock _sync
+            _lastActedInstanceId = p.InstanceId
+            _lastActedSignalId = p.SignalId
+            _lastActionUtc = DateTime.UtcNow
+        End SyncLock
+        PersistState()
+    End Sub
+
+    ' One line per consumed payload: host log + append-only bridge-dispositions.log
+    ' (contract section 4 commitment; v2 feedback-file precursor). Format and tokens are
+    ' soak-stable: utc | instance_id | signal_id | verdict | confidence | direction | disposition
+    Private Sub EmitDisposition(p As PayloadSnapshot, disposition As String)
+        SyncLock _sync
+            _lastDisposition = disposition
+        End SyncLock
+
+        Dim line As String = String.Join(" | ",
+            DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
+            p.InstanceId, p.SignalId.ToString(CultureInfo.InvariantCulture),
+            p.Verdict, p.Confidence, p.Direction, disposition)
+        Try
+            File.AppendAllText(DispositionLogPath, line & Environment.NewLine)
+        Catch ex As Exception
+            _log($"disposition log write failed: {ex.Message}", Color.Yellow)
+        End Try
+
+        Dim c As Color
+        If disposition.StartsWith("acted", StringComparison.Ordinal) Then
+            c = Color.LimeGreen
+        ElseIf disposition.StartsWith("would-act", StringComparison.Ordinal) Then
+            c = Color.Cyan
+        ElseIf disposition.StartsWith("rejected", StringComparison.Ordinal) Then
+            c = Color.Red
+        ElseIf disposition = "stale" OrElse disposition = "skipped" Then
+            c = Color.Yellow
+        Else
+            c = Color.Gray ' refused: <gate> / duplicate
+        End If
+        _log($"signal #{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction}) -> {disposition}", c)
+    End Sub
+
+    Private Class PayloadSnapshot
+        Public SchemaVersion As Integer
+        Public SignalId As Long
+        Public GeneratedUtc As DateTime
+        Public InstanceId As String = ""
+        Public EngineArmed As Boolean
+        Public SignalState As String = ""
+        Public Verdict As String = ""
+        Public Confidence As String = ""
+        Public Direction As String = "NONE"
+        Public VerdictContext As String = ""
+        Public MtfBlocked As Boolean
+        Public ExecResolutionMin As Integer = 1
+        Public Atr As Decimal
+        Public LedgerMismatch As Boolean
+        Public WsHealth As String = "OK"
+        Public Entry As Decimal
+        Public StopLevel As Decimal
+        Public Target As Decimal
+    End Class
+
+End Class

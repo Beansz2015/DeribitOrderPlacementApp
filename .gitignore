@@ -364,3 +364,8 @@ FodyWeavers.xsd
 
 # Local API credentials — NEVER commit. Copy secrets.example.json to secrets.json.
 secrets.json
+
+# Signal-bridge local config/state (beside the exe; ship the .example copies instead).
+bridge.json
+bridge-state.json
+bridge-dispositions.log
