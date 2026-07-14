@@ -395,7 +395,11 @@ Public Class SignalBridge
                 {"instance_id", _lastActedInstanceId},
                 {"last_acted_signal_id", _lastActedSignalId}
             }
-            File.WriteAllText(StateFilePath, jo.ToString())
+            ' F-2 (review-autotrade-tiein): temp + move so a crash mid-write can't tear the
+            ' de-dupe watermark (same atomic-write discipline as the engine's payload emit).
+            Dim tmp As String = StateFilePath & ".tmp"
+            File.WriteAllText(tmp, jo.ToString())
+            File.Move(tmp, StateFilePath, overwrite:=True)
         Catch ex As Exception
             _log($"bridge-state.json write failed: {ex.Message}", Color.Yellow)
         End Try
@@ -552,6 +556,15 @@ Public Class SignalBridge
             Return
         End Try
 
+        ' F-1 (review-autotrade-tiein): a payload without join identity never enters the chain -
+        ' the soak reviewers join on (instance_id, signal_id), so an id-less payload gets a yellow
+        ' log and NO disposition row. Unreachable from the fixture-pinned emitter; defends against
+        ' hand-crafted/foreign files.
+        If p.InstanceId.Length = 0 OrElse p.SignalId < 0 Then
+            _log($"payload rejected: missing identity (instance_id '{p.InstanceId}', signal_id {p.SignalId})", Color.Yellow)
+            Return
+        End If
+
         ' ---- status snapshot first (informational; updates even when the payload is refused) ----
         Dim fresh As Boolean = (DateTime.UtcNow - p.GeneratedUtc).TotalMinutes <= 2.5R * Math.Max(p.ExecResolutionMin, 1)
         SyncLock _sync
@@ -617,6 +630,12 @@ Public Class SignalBridge
                 disposition = "refused: signal_state"
             ElseIf p.Direction = "NONE" Then
                 disposition = "refused: direction"
+            ElseIf p.StopLevel <= 0D OrElse p.Target <= 0D Then
+                ' F-1: missing/zero levels on an actionable direction would reach placement as
+                ' manualTP/manualSL 0 and the host would silently fall back to OFFSET-DERIVED
+                ' levels - a partial-apply, forbidden by the agreed failure semantics and R2
+                ' (engine levels placed as-is). Reject + log instead.
+                disposition = "refused: levels"
             ElseIf Not _tiers.Contains(p.Confidence) Then
                 disposition = "refused: tier"
             ElseIf p.MtfBlocked Then
