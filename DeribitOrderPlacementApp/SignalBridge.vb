@@ -443,11 +443,19 @@ Public Class SignalBridge
     End Sub
 
     Private Sub OnPayloadFileEvent(sender As Object, e As FileSystemEventArgs)
-        _debounce.Change(DebounceMs, Timeout.Infinite) ' reset per event (~150 ms debounce)
+        KickDebounce()
     End Sub
 
     Private Sub OnPayloadRenamed(sender As Object, e As RenamedEventArgs)
-        _debounce.Change(DebounceMs, Timeout.Infinite)
+        KickDebounce()
+    End Sub
+
+    Private Sub KickDebounce()
+        Try
+            _debounce.Change(DebounceMs, Timeout.Infinite) ' reset per event (~150 ms debounce)
+        Catch ex As ObjectDisposedException
+            ' In-flight FSW callback racing app shutdown - drop it.
+        End Try
     End Sub
 
     Private Sub OnDebounceFired(state As Object)
