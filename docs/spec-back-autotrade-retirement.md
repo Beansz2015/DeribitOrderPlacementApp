@@ -4,6 +4,8 @@
 
 **Commits (local, on top of `5b629b3`):** `df615b7` (A — retire the UI, keep headless ATR) · `cdc7ce4` (B — main-form opener + re-parent) · `1e314aa` (C+D — fold gate config into the old controls, add Tooling, bridge rewiring) · `c622212` (C layout fixup, from rendering the form) · `895b73a` (fixups from the owner's run: button caption + live ATR readout) · docs `d597561`, `c28073d`. Build **0/0 in BOTH Debug and Release** after each (see §7.2 — Debug is now verified explicitly; the sln default is Release).
 
+**⚠ 2026-07-16 — a CULTURE BUG in the coordinator-APPROVED `ebde3aa` made the bridge read EVERY payload as stale on this machine (en-MY); fixed in `8956baa`.** Newtonsoft date auto-parsing + `JToken.ToString()` re-rendered the contract's ISO timestamp in the current culture, and the InvariantCulture parse then rejected it. Culture-dependent (en-US works, en-GB/de-DE/en-MY do not), which is why review and the mock tests missed it. **Full write-up at the top of `impl-report-autotrade-tiein.md`** — including the recommendation that the consumer needs a day-first-culture parse fixture to mirror the engine's A22.
+
 **STATUS 2026-07-16 — owner rebuilt and ran; UI CONFIRMED and §9.1 PASSED — the headless premise HOLDS.** Both forms render as intended (the `Auto Settings` caption is no longer truncated; the regrouped layout and Tooling readout look correct; the settings window opens from the main form). **Critically, the owner confirms the Tooling `ATR now:` line reads a live value** — which retires the single biggest risk in this change (§7.1). **§9.2–§9.5 and §9.7 remain OPEN**, and nothing is push-ready until they run.
 
 ---

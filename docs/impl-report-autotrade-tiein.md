@@ -1,5 +1,30 @@
 # Impl report — Signal-bridge tie-in (consumer, interlock, AutoTradeSettings panel)
 
+> ## ⚠ POST-APPROVAL DEFECT FOUND AT BRING-UP — `8956baa` (2026-07-16)
+>
+> **A culture bug in `ebde3aa` (COORDINATOR-APPROVED at `bbebaa7`) made the bridge refuse every signal, forever, on this machine.** Found by the owner the moment the engine started emitting for real: payloads arriving every 30 s were all disposed `stale` and the stand-down alert kept firing.
+>
+> **Mechanism.** Newtonsoft's default `DateParseHandling.DateTime` silently converts an ISO-8601-*looking* **string** into a **Date token**; `JToken.ToString()` then renders that token **in the current culture**. On en-MY (`d/M/yyyy`), `"2026-07-15T16:50:08Z"` came back out of `.ToString()` as `"15/7/2026 4:50:08 PM"`; the `InvariantCulture` (`M/d/yyyy`) `TryParse` rejected month `15`; the code fell to `DateTime.MinValue`, which reads as maximally stale. The freshness gate (contract §4.2) could therefore never pass.
+>
+> **Why it survived review, the mock tests and a 824-line end-to-end read:** it is **culture-dependent**. Proven with a probe against the real payload:
+>
+> | Culture | Result |
+> |---|---|
+> | en-MY (owner), en-GB, de-DE | **stale forever — bridge can never act** |
+> | en-US | works |
+>
+> A reviewer on a US-locale box sees correct code. The engine is blameless — contract §3 pins ISO-8601-with-`Z` + invariant culture and it emits exactly that; **the consumer un-did it on read**.
+>
+> **Fix:** `ParsePayloadJson` loads with `DateParseHandling.None`, so tokens stay the contract's raw strings and the explicit `InvariantCulture` + `AssumeUniversal|AdjustToUniversal` parse gets the ISO text it was written for. Verified by driving the **shipped** parse path via reflection against the live payload under en-MY: `TimestampOk=True`, `Kind=Utc`, age `0.93 min`, `FRESH=True`.
+>
+> **Hardening:** an unparseable `generated_at_utc` still stands down (freshness is unestablishable) but now logs **red**, quoting the raw value and stating it is a *malformed payload, not a dead engine* — the silent fallback is precisely what disguised this as a flaky engine.
+>
+> **Scope check:** confined to this one field. Every other `JObject.Parse` in the app reads Deribit JSON-RPC, which uses **epoch-millisecond numbers**, not ISO strings; `bridge.json` / `bridge-state.json` / `secrets.json` hold only strings, numbers and a GUID. Nothing else can be silently date-converted.
+>
+> **Recommendation for the reviewers:** the engine has fixture **A22** ("invariant-culture serialization under de-DE") for its *emit* side. **The consumer has no equivalent for its parse side** — that asymmetry is exactly the hole this fell through. A parse fixture under a day-first culture belongs in the soak-hardening list.
+>
+> ---
+>
 > **SUPERSEDED IN PART 2026-07-15 — read `spec-back-autotrade-retirement.md` alongside this.** The owner pulled the post-soak retirement forward (`df615b7`, `cdc7ce4`, `1e314aa`, `c622212`). Still accurate: commits 1/2/4, the contract §4 gate chain, the `manualSL` math, the interlock, F-1/F-2. **No longer accurate here:** the commit-3 panel's gate config + SAVE (deleted — config is now live-read from the old autotrader controls and the main form's Amount box), deviation #4's "log-only advances the cooloff anchor" (cooloff now anchors on the position close, so log-only advances the de-dupe watermark only), and the §(d) token set (gained `refused: size`). The disposition-token set below is amended in place.
 
 **Spec:** `spec-autotrade-tiein.md` (contract `integration-contract-verdictengine.md` FROZEN v1 — canonical; where they disagreed, the contract won and the deviation is reported in §Friction below). **Implementer:** Fable high (in-window). **Base:** pushed `master` HEAD `afca0c2` (verified = `origin/master`, tree clean; the brief's `541f185` plus 5 docs-only commits — `git diff --stat de7d87b..afca0c2` touches `docs/` only, so the coordinator's 2026-07-13 anchor verification still held, re-verified by symbol anyway).
