@@ -39,6 +39,21 @@ Public Class frmMainPageV2
         End Get
     End Property
 
+    ' The settings form, for the bridge's live gate-config reads (its own commit-on-blur mirrors).
+    Friend ReadOnly Property AutoTradeSettingsForm As AutoTradeSettings
+        Get
+            Return _autotradesettings
+        End Get
+    End Property
+
+    ' Order size for automated entries = the manual Amount box (mirrored into orderAmountVal on the
+    ' UI thread), so there is exactly one place to set size. Field read - safe on any thread.
+    Public ReadOnly Property OrderSizeUSD As Decimal
+        Get
+            Return orderAmountVal
+        End Get
+    End Property
+
     Friend Sub SetToolingValues(atrLength As Integer, atrFallback As Decimal)
         If atrLength > 0 Then atrLengthVal = atrLength
         If atrFallback > 0D Then atrFallbackVal = atrFallback
@@ -527,7 +542,11 @@ Public Class frmMainPageV2
             _indicators.StartHeadless()
 
             ' This form owns the settings window now (FrmIndicators used to); btnAutoSettings shows it.
+            ' InitialiseSettings seeds the gate-config mirrors from the designer defaults and wires the
+            ' select-all/commit-on-blur behaviour - it must not wait for Load, which only fires if the
+            ' form is ever shown (the bridge reads those mirrors regardless).
             _autotradesettings = New AutoTradeSettings(Me)
+            _autotradesettings.InitialiseSettings()
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Startup Error: {ex.Message}{vbCrLf}{ex.StackTrace}", Color.Red)

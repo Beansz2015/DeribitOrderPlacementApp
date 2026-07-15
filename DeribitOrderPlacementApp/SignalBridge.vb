@@ -47,16 +47,60 @@ Public Class SignalBridge
     Private ReadOnly _log As Action(Of String, Color)
     Private ReadOnly _sync As New Object()
 
-    ' ---- config (bridge.json beside the exe; missing file => these defaults + yellow log) ----
+    ' ---- config ----
+    ' RETIREMENT (docs/spec-back-autotrade-retirement.md): the gate config is no longer bridge-owned.
+    ' It is live-read off the settings form's own boxes (Trade Gates + Inclusion Time Range + Tiers)
+    ' and the main form's Amount box, so there is one place per setting and no SAVE step to forget.
+    ' Those boxes commit on focus-loss/Enter into plain backing fields, so a half-typed value never
+    ' reaches this class and nothing here touches a control off-thread. Consequence: the gate config
+    ' resets to the designer defaults at every app start until the ergonomics Phase A config-save.
+    ' bridge.json now carries only what has no natural home on a form: the payload path.
     Private _payloadPath As String = DefaultPayloadPath
-    Private _tiers As List(Of String) = New List(Of String) From {"HIGH", "MEDIUM"}
-    Private _sizeUsd As Decimal = 10D
-    Private _cooloffMin As Decimal = 5D
-    Private _circuitBreakerUsd As Decimal = 50D          ' <= 0 disables the breaker
-    Private _windowStart As String = ""                  ' blank = unrestricted (contract section 4.6)
-    Private _windowEnd As String = ""
     Private _slippageAtrMult As Decimal = 0.6D           ' informational in v1: the operative cap rides the
     '                                                      host's existing chkMaxSlippageATR machinery (spec section 1)
+
+    Private ReadOnly Property Settings As AutoTradeSettings
+        Get
+            Return _host.AutoTradeSettingsForm
+        End Get
+    End Property
+
+    ' Confidence tiers to accept. Falls back to the contract default if the box is somehow empty.
+    Private ReadOnly Property Tiers As List(Of String)
+        Get
+            Dim s As AutoTradeSettings = Settings
+            Dim csv As String = If(s IsNot Nothing, s.TiersCsv, "")
+            Dim out As New List(Of String)
+            For Each t In If(csv, "").Split(","c)
+                Dim tt As String = t.Trim().ToUpperInvariant()
+                If tt.Length > 0 AndAlso Not out.Contains(tt) Then out.Add(tt)
+            Next
+            If out.Count = 0 Then out.AddRange({"HIGH", "MEDIUM"})
+            Return out
+        End Get
+    End Property
+
+    ' Order size = the main form's Amount box (already mirrored into an engine field there, so this
+    ' is a plain field read). One size for manual and automated entries - no second place to set it.
+    Private ReadOnly Property SizeUsd As Decimal
+        Get
+            Return _host.OrderSizeUSD
+        End Get
+    End Property
+
+    Private ReadOnly Property CooloffMin As Decimal
+        Get
+            Dim s As AutoTradeSettings = Settings
+            Return If(s IsNot Nothing, s.CooloffMin, 0D)
+        End Get
+    End Property
+
+    Private ReadOnly Property CircuitBreakerUsd As Decimal
+        Get
+            Dim s As AutoTradeSettings = Settings
+            Return If(s IsNot Nothing, s.CircuitBreakerUsd, 0D)
+        End Get
+    End Property
 
     ' ---- acted de-dupe pair (bridge-state.json; persisted across restarts per contract section 4.3) ----
     Private _lastActedInstanceId As String = ""
@@ -195,38 +239,6 @@ Public Class SignalBridge
         End Get
     End Property
 
-    ' Config read surface for the SIGNAL BRIDGE panel.
-    Public ReadOnly Property TiersCsv As String
-        Get
-            Return String.Join(",", _tiers)
-        End Get
-    End Property
-    Public ReadOnly Property SizeUsd As Decimal
-        Get
-            Return _sizeUsd
-        End Get
-    End Property
-    Public ReadOnly Property CooloffMin As Decimal
-        Get
-            Return _cooloffMin
-        End Get
-    End Property
-    Public ReadOnly Property CircuitBreakerUsd As Decimal
-        Get
-            Return _circuitBreakerUsd
-        End Get
-    End Property
-    Public ReadOnly Property WindowStart As String
-        Get
-            Return _windowStart
-        End Get
-    End Property
-    Public ReadOnly Property WindowEnd As String
-        Get
-            Return _windowEnd
-        End Get
-    End Property
-
     ' Interlock (contract section 6, trader-fixed) - Nothing on success, else the refusal reason.
     ' START succeeds only when: mode = Live AND LocalArmed AND latest payload fresh AND engine armed
     ' AND chkMaxSlippageATR checked (spec section 1 design decision - the slippage-cap commitment
@@ -261,61 +273,6 @@ Public Class SignalBridge
         ForceStop("STOP pressed")
     End Sub
 
-    ' Persists the editable gate config to bridge.json and reloads it into the running bridge.
-    ' Returns Nothing on success, else a validation error (nothing was saved).
-    Public Function SaveConfig(tiersCsv As String, sizeUsd As Decimal, cooloffMin As Decimal,
-                               circuitBreakerUsd As Decimal, windowStart As String, windowEnd As String) As String
-        Dim tiers As New List(Of String)
-        For Each t In If(tiersCsv, "").Split(","c)
-            Dim tt As String = t.Trim().ToUpperInvariant()
-            If tt.Length = 0 Then Continue For
-            If tt <> "HIGH" AndAlso tt <> "MEDIUM" AndAlso tt <> "LOW" Then
-                Return $"unknown tier '{tt}' (pinned enum: HIGH, MEDIUM, LOW)"
-            End If
-            If Not tiers.Contains(tt) Then tiers.Add(tt)
-        Next
-        If tiers.Count = 0 Then Return "at least one confidence tier is required"
-        If sizeUsd <= 0D Then Return "size_usd must be > 0"
-        If cooloffMin < 0D Then Return "cooloff_min cannot be negative"
-        Dim ts As TimeSpan
-        If Not String.IsNullOrWhiteSpace(windowStart) AndAlso Not TimeSpan.TryParse(windowStart.Trim(), ts) Then
-            Return $"invalid window_start '{windowStart}' (HH:mm)"
-        End If
-        If Not String.IsNullOrWhiteSpace(windowEnd) AndAlso Not TimeSpan.TryParse(windowEnd.Trim(), ts) Then
-            Return $"invalid window_end '{windowEnd}' (HH:mm)"
-        End If
-
-        SyncLock _sync
-            _tiers = tiers
-            _sizeUsd = sizeUsd
-            _cooloffMin = cooloffMin
-            _circuitBreakerUsd = circuitBreakerUsd
-            _windowStart = If(windowStart, "").Trim()
-            _windowEnd = If(windowEnd, "").Trim()
-        End SyncLock
-
-        Try
-            Dim jo As New JObject From {
-                {"path", _payloadPath},
-                {"tiers", New JArray(_tiers.ToArray())},
-                {"size_usd", _sizeUsd},
-                {"cooloff_min", _cooloffMin},
-                {"circuit_breaker_usd", _circuitBreakerUsd},
-                {"window_start", _windowStart},
-                {"window_end", _windowEnd},
-                {"slippage_atr_mult", _slippageAtrMult}
-            }
-            File.WriteAllText(ConfigFilePath, jo.ToString())
-        Catch ex As Exception
-            Return $"config save failed: {ex.Message}"
-        End Try
-        _log($"config saved: tiers [{String.Join(",", _tiers)}], size {_sizeUsd.ToString(CultureInfo.InvariantCulture)} USD, " &
-             $"cooloff {_cooloffMin.ToString(CultureInfo.InvariantCulture)} min, breaker {_circuitBreakerUsd.ToString(CultureInfo.InvariantCulture)} USD, " &
-             $"window '{_windowStart}'-'{_windowEnd}' UTC+8", Color.DodgerBlue)
-        RaiseEvent StatusChanged()
-        Return Nothing
-    End Function
-
     Public Sub Dispose() Implements IDisposable.Dispose
         If _disposed Then Return
         _disposed = True
@@ -346,32 +303,18 @@ Public Class SignalBridge
 
     ' ================================ config + state files ================================
 
+    ' bridge.json carries only the payload path now - the gate config lives on the settings form.
     Private Sub LoadConfig()
         Try
             If Not File.Exists(ConfigFilePath) Then
-                _log($"bridge.json not found beside the exe - using defaults (payload {DefaultPayloadPath}, " &
-                     "tiers HIGH+MEDIUM, size 10 USD, cooloff 5 min, breaker 50 USD, no window)", Color.Yellow)
+                _log($"bridge.json not found beside the exe - watching the default path {DefaultPayloadPath}", Color.Yellow)
                 Return
             End If
             Dim json As JObject = JObject.Parse(File.ReadAllText(ConfigFilePath))
             _payloadPath = If(json.SelectToken("path")?.ToString(), DefaultPayloadPath)
-            Dim tiersTok = TryCast(json.SelectToken("tiers"), JArray)
-            If tiersTok IsNot Nothing AndAlso tiersTok.Count > 0 Then
-                Dim tiers As New List(Of String)
-                For Each t In tiersTok
-                    Dim tt As String = t.ToString().Trim().ToUpperInvariant()
-                    If tt.Length > 0 AndAlso Not tiers.Contains(tt) Then tiers.Add(tt)
-                Next
-                If tiers.Count > 0 Then _tiers = tiers
-            End If
-            _sizeUsd = If(json.SelectToken("size_usd")?.ToObject(Of Decimal)(), _sizeUsd)
-            _cooloffMin = If(json.SelectToken("cooloff_min")?.ToObject(Of Decimal)(), _cooloffMin)
-            _circuitBreakerUsd = If(json.SelectToken("circuit_breaker_usd")?.ToObject(Of Decimal)(), _circuitBreakerUsd)
-            _windowStart = If(json.SelectToken("window_start")?.ToString(), "").Trim()
-            _windowEnd = If(json.SelectToken("window_end")?.ToString(), "").Trim()
             _slippageAtrMult = If(json.SelectToken("slippage_atr_mult")?.ToObject(Of Decimal)(), _slippageAtrMult)
         Catch ex As Exception
-            _log($"bridge.json load failed ({ex.Message}) - using defaults", Color.Yellow)
+            _log($"bridge.json load failed ({ex.Message}) - watching the default path", Color.Yellow)
         End Try
     End Sub
 
@@ -636,7 +579,7 @@ Public Class SignalBridge
                 ' levels - a partial-apply, forbidden by the agreed failure semantics and R2
                 ' (engine levels placed as-is). Reject + log instead.
                 disposition = "refused: levels"
-            ElseIf Not _tiers.Contains(p.Confidence) Then
+            ElseIf Not Tiers.Contains(p.Confidence) Then
                 disposition = "refused: tier"
             ElseIf p.MtfBlocked Then
                 disposition = "refused: mtf_blocked"
@@ -660,7 +603,9 @@ Public Class SignalBridge
         ' (cancel-pending lives inside PlaceAutomatedOrder - surfaces as rejected: cancel pending),
         ' cooloff, circuit breaker, session window
         If disposition Is Nothing Then
-            Dim breakerBreached As Boolean = _circuitBreakerUsd > 0D AndAlso _host.SessionPnLUSD <= -_circuitBreakerUsd
+            Dim breaker As Decimal = CircuitBreakerUsd
+            Dim cooloff As Decimal = CooloffMin
+            Dim breakerBreached As Boolean = breaker > 0D AndAlso _host.SessionPnLUSD <= -breaker
             If Not _host.IsWebSocketConnected Then
                 disposition = "refused: not_connected"
             ElseIf Not _host.CanMakeAPIRequest Then
@@ -669,14 +614,19 @@ Public Class SignalBridge
                 disposition = "refused: not_flat"
             ElseIf _host.HasWorkingEntryOrder Then
                 disposition = "refused: working_entry"
-            ElseIf _lastActionUtc <> DateTime.MinValue AndAlso _cooloffMin > 0D AndAlso
-                   (DateTime.UtcNow - _lastActionUtc).TotalMinutes < CDbl(_cooloffMin) Then
+            ElseIf _lastActionUtc <> DateTime.MinValue AndAlso cooloff > 0D AndAlso
+                   (DateTime.UtcNow - _lastActionUtc).TotalMinutes < CDbl(cooloff) Then
                 disposition = "refused: cooloff"
             ElseIf breakerBreached Then
                 disposition = "refused: circuit_breaker"
-                ForceStop($"circuit breaker tripped (session PnL {_host.SessionPnLUSD.ToString("F2", CultureInfo.InvariantCulture)} USD <= -{_circuitBreakerUsd.ToString(CultureInfo.InvariantCulture)})")
+                ForceStop($"circuit breaker tripped (session PnL {_host.SessionPnLUSD.ToString("F2", CultureInfo.InvariantCulture)} USD <= -{breaker.ToString(CultureInfo.InvariantCulture)})")
             ElseIf Not IsInsideSessionWindow() Then
                 disposition = "refused: window"
+            ElseIf SizeUsd <= 0D Then
+                ' Local precondition, appended AFTER the contract-ordered gates: size now comes from
+                ' the main form's Amount box, so an empty/zero box would otherwise reach the exchange
+                ' as a zero-amount order and come back as a rejection. Refuse it here instead.
+                disposition = "refused: size"
             End If
         End If
 
@@ -690,8 +640,10 @@ Public Class SignalBridge
                 ' (the app derives trigger = limit +/- StopLimitOffset, so the TRIGGER lands exactly
                 ' on the engine's stop); entry is a reference only - the app enters at top-of-book
                 ' under its own slippage cap.
+                ' Size is deliberately NOT passed: it already IS the main form's Amount box, which is
+                ' where SetTradeTargets would write it. Writing it back would be a no-op at best.
                 Dim manualSl As Decimal = If(isLong, p.StopLevel - _host.StopLimitOffset, p.StopLevel + _host.StopLimitOffset)
-                _host.SetTradeTargets(manualTP:=p.Target, manualSL:=manualSl, sizeUSD:=_sizeUsd)
+                _host.SetTradeTargets(manualTP:=p.Target, manualSL:=manualSl)
                 Dim result As frmMainPageV2.PlacementResult = Await _host.PlaceAutomatedOrder(If(isLong, "long", "short"), "limit")
                 If result.Accepted Then
                     disposition = $"acted (id {result.OrderId})"
@@ -701,9 +653,10 @@ Public Class SignalBridge
                 End If
             Else
                 disposition = $"would-act: {p.Direction} @ {p.Entry.ToString(inv)}, stop {p.StopLevel.ToString(inv)}, " &
-                              $"target {p.Target.ToString(inv)}, size {_sizeUsd.ToString(inv)}"
-                ' Advance the de-dupe pair + cooloff anchor in log-only too, so the soak's disposition
-                ' stream is gate-for-gate identical to what live mode would have produced.
+                              $"target {p.Target.ToString(inv)}, size {SizeUsd.ToString(inv)}"
+                ' Advance the de-dupe watermark in log-only too, so the soak's disposition stream is
+                ' gate-for-gate identical to what live mode would have produced. (The cooloff anchor
+                ' is NOT advanced here - it starts at the position close, and log-only opens none.)
                 RecordActed(p)
             End If
         End If
@@ -769,15 +722,19 @@ Public Class SignalBridge
         Return p
     End Function
 
-    ' UTC+8 session window, contract section 4.6: entries only INSIDE the configured window; blank =
-    ' unrestricted. Spans-midnight semantics match the old FrmIndicators range check (start > end wraps).
+    ' UTC+8 session window, contract section 4.6: entries only INSIDE the configured window; BOTH
+    ' boxes blank = unrestricted. Spans midnight when start > end (e.g. 22:00 - 02:00).
+    ' FAIL-CLOSED on garbage: a non-blank value that will not parse refuses the entry rather than
+    ' reading as "unrestricted" - otherwise the window gate would silently vanish for as long as the
+    ' text is malformed. (The settings form also refuses to commit unparseable text, so this is the
+    ' second line of defence, not the first.)
     Private Function IsInsideSessionWindow() As Boolean
-        Dim ws As String = _windowStart, we As String = _windowEnd
-        If String.IsNullOrWhiteSpace(ws) OrElse String.IsNullOrWhiteSpace(we) Then Return True
+        Dim s As AutoTradeSettings = Settings
+        If s Is Nothing Then Return True
+        Dim ws As String = If(s.WindowStart, "").Trim(), we As String = If(s.WindowEnd, "").Trim()
+        If ws.Length = 0 AndAlso we.Length = 0 Then Return True ' both blank = no time restriction
         Dim tStart, tEnd As TimeSpan
-        If Not TimeSpan.TryParse(ws.Trim(), tStart) OrElse Not TimeSpan.TryParse(we.Trim(), tEnd) Then
-            Return True ' invalid = unrestricted (validated at save; matches the old check's failure mode)
-        End If
+        If Not TimeSpan.TryParse(ws, tStart) OrElse Not TimeSpan.TryParse(we, tEnd) Then Return False
         Dim nowT As TimeSpan = DateTime.UtcNow.AddHours(8).TimeOfDay
         If tStart <= tEnd Then
             Return nowT >= tStart AndAlso nowT <= tEnd
@@ -803,8 +760,9 @@ Public Class SignalBridge
         SyncLock _sync
             _lastActionUtc = DateTime.UtcNow
         End SyncLock
-        If _mode <> BridgeMode.Off AndAlso _cooloffMin > 0D Then
-            _log($"cooloff started: {_cooloffMin.ToString(CultureInfo.InvariantCulture)} min from position close", Color.Gray)
+        Dim cooloff As Decimal = CooloffMin
+        If _mode <> BridgeMode.Off AndAlso cooloff > 0D Then
+            _log($"cooloff started: {cooloff.ToString(CultureInfo.InvariantCulture)} min from position close", Color.Gray)
         End If
         RaiseEvent StatusChanged()
     End Sub

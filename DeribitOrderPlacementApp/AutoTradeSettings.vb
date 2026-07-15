@@ -1,4 +1,4 @@
-﻿Public Class AutoTradeSettings
+Public Class AutoTradeSettings
 
     ' Retirement: the host is frmMainPageV2 now (FrmIndicators used to own and position this form,
     ' but it is no longer shown). Typed, because the Tooling section pushes values into the host.
@@ -12,6 +12,50 @@
     Private _bridge As SignalBridge
     Private _suppressBridgeUi As Boolean = False ' guards programmatic combo/checkbox writes in RefreshBridgePanel
 
+    ' ============ Gate-config mirrors (retirement) ============
+    ' The bridge runs on watcher/timer threads and MUST NOT read .Text, so the gate config lives in
+    ' these plain backing fields and the bridge reads them through the properties below.
+    '
+    ' They commit on focus-LOSS / Enter, never per keystroke. That is deliberate and safety-critical:
+    ' a signal landing while you are half-way through typing "15" must not see cooloff = 1. While a
+    ' box is being edited the bridge keeps using the last committed value; the new one takes effect
+    ' when you leave the field. Clicking a box also selects its whole contents, so a fresh value
+    ' replaces the old one rather than concatenating with it.
+    '
+    ' Nothing here persists across restarts - the boxes come back at their designer defaults. That
+    ' matches the old autotrader; the ergonomics Phase A config-save is what will change it.
+    Private _cooloffMin As Decimal = 5D
+    Private _circuitBreakerUsd As Decimal = -1D      ' <= 0 disables (designer default is -1)
+    Private _windowStart As String = ""              ' blank = unrestricted
+    Private _windowEnd As String = ""
+    Private _tiersCsv As String = "HIGH,MEDIUM"
+
+    Friend ReadOnly Property CooloffMin As Decimal
+        Get
+            Return _cooloffMin
+        End Get
+    End Property
+    Friend ReadOnly Property CircuitBreakerUsd As Decimal
+        Get
+            Return _circuitBreakerUsd
+        End Get
+    End Property
+    Friend ReadOnly Property WindowStart As String
+        Get
+            Return _windowStart
+        End Get
+    End Property
+    Friend ReadOnly Property WindowEnd As String
+        Get
+            Return _windowEnd
+        End Get
+    End Property
+    Friend ReadOnly Property TiersCsv As String
+        Get
+            Return _tiersCsv
+        End Get
+    End Property
+
     <ComponentModel.Browsable(False)>
     <ComponentModel.DesignerSerializationVisibility(ComponentModel.DesignerSerializationVisibility.Hidden)>
     Friend Property Bridge As SignalBridge
@@ -21,10 +65,7 @@
         Set(value As SignalBridge)
             If _bridge IsNot Nothing Then RemoveHandler _bridge.StatusChanged, AddressOf OnBridgeStatusChanged
             _bridge = value
-            If _bridge IsNot Nothing Then
-                AddHandler _bridge.StatusChanged, AddressOf OnBridgeStatusChanged
-                LoadBridgeConfigIntoPanel()
-            End If
+            If _bridge IsNot Nothing Then AddHandler _bridge.StatusChanged, AddressOf OnBridgeStatusChanged
             RefreshBridgePanel()
         End Set
     End Property
@@ -52,6 +93,22 @@
         ' no-op (Show -> Load fires -> Hide), so you had to click twice. The form is only ever shown
         ' by that button now, so hiding itself on Load is exactly wrong.
     End Sub
+
+    ' Seed the mirrors from the designer defaults and wire the shared edit behaviour. Called by the
+    ' host right after construction, so the bridge has real values before the first payload lands
+    ' (Load does not run until the form is first shown, which may be never).
+    Friend Sub InitialiseSettings()
+        CommitGateConfig()
+        CommitToolingConfig()
+        For Each tb As TextBox In {txtCooloff, txtCircuitBreaker, txtStartTime, txtEndTime,
+                                   txtBridgeTiers, txtAtrLength, txtAtrFallback}
+            AddHandler tb.Enter, AddressOf SelectAllOnEnter
+            AddHandler tb.Click, AddressOf SelectAllOnEnter
+            AddHandler tb.Leave, AddressOf CommitOnLeave
+            AddHandler tb.KeyDown, AddressOf CommitOnEnterKey
+        Next
+    End Sub
+
     Private Sub HostMovedOrResized(sender As Object, e As EventArgs)
         StickToHost()
     End Sub
@@ -71,6 +128,77 @@
             RemoveHandler _host.SizeChanged, AddressOf HostMovedOrResized
         End If
         If _bridge IsNot Nothing Then RemoveHandler _bridge.StatusChanged, AddressOf OnBridgeStatusChanged
+    End Sub
+
+    ' ============ Edit behaviour: select-all on entry, commit on leave/Enter ============
+
+    Private Sub SelectAllOnEnter(sender As Object, e As EventArgs)
+        Dim tb = TryCast(sender, TextBox)
+        If tb IsNot Nothing Then tb.SelectAll()
+    End Sub
+
+    Private Sub CommitOnLeave(sender As Object, e As EventArgs)
+        CommitGateConfig()
+        CommitToolingConfig()
+    End Sub
+
+    Private Sub CommitOnEnterKey(sender As Object, e As KeyEventArgs)
+        If e.KeyCode <> Keys.Enter Then Return
+        e.SuppressKeyPress = True   ' no ding
+        CommitGateConfig()
+        CommitToolingConfig()
+        RefreshBridgePanel()
+    End Sub
+
+    ' Reads the gate boxes into the mirrors. Invalid/blank input leaves the previous value in place
+    ' rather than falling back to something permissive - a half-typed window must never read as
+    ' "no time restriction". Blank BOTH window boxes for genuinely unrestricted (handled below).
+    Private Sub CommitGateConfig()
+        Dim d As Decimal
+        If Decimal.TryParse(txtCooloff.Text, d) AndAlso d >= 0D Then _cooloffMin = d
+        If Decimal.TryParse(txtCircuitBreaker.Text, d) Then _circuitBreakerUsd = d
+
+        ' Window: blank is a legitimate value (unrestricted), so it commits; garbage does not.
+        Dim ws As String = If(txtStartTime.Text, "").Trim()
+        Dim we As String = If(txtEndTime.Text, "").Trim()
+        Dim ts As TimeSpan
+        If ws.Length = 0 OrElse TimeSpan.TryParse(ws, ts) Then _windowStart = ws
+        If we.Length = 0 OrElse TimeSpan.TryParse(we, ts) Then _windowEnd = we
+
+        Dim tiers As String = If(txtBridgeTiers.Text, "").Trim()
+        If tiers.Length > 0 Then _tiersCsv = tiers.ToUpperInvariant()
+
+        ShowGateConfigWarnings()
+    End Sub
+
+    Private Sub CommitToolingConfig()
+        If _host Is Nothing Then Return
+        Dim len As Integer
+        Dim fallback As Decimal
+        If Not Integer.TryParse(txtAtrLength.Text, len) Then len = 0
+        If Not Decimal.TryParse(txtAtrFallback.Text, fallback) Then fallback = 0D
+        _host.SetToolingValues(len, fallback)   ' host ignores non-positive values
+    End Sub
+
+    ' Surfaces the cases where what is typed is not what is in force.
+    Private Sub ShowGateConfigWarnings()
+        Dim problems As New List(Of String)
+        Dim ts As TimeSpan
+        Dim ws As String = If(txtStartTime.Text, "").Trim()
+        Dim we As String = If(txtEndTime.Text, "").Trim()
+        If ws.Length > 0 AndAlso Not TimeSpan.TryParse(ws, ts) Then problems.Add($"start time '{ws}' (use HH:mm)")
+        If we.Length > 0 AndAlso Not TimeSpan.TryParse(we, ts) Then problems.Add($"end time '{we}' (use HH:mm)")
+        If (ws.Length = 0) <> (we.Length = 0) Then problems.Add("both time boxes must be set, or both blank")
+        Dim d As Decimal
+        If Not Decimal.TryParse(txtCooloff.Text, d) OrElse d < 0D Then problems.Add($"cooloff '{txtCooloff.Text}'")
+        If Not Decimal.TryParse(txtCircuitBreaker.Text, d) Then problems.Add($"max loss '{txtCircuitBreaker.Text}'")
+        Dim len As Integer
+        If Not Integer.TryParse(txtAtrLength.Text, len) OrElse len <= 0 Then problems.Add($"ATR length '{txtAtrLength.Text}'")
+        If Not Decimal.TryParse(txtAtrFallback.Text, d) OrElse d <= 0D Then problems.Add($"ATR fallback '{txtAtrFallback.Text}'")
+
+        If problems.Count = 0 Then Return
+        lblBridgeStatus.Text = "Ignored (keeping last good): " & String.Join("; ", problems)
+        lblBridgeStatus.ForeColor = Color.Orange
     End Sub
 
     ' ============ SIGNAL BRIDGE panel handlers ============
@@ -115,15 +243,6 @@
         lblBridgeLast.Text = "Last: " & If(summary.Length > 0, summary & "  ->  " & If(dispo.Length > 0, dispo, "(pending)"), "-")
     End Sub
 
-    Private Sub LoadBridgeConfigIntoPanel()
-        txtBridgeTiers.Text = _bridge.TiersCsv
-        txtBridgeSize.Text = _bridge.SizeUsd.ToString()
-        txtBridgeCooloff.Text = _bridge.CooloffMin.ToString()
-        txtBridgeBreaker.Text = _bridge.CircuitBreakerUsd.ToString()
-        txtBridgeWinStart.Text = _bridge.WindowStart
-        txtBridgeWinEnd.Text = _bridge.WindowEnd
-    End Sub
-
     Private Sub cboBridgeMode_SelectedIndexChanged(sender As Object, e As EventArgs) Handles cboBridgeMode.SelectedIndexChanged
         If _suppressBridgeUi OrElse _bridge Is Nothing Then Return
         Select Case cboBridgeMode.SelectedIndex
@@ -156,36 +275,6 @@
             End If
         End If
         RefreshBridgePanel()
-    End Sub
-
-    Private Sub btnBridgeSave_Click(sender As Object, e As EventArgs) Handles btnBridgeSave.Click
-        If _bridge Is Nothing Then Return
-        Dim sizeUsd, cooloff, breaker As Decimal
-        If Not Decimal.TryParse(txtBridgeSize.Text, sizeUsd) Then
-            ShowBridgeConfigError($"invalid size '{txtBridgeSize.Text}'")
-            Return
-        End If
-        If Not Decimal.TryParse(txtBridgeCooloff.Text, cooloff) Then
-            ShowBridgeConfigError($"invalid cooloff '{txtBridgeCooloff.Text}'")
-            Return
-        End If
-        If Not Decimal.TryParse(txtBridgeBreaker.Text, breaker) Then
-            ShowBridgeConfigError($"invalid breaker '{txtBridgeBreaker.Text}'")
-            Return
-        End If
-        Dim err As String = _bridge.SaveConfig(txtBridgeTiers.Text, sizeUsd, cooloff, breaker,
-                                               txtBridgeWinStart.Text, txtBridgeWinEnd.Text)
-        If err IsNot Nothing Then
-            ShowBridgeConfigError(err)
-            Return
-        End If
-        LoadBridgeConfigIntoPanel() ' echo back the normalized values
-        RefreshBridgePanel()
-    End Sub
-
-    Private Sub ShowBridgeConfigError(msg As String)
-        lblBridgeStatus.Text = "Config: " & msg
-        lblBridgeStatus.ForeColor = Color.Orange
     End Sub
 
 End Class
