@@ -4,6 +4,7 @@ Option Explicit On
 Imports System.Globalization
 Imports System.IO
 Imports System.Threading
+Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 
 ' =====================================================================================================
@@ -485,7 +486,7 @@ Public Class SignalBridge
 
         Dim json As JObject
         Try
-            json = JObject.Parse(text)
+            json = ParsePayloadJson(text)
         Catch ex As Exception
             _log($"payload parse error: {ex.Message}", Color.Yellow) ' torn files shouldn't happen (atomic writes)
             Return
@@ -506,6 +507,14 @@ Public Class SignalBridge
         If p.InstanceId.Length = 0 OrElse p.SignalId < 0 Then
             _log($"payload rejected: missing identity (instance_id '{p.InstanceId}', signal_id {p.SignalId})", Color.Yellow)
             Return
+        End If
+
+        ' An unparseable timestamp still stands down (below, as "stale") because freshness cannot be
+        ' established - but say so explicitly. The contract pins ISO-8601-with-Z, so this means the
+        ' payload is malformed, NOT that the engine is dead, and those need different fixes.
+        If Not p.TimestampOk Then
+            _log($"payload #{p.SignalId}: generated_at_utc is not ISO-8601 ('{p.GeneratedAtRaw}') - " &
+                 "cannot establish freshness, standing down. This is a MALFORMED PAYLOAD, not a dead engine.", Color.Red)
         End If
 
         ' ---- status snapshot first (informational; updates even when the payload is refused) ----
@@ -686,6 +695,23 @@ Public Class SignalBridge
         Return Nothing
     End Function
 
+    ' Parse the payload with date auto-conversion OFF.
+    '
+    ' Newtonsoft's default DateParseHandling.DateTime turns any ISO-8601-looking STRING into a Date
+    ' token, and JToken.ToString() then renders that token in the CURRENT CULTURE. On this machine
+    ' (en-MY, d/M/yyyy) "2026-07-15T16:50:08Z" came back out of ToString() as "15/7/2026 4:50:08 PM",
+    ' our InvariantCulture (M/d/yyyy) TryParse rejected month "15", and the payload fell to
+    ' DateTime.MinValue = maximally stale. Net effect: EVERY payload read as stale and the bridge
+    ' could never act - silently, and only on day-first cultures (en-US happened to work, which is
+    ' exactly why this survived review). The contract pins ISO-8601-with-Z + invariant culture and
+    ' the engine emits precisely that; keeping tokens as raw strings is what honours it.
+    Private Shared Function ParsePayloadJson(text As String) As JObject
+        Using reader As New JsonTextReader(New StringReader(text))
+            reader.DateParseHandling = DateParseHandling.None
+            Return JObject.Load(reader)
+        End Using
+    End Function
+
     Private Shared Function ParsePayload(json As JObject) As PayloadSnapshot
         Dim p As New PayloadSnapshot With {
             .SchemaVersion = If(json.SelectToken("schema_version")?.ToObject(Of Integer)(), 0),
@@ -704,13 +730,20 @@ Public Class SignalBridge
             .WsHealth = If(json.SelectToken("health.ws")?.ToString(), "OK")
         }
 
+        ' With DateParseHandling.None this is the contract's raw ISO-8601 string, not a culture-
+        ' rendered date (see ParsePayloadJson). The 'Z' + AssumeUniversal/AdjustToUniversal give UTC.
         Dim genTok As String = If(json.SelectToken("generated_at_utc")?.ToString(), "")
+        p.GeneratedAtRaw = genTok
         Dim gen As DateTime
         If DateTime.TryParse(genTok, CultureInfo.InvariantCulture,
                              DateTimeStyles.AssumeUniversal Or DateTimeStyles.AdjustToUniversal, gen) Then
             p.GeneratedUtc = gen
+            p.TimestampOk = True
         Else
-            p.GeneratedUtc = DateTime.MinValue ' unparseable timestamp reads as maximally stale
+            ' Stand down (we cannot establish freshness), but the caller says so OUT LOUD - reading
+            ' this as a plain "stale" is what made the culture bug above look like a dead engine.
+            p.GeneratedUtc = DateTime.MinValue
+            p.TimestampOk = False
         End If
 
         If p.Direction = "LONG" OrElse p.Direction = "SHORT" Then
@@ -804,6 +837,8 @@ Public Class SignalBridge
         Public SchemaVersion As Integer
         Public SignalId As Long
         Public GeneratedUtc As DateTime
+        Public GeneratedAtRaw As String = ""
+        Public TimestampOk As Boolean
         Public InstanceId As String = ""
         Public EngineArmed As Boolean
         Public SignalState As String = ""
