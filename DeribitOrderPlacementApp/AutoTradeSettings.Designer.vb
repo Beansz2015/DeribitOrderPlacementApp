@@ -146,7 +146,7 @@ Partial Class AutoTradeSettings
         grpTradeGates.ForeColor = SystemColors.ButtonFace
         grpTradeGates.Location = New Point(18, 187)
         grpTradeGates.Name = "grpTradeGates"
-        grpTradeGates.Size = New Size(482, 120)
+        grpTradeGates.Size = New Size(482, 130)
         grpTradeGates.TabIndex = 2
         grpTradeGates.TabStop = False
         grpTradeGates.Text = "Trade Gates"
@@ -225,7 +225,7 @@ Partial Class AutoTradeSettings
         grpSignalBridge.Controls.Add(lblBridgeSourceNote)
         grpSignalBridge.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpSignalBridge.ForeColor = SystemColors.ButtonFace
-        grpSignalBridge.Location = New Point(18, 319)
+        grpSignalBridge.Location = New Point(18, 329)
         grpSignalBridge.Name = "grpSignalBridge"
         grpSignalBridge.Size = New Size(482, 310)
         grpSignalBridge.TabIndex = 3
@@ -251,7 +251,7 @@ Partial Class AutoTradeSettings
         cboBridgeMode.Font = New Font("Calibri", 14F)
         cboBridgeMode.ForeColor = Color.White
         cboBridgeMode.Items.AddRange(New Object() {"Off", "Log-only", "Live"})
-        cboBridgeMode.Location = New Point(92, 32)
+        cboBridgeMode.Location = New Point(100, 32)
         cboBridgeMode.Name = "cboBridgeMode"
         cboBridgeMode.Size = New Size(140, 43)
         cboBridgeMode.TabIndex = 1
@@ -289,7 +289,7 @@ Partial Class AutoTradeSettings
         lblBridgeStatus.ForeColor = SystemColors.ControlLight
         lblBridgeStatus.Location = New Point(11, 142)
         lblBridgeStatus.Name = "lblBridgeStatus"
-        lblBridgeStatus.Size = New Size(460, 26)
+        lblBridgeStatus.Size = New Size(460, 28)
         lblBridgeStatus.TabIndex = 0
         lblBridgeStatus.Text = "Bridge not attached"
         '
@@ -299,7 +299,7 @@ Partial Class AutoTradeSettings
         lblBridgeLast.ForeColor = SystemColors.ControlLight
         lblBridgeLast.Location = New Point(11, 170)
         lblBridgeLast.Name = "lblBridgeLast"
-        lblBridgeLast.Size = New Size(460, 26)
+        lblBridgeLast.Size = New Size(460, 28)
         lblBridgeLast.TabIndex = 0
         lblBridgeLast.Text = "Last: -"
         '
@@ -331,11 +331,11 @@ Partial Class AutoTradeSettings
         '
         lblBridgeSourceNote.Font = New Font("Calibri", 9F)
         lblBridgeSourceNote.ForeColor = Color.Gray
-        lblBridgeSourceNote.Location = New Point(11, 253)
+        lblBridgeSourceNote.Location = New Point(11, 250)
         lblBridgeSourceNote.Name = "lblBridgeSourceNote"
-        lblBridgeSourceNote.Size = New Size(460, 48)
+        lblBridgeSourceNote.Size = New Size(460, 55)
         lblBridgeSourceNote.TabIndex = 0
-        lblBridgeSourceNote.Text = "Order size comes from the main form's Amount box. Cooloff, max loss and the time window come from the sections above. Cooloff runs from the position close."
+        lblBridgeSourceNote.Text = "Size = main form's Amount box." & vbCrLf & "Cooloff / max loss / window = sections above."
         '
         ' grpTooling
         '
@@ -348,7 +348,7 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(lblToolingNote)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
-        grpTooling.Location = New Point(18, 641)
+        grpTooling.Location = New Point(18, 645)
         grpTooling.Name = "grpTooling"
         grpTooling.Size = New Size(482, 190)
         grpTooling.TabIndex = 4
@@ -374,7 +374,7 @@ Partial Class AutoTradeSettings
         txtAtrLength.BorderStyle = BorderStyle.FixedSingle
         txtAtrLength.Font = New Font("Calibri", 14F)
         txtAtrLength.ForeColor = Color.White
-        txtAtrLength.Location = New Point(350, 34)
+        txtAtrLength.Location = New Point(330, 34)
         txtAtrLength.Name = "txtAtrLength"
         txtAtrLength.Size = New Size(64, 42)
         txtAtrLength.TabIndex = 1
@@ -386,7 +386,7 @@ Partial Class AutoTradeSettings
         lblAtrLenUnit.AutoSize = True
         lblAtrLenUnit.Font = New Font("Calibri", 10F)
         lblAtrLenUnit.ForeColor = SystemColors.ControlLight
-        lblAtrLenUnit.Location = New Point(420, 42)
+        lblAtrLenUnit.Location = New Point(400, 42)
         lblAtrLenUnit.Name = "lblAtrLenUnit"
         lblAtrLenUnit.Size = New Size(80, 24)
         lblAtrLenUnit.TabIndex = 0
@@ -410,7 +410,7 @@ Partial Class AutoTradeSettings
         txtAtrFallback.BorderStyle = BorderStyle.FixedSingle
         txtAtrFallback.Font = New Font("Calibri", 14F)
         txtAtrFallback.ForeColor = Color.White
-        txtAtrFallback.Location = New Point(350, 86)
+        txtAtrFallback.Location = New Point(330, 86)
         txtAtrFallback.Name = "txtAtrFallback"
         txtAtrFallback.Size = New Size(64, 42)
         txtAtrFallback.TabIndex = 2
@@ -422,7 +422,7 @@ Partial Class AutoTradeSettings
         lblAtrFallbackUnit.AutoSize = True
         lblAtrFallbackUnit.Font = New Font("Calibri", 10F)
         lblAtrFallbackUnit.ForeColor = SystemColors.ControlLight
-        lblAtrFallbackUnit.Location = New Point(420, 94)
+        lblAtrFallbackUnit.Location = New Point(400, 94)
         lblAtrFallbackUnit.Name = "lblAtrFallbackUnit"
         lblAtrFallbackUnit.Size = New Size(50, 24)
         lblAtrFallbackUnit.TabIndex = 0
@@ -432,11 +432,11 @@ Partial Class AutoTradeSettings
         '
         lblToolingNote.Font = New Font("Calibri", 9F)
         lblToolingNote.ForeColor = Color.Gray
-        lblToolingNote.Location = New Point(11, 140)
+        lblToolingNote.Location = New Point(11, 134)
         lblToolingNote.Name = "lblToolingNote"
-        lblToolingNote.Size = New Size(460, 40)
+        lblToolingNote.Size = New Size(460, 50)
         lblToolingNote.TabIndex = 0
-        lblToolingNote.Text = "ATR priority: fresh signal payload, then the indicator ATR above, then this fallback."
+        lblToolingNote.Text = "ATR priority: signal payload," & vbCrLf & "then indicator ATR, then this fallback."
         '
         ' AutoTradeSettings
         '
