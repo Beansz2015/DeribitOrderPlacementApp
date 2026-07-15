@@ -2,7 +2,9 @@
 
 **Why this doc:** the owner ruled 2026-07-15 to retire FrmIndicators and consolidate the settings surface **now**, before the log-only soak, rather than in the post-soak retirement spec the plan assumed (`spec-autotrade-tiein.md` §1 "transition scaffolding", ROADMAP §2). No spec existed; this reconstructs what changed for the coordinator's re-review. **It supersedes parts of the tie-in that were reviewed and APPROVED at `bbebaa7`** — see §6.
 
-**Commits (local, on top of `5b629b3`):** `df615b7` (A) · `cdc7ce4` (B) · `1e314aa` (C+D) · `c622212` (C fixup). Build **0/0 in BOTH Debug and Release** after each (see §7 — Debug now verified explicitly, the sln default is Release).
+**Commits (local, on top of `5b629b3`):** `df615b7` (A — retire the UI, keep headless ATR) · `cdc7ce4` (B — main-form opener + re-parent) · `1e314aa` (C+D — fold gate config into the old controls, add Tooling, bridge rewiring) · `c622212` (C layout fixup, from rendering the form) · `895b73a` (fixups from the owner's run: button caption + live ATR readout) · docs `d597561`, `c28073d`. Build **0/0 in BOTH Debug and Release** after each (see §7.2 — Debug is now verified explicitly; the sln default is Release).
+
+**STATUS 2026-07-16 — owner rebuilt and ran the app; UI CONFIRMED.** Both forms render as intended: the `Auto Settings` caption is no longer truncated, the settings form's regrouped layout and the Tooling ATR readout look correct, and the settings window opens from the main form (it is open in the owner's screenshot). **The functional runtime tests in §9 remain OPEN** — above all **§9.1 (the headless-ATR check)**, which is load-bearing: it is the single test that proves the retirement's core premise, and "the UI looks right" does not answer it. Nothing here is push-ready until §9 runs.
 
 ---
 
@@ -28,6 +30,8 @@
 | Cooloff anchor | placement | **position close** |
 | ATR length | `txtATR` (ATR Settings) | `txtAtrLength` (Tooling) → host `AtrLength` |
 | ATR fallback | hard-coded `Return 70` | `txtAtrFallback` (Tooling) → host `atrFallbackVal` |
+| ATR **visibility** | FrmIndicators' `lblATR` | Tooling **`ATR now:`** readout — value + source + resulting limit (§8a.2) |
+| ATR source selection | inline in `CalculateATRSlippageLimit` | `GetEffectiveAtr()` — one source of truth for the guard **and** the readout |
 | bridge.json | path + tiers + all gates | **path only** (+ inert `slippage_atr_mult`) |
 
 ## 3. The cooloff change (owner question, and why it mattered)
@@ -61,7 +65,7 @@ Unchanged and still as approved: the contract §4 gate chain order and clauses, 
 
 ## 7. Risks / what to look hard at
 
-1. **Headless FrmIndicators is the big one.** The form is never `Show()`n, so `Form.Load` never fires — its body moved to `StartHeadless()`, called by the host after construction. The handle realised in the constructor (2026-07-04 handle-race fix) is now the **only** thing making the receive loop's `Me.Invoke` marshals legal. **Runtime-verify the ATR display/value still updates** (it feeds the slippage guard's fallback); if `CurrentATR` stays 0 the whole headless premise is wrong.
+1. **Headless FrmIndicators is the big one — still UNVERIFIED at runtime.** The form is never `Show()`n, so `Form.Load` never fires — its body moved to `StartHeadless()`, called by the host after construction. The handle realised in the constructor (2026-07-04 handle-race fix) is now the **only** thing making the receive loop's `Me.Invoke` marshals legal. If the WS stream, the poll timer or the `Me.Invoke → UpdateSignals` marshal silently fails on a never-shown form, `CurrentATR` stays 0, the slippage guard quietly falls back to the constant, and the premise of this whole change is wrong. It is now **instrumented** (§8a.2): the Tooling `ATR now:` line reads cyan with a real value iff the headless engine is alive. **§9.1 is the gate.**
 2. **Debug vs Release.** The sln default is **Release**, which is what every "0/0" in the tie-in reports was. The owner debugs in **Debug** (and HANDOVER-2 §2 records a past chain that didn't Debug-build). Both configs are now explicitly verified 0/0.
 3. **`_indicators.lastAutoTradeTime` / `LogFailedEntry` removed** — `LogFailedEntry` never ran (its only call site is commented out) and read the never-assigned `_autotradesettings`, so it was a latent NullReferenceException. It also stamped a cooloff on an *abandoned entry*; that behaviour is gone. If wanted, it belongs on the bridge.
 4. **First-click bug fixed:** `AutoTradeSettings_Load` called `Me.Hide()`, so the first click of the opener was always a no-op. Removed.
@@ -69,24 +73,30 @@ Unchanged and still as approved: the contract §4 gate chain order and clauses, 
 
 ## 8. Layout verification (how, not just "looks fine")
 
-The form was rendered off-screen from the built assembly by a throwaway harness (scratchpad, not committed) that also scanned every control for (a) bounds escaping the parent and (b) text not fitting its label. Two lessons worth recording:
+Both forms are rendered off-screen from the built assembly by a throwaway harness (scratchpad, **not committed** — recreate from this section if needed) which scans every control for (a) bounds escaping the parent and (b) text that does not fit. It constructs the forms without `Show()`ing them, so no WebSocket opens and no credentials are touched. Lessons worth keeping, each of which cost a wrong conclusion first:
 
-- `DrawToBitmap` paints the **whole window incl. title bar**; sizing the bitmap to `ClientSize` shifts everything down by the title-bar height and crops the bottom, which reads as a layout bug that isn't there. Size the bitmap to `f.Width/f.Height`.
-- The harness must set `Application.SetHighDpiMode(PerMonitorV2)` to match `My Project/Application.Designer.vb`; without it the form's `AutoScaleMode.Font` rescaled 512×856 → 358×514 and every measurement was meaningless.
+- **Scan Buttons and CheckBoxes, not just Labels.** A `Button` silently *wraps and clips* its caption — that is exactly how `btnAutoSettings` shipped as "Auto" and the Label-only scan saw nothing (§8a.1). Check the single-line caption width against the control width, not only wrapped height.
+- **`DrawToBitmap` paints the whole window including the title bar.** Sizing the bitmap to `ClientSize` shifts everything down by the title-bar height and crops the bottom, which reads as a layout bug that is not there — it sent me chasing a phantom clip. Size the bitmap to `f.Width`/`f.Height`.
+- **Match the app's DPI mode** (`Application.SetHighDpiMode(PerMonitorV2)`, per `My Project/Application.Designer.vb`). Without it the form's `AutoScaleMode.Font` rescaled 512×856 → 358×514 and every measurement was meaningless.
+- **Check which configuration you are actually building.** The harness first loaded `bin\Debug`, which was months stale, and faithfully rendered the *old* form. The sln default is Release (§7.2).
 
-Result: **no bounds overflow, no text overflow, client size unchanged at 512×856**, and the form confirmed not to autoscale (`AutoScaleDimensions == CurrentAutoScaleDimensions == {10,25}`). Real defects the render caught that the arithmetic missed: both grey notes truncated mid-sentence, two labels 1px short of their own text, the "candles" unit label overflowing its group.
+Result: **no bounds overflow, no text overflow, client size unchanged at 512×856**, and the form confirmed not to autoscale (`AutoScaleDimensions == CurrentAutoScaleDimensions == {10,25}`). Defects the render caught that arithmetic missed: the truncated `Auto Settings` caption, both grey notes truncated mid-sentence, two labels 1px short of their own text, the "candles" unit label overflowing its group. **Known pre-existing and deliberately left alone** (report-only, scope discipline): the multi-line trade buttons (`Cancel All Open`, `Mkt. Rdc. Sell`, `No Sprd. Buy`, `Reduce Sell`, `Limit BUY`) wrap by design and have the height for it; `lblPnL`, `lblUSDSession`, `lblBTCSession` are clipped 2–3px by their parents.
 
-## 8a. Owner-run findings, 2026-07-16 (fixed in `895b73a`)
+## 8a. Owner-run findings, 2026-07-16 (fixed in `895b73a`, owner re-ran and confirmed the UI)
 
-1. **`btnAutoSettings` shipped as "Auto".** At 110 wide the caption (122px on one line) wrapped, and at height 50 there was only room for one line (two need 51px), so the second line clipped. Now 140 wide, ends at 1048 inside the 1080 client. **The harness's text-fit scan only covered Labels** — it now covers Buttons and CheckBoxes, which is the check that would have caught this. (It also flags the pre-existing multi-line trade buttons — deliberate, they have the height — and three labels clipped 2–3px in AccountInfo/PlacedOrders: **pre-existing, left alone**, report-only.)
-2. **No way to see the ATR at runtime.** Retiring FrmIndicators took its ATR display with it, and that display is exactly what proves the headless engine is running — so the §9.1 test below had no instrument. New **live ATR readout** in Tooling (`lblAtrNow`): value, source and resulting limit, colour-coded (green = signal payload, cyan = headless indicator, orange = none/fallback), ticking 1 s while the window is open. `GetEffectiveAtr()` is now the single source of truth for both the guard and the readout, so the display cannot drift from what is enforced; the no-ATR case still returns the fallback **unmultiplied** (the original `Return 70` semantics).
+1. **`btnAutoSettings` shipped as "Auto".** At 110 wide the caption (122px on one line) wrapped, and at height 50 there was only room for one line (two need 51px), so the second line clipped. Now **140 wide**, ends at 1048 inside the 1080 client, one line, aligned with `Clear`/`Results` (Y=6, height 50). Root cause of the *miss*, not just the bug: the harness's text-fit scan only covered Labels — it now covers Buttons and CheckBoxes (§8).
+2. **No way to see the ATR at runtime — a gap the retirement itself introduced.** Retiring FrmIndicators took its `lblATR` with it, and that display is exactly what proves the headless engine is running, so §9.1 had **no instrument**. New live readout in Tooling (`lblAtrNow`): value, source and resulting limit, colour-coded — **green** = signal payload, **cyan** = headless indicator, **orange** = no ATR / using fallback — ticking 1 s while the window is open (UI-thread `Timer`, enabled on `VisibleChanged`, stopped on `FormClosed`).
+   - `GetEffectiveAtr()` became the **single source of truth** for both the guard and the readout, so the displayed number cannot drift from the enforced one. It keeps the receive-thread contract (plain field reads, literal sources, `ValueTuple` is a struct).
+   - **Semantics preserved deliberately:** with no ATR at all the fallback **is** the limit and is **not** multiplied by the ATR multiplier — the original `Return 70` behaviour. Refactoring it into the shared helper would otherwise have silently changed the cap to 70 × 0.6 = 42.
 
 ## 9. Owner test additions (on top of `spec-autotrade-tiein.md` §6)
 
-1. **ATR still lives:** open Auto Settings and read the Tooling **ATR now:** line — it should show a real value in **cyan (indicator)** with FrmIndicators hidden and no fresh payload. Orange (`NONE → fallback`) means the headless engine is NOT computing and the retirement premise is broken.
-2. **Tooling knobs bite:** change ATR Length → the computed ATR changes; blank the payload + indicator ATR path → the slippage limit uses the ATR Fallback value, not 70 hard-coded.
-3. **Commit-on-blur:** type a cooloff digit and leave it un-blurred while dropping a fresh payload → the bridge must use the OLD value; click away → new value applies.
-4. **Fail-closed window:** put garbage in Start Time → entries refuse (`refused: window`), not "unrestricted". Blank both → unrestricted.
-5. **Size gate:** clear the main form's Amount → `refused: size`.
-6. **Opener:** the Auto Settings button opens the settings form on the FIRST click, aligned with Results/Clear.
-7. **Regression:** manual trading unaffected; no FrmIndicators window appears anywhere.
+**Status 2026-07-16:** UI confirmed by the owner's run (see the STATUS block). **1–5 and 7 are still open**; 6 is partially observed (the settings window was open in the owner's screenshot, so the opener works — the *first-click* half is not explicitly confirmed).
+
+1. ⬜ **ATR still lives — THE load-bearing test (§7.1).** Open Auto Settings and read the Tooling **`ATR now:`** line. With FrmIndicators hidden and no fresh payload it must show a real value in **cyan (indicator)**. **Orange (`NONE → fallback`) means the headless engine is not computing and the retirement premise is broken** — stop and report.
+2. ⬜ **Tooling knobs bite:** change ATR Length → the value on the `ATR now:` line changes; with no ATR available the slippage limit equals the ATR Fallback box (unmultiplied), not a hard-coded 70.
+3. ⬜ **Commit-on-blur:** type a cooloff digit and leave the box focused while dropping a fresh payload → the bridge must use the OLD value; click away → the new value applies.
+4. ⬜ **Fail-closed window:** garbage in Start Time → entries refuse (`refused: window`), not "unrestricted". **Both** blank → unrestricted. (Exactly one blank also refuses, with an orange warning naming it — owner-confirmed semantics 2026-07-16.)
+5. ⬜ **Size gate:** clear the main form's Amount → `refused: size`.
+6. 🟨 **Opener:** opens the settings form on the **FIRST** click (the `Me.Hide()`-in-`Load` bug, §7.4), aligned with Results/Clear. *Alignment + opening observed; first-click not explicitly confirmed.*
+7. ⬜ **Regression:** manual trading unaffected in every mode; no FrmIndicators window appears anywhere.
