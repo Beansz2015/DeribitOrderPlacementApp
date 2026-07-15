@@ -2758,21 +2758,39 @@ Public Class frmMainPageV2
     Private orderCreationTime As DateTime = DateTime.MinValue
     Private currentRequoteCount As Integer = 0
 
-    Private Function CalculateATRSlippageLimit() As Decimal
-        ' Cross-thread fix: read the engine fields, not controls. ATR source is bridge-first
-        ' (docs/spec-autotrade-tiein.md section 3c): the last actionable bridge payload's atr when
-        ' fresh (LastSignalAtr is 0 when none/stale - plain field-backed read, receive-thread safe),
-        ' falling back to _indicators.CurrentATR while FrmIndicators lives, then the $70 constant.
+    ' The ATR the slippage guard will use, and where it came from. Bridge-first
+    ' (docs/spec-autotrade-tiein.md section 3c): the last actionable bridge payload's atr when fresh
+    ' (LastSignalAtr is 0 when none/stale), else FrmIndicators' headless CurrentATR, else none.
+    ' Both reads are plain fields and the sources are literals, so this stays receive-thread safe and
+    ' allocation-free (ValueTuple is a struct). Single source of truth for the guard AND the readout.
+    Friend Function GetEffectiveAtr() As (Atr As Decimal, Source As String)
         Dim bridgeAtr As Decimal = If(signalBridge IsNot Nothing, signalBridge.LastSignalAtr, 0D)
-        Dim currentATR As Decimal = If(bridgeAtr > 0D, bridgeAtr, If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D))
-        If currentATR <= 0D Then
-            Return atrFallbackVal ' no ATR available - configurable fallback (Tooling; was a hard-coded $70)
+        If bridgeAtr > 0D Then Return (bridgeAtr, "signal payload")
+        Dim indicatorAtr As Decimal = If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D)
+        If indicatorAtr > 0D Then Return (indicatorAtr, "indicator")
+        Return (0D, "none")
+    End Function
+
+    ' Exposed so the Tooling readout shows exactly what the guard would enforce, not a re-derivation.
+    Friend ReadOnly Property CurrentSlippageLimit As Decimal
+        Get
+            Return CalculateATRSlippageLimit()
+        End Get
+    End Property
+
+    Private Function CalculateATRSlippageLimit() As Decimal
+        ' Cross-thread fix: read the engine fields, not controls.
+        Dim eff = GetEffectiveAtr()
+        If eff.Atr <= 0D Then
+            ' No ATR at all: the fallback IS the limit and is deliberately NOT multiplied - that is
+            ' the original "Return 70" behaviour, now configurable from Tooling.
+            Return atrFallbackVal
         End If
 
         ' Get ATR multiplier from settings (blank/0 -> default 0.6x ATR)
         Dim atrMultiplier As Decimal = If(maxSlippageATRmult > 0D, maxSlippageATRmult, 0.6D)
 
-        Return currentATR * atrMultiplier
+        Return eff.Atr * atrMultiplier
     End Function
 
     Private Function IsATRSlippageExcessive(currentPrice As Decimal, direction As String) As Boolean

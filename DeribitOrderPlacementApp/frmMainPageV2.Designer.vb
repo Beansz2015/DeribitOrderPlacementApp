@@ -1119,12 +1119,15 @@ Partial Class frmMainPageV2
         ' Retirement: FrmIndicators used to host the button that opened the settings form; it is no
         ' longer shown, so the opener lives here. Same row as btnClearLog/btnViewTrades: Y=6, height
         ' 50, 2px gap after btnViewTrades (which ends at x=906).
+        ' Width 140: the caption measures 122px on one line, and at height 50 there is only room for
+        ' ONE line (two would need 51px) - at 110 it wrapped and shipped as "Auto". Ends at 1048,
+        ' inside the 1080 client width.
         btnAutoSettings.BackColor = Color.MediumTurquoise
         btnAutoSettings.Cursor = Cursors.Hand
         btnAutoSettings.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         btnAutoSettings.Location = New Point(908, 6)
         btnAutoSettings.Name = "btnAutoSettings"
-        btnAutoSettings.Size = New Size(110, 50)
+        btnAutoSettings.Size = New Size(140, 50)
         btnAutoSettings.TabIndex = 117
         btnAutoSettings.Text = "Auto Settings"
         btnAutoSettings.UseVisualStyleBackColor = False

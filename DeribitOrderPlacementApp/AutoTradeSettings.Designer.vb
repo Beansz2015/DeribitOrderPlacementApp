@@ -52,6 +52,7 @@ Partial Class AutoTradeSettings
         lblAtrFallbackCap = New Label()
         txtAtrFallback = New TextBox()
         lblAtrFallbackUnit = New Label()
+        lblAtrNow = New Label()
         lblToolingNote = New Label()
         AutoTradingToolTip = New ToolTip(components)
         GroupBox1.SuspendLayout()
@@ -227,7 +228,7 @@ Partial Class AutoTradeSettings
         grpSignalBridge.ForeColor = SystemColors.ButtonFace
         grpSignalBridge.Location = New Point(18, 329)
         grpSignalBridge.Name = "grpSignalBridge"
-        grpSignalBridge.Size = New Size(482, 310)
+        grpSignalBridge.Size = New Size(482, 300)
         grpSignalBridge.TabIndex = 3
         grpSignalBridge.TabStop = False
         grpSignalBridge.Text = "SIGNAL BRIDGE"
@@ -331,9 +332,9 @@ Partial Class AutoTradeSettings
         '
         lblBridgeSourceNote.Font = New Font("Calibri", 9F)
         lblBridgeSourceNote.ForeColor = Color.Gray
-        lblBridgeSourceNote.Location = New Point(11, 250)
+        lblBridgeSourceNote.Location = New Point(11, 246)
         lblBridgeSourceNote.Name = "lblBridgeSourceNote"
-        lblBridgeSourceNote.Size = New Size(460, 55)
+        lblBridgeSourceNote.Size = New Size(460, 52)
         lblBridgeSourceNote.TabIndex = 0
         lblBridgeSourceNote.Text = "Size = main form's Amount box." & vbCrLf & "Cooloff / max loss / window = sections above."
         '
@@ -345,12 +346,13 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(lblAtrFallbackCap)
         grpTooling.Controls.Add(txtAtrFallback)
         grpTooling.Controls.Add(lblAtrFallbackUnit)
+        grpTooling.Controls.Add(lblAtrNow)
         grpTooling.Controls.Add(lblToolingNote)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
-        grpTooling.Location = New Point(18, 645)
+        grpTooling.Location = New Point(18, 641)
         grpTooling.Name = "grpTooling"
-        grpTooling.Size = New Size(482, 190)
+        grpTooling.Size = New Size(482, 194)
         grpTooling.TabIndex = 4
         grpTooling.TabStop = False
         grpTooling.Text = "Tooling"
@@ -361,7 +363,7 @@ Partial Class AutoTradeSettings
         lblAtrLenCap.AutoSize = True
         lblAtrLenCap.Font = New Font("Calibri", 14F)
         lblAtrLenCap.ForeColor = SystemColors.ControlLight
-        lblAtrLenCap.Location = New Point(11, 38)
+        lblAtrLenCap.Location = New Point(11, 34)
         lblAtrLenCap.Name = "lblAtrLenCap"
         lblAtrLenCap.Size = New Size(158, 35)
         lblAtrLenCap.TabIndex = 0
@@ -374,7 +376,7 @@ Partial Class AutoTradeSettings
         txtAtrLength.BorderStyle = BorderStyle.FixedSingle
         txtAtrLength.Font = New Font("Calibri", 14F)
         txtAtrLength.ForeColor = Color.White
-        txtAtrLength.Location = New Point(330, 34)
+        txtAtrLength.Location = New Point(330, 30)
         txtAtrLength.Name = "txtAtrLength"
         txtAtrLength.Size = New Size(64, 42)
         txtAtrLength.TabIndex = 1
@@ -386,7 +388,7 @@ Partial Class AutoTradeSettings
         lblAtrLenUnit.AutoSize = True
         lblAtrLenUnit.Font = New Font("Calibri", 10F)
         lblAtrLenUnit.ForeColor = SystemColors.ControlLight
-        lblAtrLenUnit.Location = New Point(400, 42)
+        lblAtrLenUnit.Location = New Point(400, 38)
         lblAtrLenUnit.Name = "lblAtrLenUnit"
         lblAtrLenUnit.Size = New Size(80, 24)
         lblAtrLenUnit.TabIndex = 0
@@ -397,7 +399,7 @@ Partial Class AutoTradeSettings
         lblAtrFallbackCap.AutoSize = True
         lblAtrFallbackCap.Font = New Font("Calibri", 14F)
         lblAtrFallbackCap.ForeColor = SystemColors.ControlLight
-        lblAtrFallbackCap.Location = New Point(11, 90)
+        lblAtrFallbackCap.Location = New Point(11, 82)
         lblAtrFallbackCap.Name = "lblAtrFallbackCap"
         lblAtrFallbackCap.Size = New Size(178, 35)
         lblAtrFallbackCap.TabIndex = 0
@@ -410,7 +412,7 @@ Partial Class AutoTradeSettings
         txtAtrFallback.BorderStyle = BorderStyle.FixedSingle
         txtAtrFallback.Font = New Font("Calibri", 14F)
         txtAtrFallback.ForeColor = Color.White
-        txtAtrFallback.Location = New Point(330, 86)
+        txtAtrFallback.Location = New Point(330, 78)
         txtAtrFallback.Name = "txtAtrFallback"
         txtAtrFallback.Size = New Size(64, 42)
         txtAtrFallback.TabIndex = 2
@@ -422,21 +424,35 @@ Partial Class AutoTradeSettings
         lblAtrFallbackUnit.AutoSize = True
         lblAtrFallbackUnit.Font = New Font("Calibri", 10F)
         lblAtrFallbackUnit.ForeColor = SystemColors.ControlLight
-        lblAtrFallbackUnit.Location = New Point(400, 94)
+        lblAtrFallbackUnit.Location = New Point(400, 86)
         lblAtrFallbackUnit.Name = "lblAtrFallbackUnit"
         lblAtrFallbackUnit.Size = New Size(50, 24)
         lblAtrFallbackUnit.TabIndex = 0
         lblAtrFallbackUnit.Text = "USD"
         '
+        ' lblAtrNow
+        '
+        ' Live readout: FrmIndicators is retired, so its ATR display is gone - this is now the only
+        ' place the effective ATR is visible, and it is what proves the headless indicator engine is
+        ' actually running. Ticks once a second while this form is open.
+        lblAtrNow.Font = New Font("Calibri", 11F, FontStyle.Bold)
+        lblAtrNow.ForeColor = SystemColors.ControlLight
+        lblAtrNow.Location = New Point(11, 126)
+        lblAtrNow.Name = "lblAtrNow"
+        lblAtrNow.Size = New Size(460, 30)
+        lblAtrNow.TabIndex = 0
+        lblAtrNow.Text = "Current ATR: -"
+        AutoTradingToolTip.SetToolTip(lblAtrNow, "The ATR the slippage guard is using right now, its source," & vbCrLf & "and the resulting limit. Updates every second while this" & vbCrLf & "window is open.")
+        '
         ' lblToolingNote
         '
         lblToolingNote.Font = New Font("Calibri", 9F)
         lblToolingNote.ForeColor = Color.Gray
-        lblToolingNote.Location = New Point(11, 134)
+        lblToolingNote.Location = New Point(11, 158)
         lblToolingNote.Name = "lblToolingNote"
-        lblToolingNote.Size = New Size(460, 50)
+        lblToolingNote.Size = New Size(460, 28)
         lblToolingNote.TabIndex = 0
-        lblToolingNote.Text = "ATR priority: signal payload," & vbCrLf & "then indicator ATR, then this fallback."
+        lblToolingNote.Text = "Priority: payload, then indicator, then fallback."
         '
         ' AutoTradeSettings
         '
@@ -493,6 +509,7 @@ Partial Class AutoTradeSettings
     Friend WithEvents lblAtrFallbackCap As Label
     Friend WithEvents txtAtrFallback As TextBox
     Friend WithEvents lblAtrFallbackUnit As Label
+    Friend WithEvents lblAtrNow As Label
     Friend WithEvents lblToolingNote As Label
     Friend WithEvents AutoTradingToolTip As ToolTip
 End Class

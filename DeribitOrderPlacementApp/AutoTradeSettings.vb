@@ -12,6 +12,11 @@ Public Class AutoTradeSettings
     Private _bridge As SignalBridge
     Private _suppressBridgeUi As Boolean = False ' guards programmatic combo/checkbox writes in RefreshBridgePanel
 
+    ' Live ATR readout (Tooling). FrmIndicators is retired, so its ATR display is gone and this is the
+    ' only place the effective ATR is visible - it is also what proves the headless indicator engine
+    ' is still running. UI-thread timer, and only while this window is actually open.
+    Private WithEvents _atrTimer As New Timer With {.Interval = 1000}
+
     ' ============ Gate-config mirrors (retirement) ============
     ' The bridge runs on watcher/timer threads and MUST NOT read .Text, so the gate config lives in
     ' these plain backing fields and the bridge reads them through the properties below.
@@ -109,6 +114,33 @@ Public Class AutoTradeSettings
         Next
     End Sub
 
+    ' Only burn a timer tick while the window is on screen.
+    Private Sub AutoTradeSettings_VisibleChanged(sender As Object, e As EventArgs) Handles Me.VisibleChanged
+        _atrTimer.Enabled = Me.Visible AndAlso Not Me.IsDisposed
+        If Me.Visible Then RefreshAtrReadout()
+    End Sub
+
+    Private Sub _atrTimer_Tick(sender As Object, e As EventArgs) Handles _atrTimer.Tick
+        RefreshAtrReadout()
+    End Sub
+
+    Private Sub RefreshAtrReadout()
+        If _host Is Nothing OrElse _host.IsDisposed Then
+            lblAtrNow.Text = "Current ATR: (no host)"
+            Return
+        End If
+        Dim eff = _host.GetEffectiveAtr()
+        Dim limit As Decimal = _host.CurrentSlippageLimit
+        If eff.Atr > 0D Then
+            lblAtrNow.Text = $"ATR now: {eff.Atr:F2} ({eff.Source})  ->  slip limit ${limit:F2}"
+            ' Green when the payload drives it, cyan when the headless indicator does.
+            lblAtrNow.ForeColor = If(eff.Source = "signal payload", Color.LimeGreen, Color.Cyan)
+        Else
+            lblAtrNow.Text = $"ATR now: NONE  ->  slip limit ${limit:F2} (fallback)"
+            lblAtrNow.ForeColor = Color.Orange
+        End If
+    End Sub
+
     Private Sub HostMovedOrResized(sender As Object, e As EventArgs)
         StickToHost()
     End Sub
@@ -123,6 +155,7 @@ Public Class AutoTradeSettings
 
     ' Clean up event handlers when form closes
     Private Sub AutoTradeSettings_FormClosed(sender As Object, e As FormClosedEventArgs) Handles Me.FormClosed
+        _atrTimer.Stop()
         If _host IsNot Nothing Then
             RemoveHandler _host.LocationChanged, AddressOf HostMovedOrResized
             RemoveHandler _host.SizeChanged, AddressOf HostMovedOrResized
