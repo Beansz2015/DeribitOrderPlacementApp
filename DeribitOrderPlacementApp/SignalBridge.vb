@@ -381,6 +381,12 @@ Public Class SignalBridge
             _watcher = Nothing
             _staleChecks = 0
             _staleAlerted = False
+            ' Hand the ATR back to the host's own indicator (owner ruling 2026-07-16). Without this the
+            ' guard stayed frozen on the last engine ATR forever once the bridge went Off: the staleness
+            ' timer that would otherwise have zeroed it is stopped on the very next line. The two ATRs
+            ' are NOT interchangeable - the engine's period is 7, this app's is 14 - so "bridge off"
+            ' must mean "back on our own 14", not "keep quoting a frozen 7".
+            _lastSignalAtr = 0D
         End SyncLock
         _staleTimer.Change(Timeout.Infinite, Timeout.Infinite)
         _debounce.Change(Timeout.Infinite, Timeout.Infinite)
@@ -523,10 +529,31 @@ Public Class SignalBridge
             _engineArmed = p.EngineArmed
             _lastPayloadGeneratedUtc = p.GeneratedUtc
             _lastExecResMin = Math.Max(p.ExecResolutionMin, 1)
-            If fresh Then
+            ' ATR for the host's slippage guard (owner ruling 2026-07-16). Refresh from EVERY fresh
+            ' OK payload, NO TRADE included: atr is an execution-resolution market measurement, not a
+            ' trade decision - the verdict is about conviction, the ATR is about volatility. The
+            ' contract's "guaranteed non-zero when direction <> NONE" is a GUARANTEE, not a claim that
+            ' other payloads' atr is junk (a live NO TRADE payload carries a real one).
+            '
+            ' Gating this on direction <> NONE (as it first shipped) meant a lone WEAK signal's atr was
+            ' held INDEFINITELY through the NO TRADE stretches that are most of the session, while
+            ' fresher values streamed past every run - observed live: 34.91 held from a WEAK SHORT
+            ' while the current payload said 24.78, leaving the guard ~41% too loose.
+            '
+            ' Zeroed on stale/SKIPPED (contract 4.2: never "hold the last signal") and on mode Off
+            ' (StopWatching), so the guard falls back to the host's OWN indicator ATR. That fallback
+            ' matters: the engine's ATR period (7) differs from this app's (14), so they are NOT the
+            ' same measurement - whenever the bridge is not supplying one, the app must be back on its
+            ' own 14-period value rather than frozen on a stale engine number.
+            If fresh AndAlso p.SignalState = "OK" Then
                 _staleChecks = 0
                 _staleAlerted = False
-                If p.Direction <> "NONE" AndAlso p.Atr > 0D Then _lastSignalAtr = p.Atr
+                If p.Atr > 0D Then _lastSignalAtr = p.Atr
+            ElseIf fresh Then
+                ' Fresh but SKIPPED: engine stood down, so do not keep quoting its last ATR.
+                _staleChecks = 0
+                _staleAlerted = False
+                _lastSignalAtr = 0D
             Else
                 _lastSignalAtr = 0D
             End If
