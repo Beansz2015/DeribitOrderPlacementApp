@@ -91,13 +91,27 @@ Result: **no bounds overflow, no text overflow, client size unchanged at 512×85
    - `GetEffectiveAtr()` became the **single source of truth** for both the guard and the readout, so the displayed number cannot drift from the enforced one. It keeps the receive-thread contract (plain field reads, literal sources, `ValueTuple` is a struct).
    - **Semantics preserved deliberately:** with no ATR at all the fallback **is** the limit and is **not** multiplied by the ATR multiplier — the original `Return 70` behaviour. Refactoring it into the shared helper would otherwise have silently changed the cap to 70 × 0.6 = 42.
 
+## 8b. ATR-source ruling, 2026-07-16 (`bbec1e2`) — owner-found via the new readout
+
+The Tooling readout paid for itself within a day: the owner saw it green (`signal payload`) with no actionable signal, which surfaced **two bugs and one cross-app hazard**.
+
+1. **The guard held an ageing ATR.** `_lastSignalAtr` only refreshed on `direction <> NONE`, so a lone WEAK signal's atr was held **indefinitely** through the NO TRADE stretches that are most of a session, while fresher values streamed past every run. Observed live: **34.91 held from WEAK SHORT #33 while payload #41 said 24.78** → slippage limit $20.95 against a volatility-correct $14.87, **~41% too loose** — and that guard governs **manual** entries too.
+   **Ruling (owner):** refresh from **every fresh `signal_state=OK` payload with `atr > 0`, NO TRADE included.** `atr` is an execution-resolution *market measurement*, not a trade decision — the verdict is about conviction, the ATR about volatility. The contract's *"guaranteed non-zero when `direction <> NONE`"* is a **guarantee**, not a claim that other payloads' atr is junk (a live NO TRADE payload carries a real one). **Deviation:** the spec §1 wording is *"last actionable payload's atr"* — owner-ruled, flagged here.
+2. **Mode Off froze the ATR forever.** `StopWatching` stops the staleness timer that would otherwise zero `_lastSignalAtr`, but never zeroed it itself — so once the bridge went Off the guard stayed pinned to the last engine ATR with **nothing able to clear it**. Now zeroed in `StopWatching` (mode Off + Dispose).
+3. **⚠ The two ATRs are NOT the same measurement — engine period 7, this app 14.** So the slippage limit *steps* whenever the source flips, and "bridge off / stale / skipped" must mean **back on our own 14**, not "keep quoting a frozen 7". This is the owner's stated requirement and the reason bug 2 mattered. **Cross-app item for the coordinator:** if the two periods should agree, that is an engine-side settings decision (`indicators.ATR` length) and goes through the owner — this repo must not write there.
+
+Also zeroed on a fresh **SKIPPED** payload: contract §4.2 is *"never hold the last signal"* on a skip, and its atr is no more holdable than its verdict.
+
+Net: the guard reverts to the host's own indicator ATR on **mode Off, stale, SKIPPED, or `atr <= 0`**. Verified against the **shipped assembly** by reflection — all five transitions pass (OK/direction → adopt; OK/NO TRADE → adopts newest; SKIPPED → 0; stale → 0; `StopWatching` → 0).
+
 ## 9. Owner test additions (on top of `spec-autotrade-tiein.md` §6)
 
 **Status 2026-07-16:** UI confirmed and **§9.1 PASSED** by the owner's run. **§9.2–9.5 and §9.7 still open**; §9.6 partially observed (the settings window was open in the owner's screenshot, so the opener works — the *first-click* half is not explicitly confirmed).
 
 1. ✅ **PASSED 2026-07-16 — ATR still lives; THE load-bearing test (§7.1).** Owner confirms the Tooling **`ATR now:`** line reads a **live value**.
    **Why a live value is dispositive, not merely encouraging:** with the bridge at mode Off and no engine emitting, `LastSignalAtr` is 0, so `GetEffectiveAtr()` cannot be on the payload branch; and the no-ATR branch prints the literal word `NONE`, never a number. A numeric reading therefore can only come from `_indicators.CurrentATR` — and that is only non-zero if **every** link of the headless chain worked on a form that is never shown: `StartHeadless()` ran in place of `Form.Load`, `ConnectAndStream` opened the WS and filled `ohlcList`, the receive loop's `Me.Invoke → UpdateSignals` marshal succeeded against the constructor-realized handle, and `UpdateATR` read `AtrLength` back from the host. That is the entire premise of retirement commit A, confirmed end-to-end by one reading.
-2. ⬜ **Tooling knobs bite:** change ATR Length → the value on the `ATR now:` line changes; with no ATR available the slippage limit equals the ATR Fallback box (unmultiplied), not a hard-coded 70.
+2. ⬜ **Tooling knobs bite:** change ATR Length → the value on the `ATR now:` line changes **while the bridge is Off** (with the bridge live the payload ATR wins — that is the point of §8b); with no ATR available at all the slippage limit equals the ATR Fallback box (unmultiplied), not a hard-coded 70.
+2a. ⬜ **ATR hands back (§8b):** with the bridge in Log-only and the readout **green (signal payload)**, switch Mode → **Off**. The readout must flip to **cyan (indicator)** with the app's own 14-period value — not stay frozen on the engine's 7-period number. Same expectation when the engine stops (stale) or emits SKIPPED.
 3. ⬜ **Commit-on-blur:** type a cooloff digit and leave the box focused while dropping a fresh payload → the bridge must use the OLD value; click away → the new value applies.
 4. ⬜ **Fail-closed window:** garbage in Start Time → entries refuse (`refused: window`), not "unrestricted". **Both** blank → unrestricted. (Exactly one blank also refuses, with an orange warning naming it — owner-confirmed semantics 2026-07-16.)
 5. ⬜ **Size gate:** clear the main form's Amount → `refused: size`.
