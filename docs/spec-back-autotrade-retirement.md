@@ -76,9 +76,14 @@ The form was rendered off-screen from the built assembly by a throwaway harness 
 
 Result: **no bounds overflow, no text overflow, client size unchanged at 512×856**, and the form confirmed not to autoscale (`AutoScaleDimensions == CurrentAutoScaleDimensions == {10,25}`). Real defects the render caught that the arithmetic missed: both grey notes truncated mid-sentence, two labels 1px short of their own text, the "candles" unit label overflowing its group.
 
+## 8a. Owner-run findings, 2026-07-16 (fixed in `895b73a`)
+
+1. **`btnAutoSettings` shipped as "Auto".** At 110 wide the caption (122px on one line) wrapped, and at height 50 there was only room for one line (two need 51px), so the second line clipped. Now 140 wide, ends at 1048 inside the 1080 client. **The harness's text-fit scan only covered Labels** — it now covers Buttons and CheckBoxes, which is the check that would have caught this. (It also flags the pre-existing multi-line trade buttons — deliberate, they have the height — and three labels clipped 2–3px in AccountInfo/PlacedOrders: **pre-existing, left alone**, report-only.)
+2. **No way to see the ATR at runtime.** Retiring FrmIndicators took its ATR display with it, and that display is exactly what proves the headless engine is running — so the §9.1 test below had no instrument. New **live ATR readout** in Tooling (`lblAtrNow`): value, source and resulting limit, colour-coded (green = signal payload, cyan = headless indicator, orange = none/fallback), ticking 1 s while the window is open. `GetEffectiveAtr()` is now the single source of truth for both the guard and the readout, so the display cannot drift from what is enforced; the no-ATR case still returns the fallback **unmultiplied** (the original `Return 70` semantics).
+
 ## 9. Owner test additions (on top of `spec-autotrade-tiein.md` §6)
 
-1. **ATR still lives:** with FrmIndicators hidden, confirm the slippage-limit log line reflects a real ATR (not the fallback) — i.e. `CurrentATR` is still being computed headless.
+1. **ATR still lives:** open Auto Settings and read the Tooling **ATR now:** line — it should show a real value in **cyan (indicator)** with FrmIndicators hidden and no fresh payload. Orange (`NONE → fallback`) means the headless engine is NOT computing and the retirement premise is broken.
 2. **Tooling knobs bite:** change ATR Length → the computed ATR changes; blank the payload + indicator ATR path → the slippage limit uses the ATR Fallback value, not 70 hard-coded.
 3. **Commit-on-blur:** type a cooloff digit and leave it un-blurred while dropping a fresh payload → the bridge must use the OLD value; click away → new value applies.
 4. **Fail-closed window:** put garbage in Start Time → entries refuse (`refused: window`), not "unrestricted". Blank both → unrestricted.
