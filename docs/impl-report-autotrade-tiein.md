@@ -1,5 +1,7 @@
 # Impl report — Signal-bridge tie-in (consumer, interlock, AutoTradeSettings panel)
 
+> **SUPERSEDED IN PART 2026-07-15 — read `spec-back-autotrade-retirement.md` alongside this.** The owner pulled the post-soak retirement forward (`df615b7`, `cdc7ce4`, `1e314aa`, `c622212`). Still accurate: commits 1/2/4, the contract §4 gate chain, the `manualSL` math, the interlock, F-1/F-2. **No longer accurate here:** the commit-3 panel's gate config + SAVE (deleted — config is now live-read from the old autotrader controls and the main form's Amount box), deviation #4's "log-only advances the cooloff anchor" (cooloff now anchors on the position close, so log-only advances the de-dupe watermark only), and the §(d) token set (gained `refused: size`). The disposition-token set below is amended in place.
+
 **Spec:** `spec-autotrade-tiein.md` (contract `integration-contract-verdictengine.md` FROZEN v1 — canonical; where they disagreed, the contract won and the deviation is reported in §Friction below). **Implementer:** Fable high (in-window). **Base:** pushed `master` HEAD `afca0c2` (verified = `origin/master`, tree clean; the brief's `541f185` plus 5 docs-only commits — `git diff --stat de7d87b..afca0c2` touches `docs/` only, so the coordinator's 2026-07-13 anchor verification still held, re-verified by symbol anyway).
 
 **Commits (local, not pushed):**
@@ -111,7 +113,7 @@ Line: `utc | instance_id | signal_id | verdict | confidence | direction | dispos
 - `acted (id <exchange_order_id>)`
 - `rejected: <reason>` — API-level, after all bridge gates passed; `<reason>` comes from `PlacementResult.Reason`: `not connected` · `rate limiter not initialized` · `rate limit` · `cancel pending` · `position open (flatten first)` · `working entry exists` · `timeout` · `<code>: <message>` (exchange rejection) — the bridge's own pre-gates make the first six rare (they'd need a state flip inside the placement call).
 - `would-act: <LONG|SHORT> @ <entry>, stop <stop>, target <target>, size <size_usd>` (log-only)
-- `refused: <first-failing-gate>`, gate ∈ `schema_version` · `signal_state` · `direction` · `levels` (added pre-soak per review F-1: actionable direction with missing/zero stop or target) · `tier` · `mtf_blocked` · `below_min_move` · `ledger_mismatch` · `ws_down` · `interlock` · `not_connected` · `rate_limit` · `not_flat` · `working_entry` · `cooloff` · `circuit_breaker` · `window`
+- `refused: <first-failing-gate>`, gate ∈ `schema_version` · `signal_state` · `direction` · `levels` (added pre-soak per review F-1: actionable direction with missing/zero stop or target) · `tier` · `mtf_blocked` · `below_min_move` · `ledger_mismatch` · `ws_down` · `interlock` · `not_connected` · `rate_limit` · `not_flat` · `working_entry` · `cooloff` · `circuit_breaker` · `window` · `size` (added 2026-07-15 with the retirement: order size is the main form's Amount box, and an empty/zero box would otherwise reach the exchange as a zero-amount order; appended after the contract-ordered §4.6 gates)
 - `stale` · `skipped` · `duplicate`
 
 ## Implementer test-plan items (§6, runnable now) — all pass
