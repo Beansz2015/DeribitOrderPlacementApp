@@ -1,6 +1,8 @@
 ﻿Public Class AutoTradeSettings
 
-    Private ReadOnly _hostIndicators As Form  ' Reference to frmIndicators
+    ' Retirement: the host is frmMainPageV2 now (FrmIndicators used to own and position this form,
+    ' but it is no longer shown). Typed, because the Tooling section pushes values into the host.
+    Private ReadOnly _host As frmMainPageV2
 
     ' ============ SIGNAL BRIDGE panel (docs/spec-autotrade-tiein.md section 4) ============
     ' frmMainPageV2 owns this form and the bridge, and assigns Bridge directly after constructing it
@@ -27,9 +29,9 @@
         End Set
     End Property
 
-    Public Sub New(hostIndicators As Form)
+    Public Sub New(host As frmMainPageV2)
         InitializeComponent()
-        _hostIndicators = hostIndicators
+        _host = host
     End Sub
 
     Private Sub AutoTradeSettings_Load(sender As Object, e As EventArgs) Handles MyBase.Load
@@ -37,34 +39,36 @@
         StickToHost()
 
         ' Attach event handlers to follow host movement
-        If _hostIndicators IsNot Nothing Then
-            AddHandler _hostIndicators.LocationChanged, AddressOf HostMovedOrResized
-            AddHandler _hostIndicators.SizeChanged, AddressOf HostMovedOrResized
+        If _host IsNot Nothing Then
+            AddHandler _host.LocationChanged, AddressOf HostMovedOrResized
+            AddHandler _host.SizeChanged, AddressOf HostMovedOrResized
         End If
 
         ' Bridge panel defaults: mode Off, un-armed, stopped (never persisted).
         cboBridgeMode.SelectedIndex = 0
         RefreshBridgePanel()
 
-        Me.Hide()
+        ' NOTE: no Me.Hide() here any more. It used to make the FIRST click of the opener button a
+        ' no-op (Show -> Load fires -> Hide), so you had to click twice. The form is only ever shown
+        ' by that button now, so hiding itself on Load is exactly wrong.
     End Sub
     Private Sub HostMovedOrResized(sender As Object, e As EventArgs)
         StickToHost()
     End Sub
 
     Private Sub StickToHost()
-        If _hostIndicators Is Nothing OrElse _hostIndicators.IsDisposed Then Return
+        If _host Is Nothing OrElse _host.IsDisposed Then Return
 
-        ' Position AutoTradeSettings to the right of frmIndicators
+        ' Position AutoTradeSettings just outside the main form's right border, aligned to top
         Me.StartPosition = FormStartPosition.Manual
-        Me.Location = New Point(_hostIndicators.Right + 6, _hostIndicators.Top)
+        Me.Location = New Point(_host.Right + 6, _host.Top)
     End Sub
 
     ' Clean up event handlers when form closes
     Private Sub AutoTradeSettings_FormClosed(sender As Object, e As FormClosedEventArgs) Handles Me.FormClosed
-        If _hostIndicators IsNot Nothing Then
-            RemoveHandler _hostIndicators.LocationChanged, AddressOf HostMovedOrResized
-            RemoveHandler _hostIndicators.SizeChanged, AddressOf HostMovedOrResized
+        If _host IsNot Nothing Then
+            RemoveHandler _host.LocationChanged, AddressOf HostMovedOrResized
+            RemoveHandler _host.SizeChanged, AddressOf HostMovedOrResized
         End If
         If _bridge IsNot Nothing Then RemoveHandler _bridge.StatusChanged, AddressOf OnBridgeStatusChanged
     End Sub

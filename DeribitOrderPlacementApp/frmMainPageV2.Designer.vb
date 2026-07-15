@@ -102,6 +102,7 @@ Partial Class frmMainPageV2
         txtManualTP = New CustomTextBox()
         CustomLabel4 = New CustomLabel()
         btnViewTrades = New Button()
+        btnAutoSettings = New Button()
         lblEstimatedLiquidation = New CustomLabel()
         lblEstimatedLeverage = New CustomLabel()
         lblInitialMargin = New CustomLabel()
@@ -1112,7 +1113,22 @@ Partial Class frmMainPageV2
         btnViewTrades.TabIndex = 115
         btnViewTrades.Text = "Results"
         btnViewTrades.UseVisualStyleBackColor = False
-        ' 
+        '
+        ' btnAutoSettings
+        '
+        ' Retirement: FrmIndicators used to host the button that opened the settings form; it is no
+        ' longer shown, so the opener lives here. Same row as btnClearLog/btnViewTrades: Y=6, height
+        ' 50, 2px gap after btnViewTrades (which ends at x=906).
+        btnAutoSettings.BackColor = Color.MediumTurquoise
+        btnAutoSettings.Cursor = Cursors.Hand
+        btnAutoSettings.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnAutoSettings.Location = New Point(908, 6)
+        btnAutoSettings.Name = "btnAutoSettings"
+        btnAutoSettings.Size = New Size(110, 50)
+        btnAutoSettings.TabIndex = 117
+        btnAutoSettings.Text = "Auto Settings"
+        btnAutoSettings.UseVisualStyleBackColor = False
+        '
         ' lblEstimatedLiquidation
         ' 
         lblEstimatedLiquidation.AutoSize = True
@@ -1168,6 +1184,7 @@ Partial Class frmMainPageV2
         Controls.Add(lblInitialMargin)
         Controls.Add(lblEstimatedLeverage)
         Controls.Add(lblEstimatedLiquidation)
+        Controls.Add(btnAutoSettings)
         Controls.Add(btnViewTrades)
         Controls.Add(PlacedOrders)
         Controls.Add(lblIndexPrice)
@@ -1280,6 +1297,7 @@ Partial Class frmMainPageV2
     Friend WithEvents txtManualTP As CustomTextBox
     Friend WithEvents CustomLabel4 As CustomLabel
     Friend WithEvents btnViewTrades As Button
+    Friend WithEvents btnAutoSettings As Button
     Friend WithEvents lblEstimatedLiquidation As CustomLabel
     Friend WithEvents lblEstimatedLeverage As CustomLabel
     Friend WithEvents lblInitialMargin As CustomLabel

@@ -4874,6 +4874,8 @@ Public Class frmMainPageV2
         isClosing = True
         Try
             signalBridge?.Dispose() ' stop the watcher/timers before the sockets go down
+            ' Retirement: this form owns the settings window now (FrmIndicators used to close it).
+            If _autotradesettings IsNot Nothing AndAlso Not _autotradesettings.IsDisposed Then _autotradesettings.Close()
             cancellationTokenSource?.Cancel()
             If webSocketClient IsNot Nothing AndAlso webSocketClient.State = WebSocketState.Open Then
                 ' Bounded: a wedged close handshake must not hang shutdown (worst case 2s).
@@ -4890,6 +4892,18 @@ Public Class frmMainPageV2
     Private Sub btnClearLog_Click(sender As Object, e As EventArgs) Handles btnClearLog.Click
         txtLogs.Clear()
 
+    End Sub
+
+    ' Retirement: opens the settings window (SIGNAL BRIDGE panel + gate config). This replaces
+    ' FrmIndicators' btnAutoTradeSettings, which went with that form's UI. Toggles like the old one.
+    Private Sub btnAutoSettings_Click(sender As Object, e As EventArgs) Handles btnAutoSettings.Click
+        If _autotradesettings Is Nothing OrElse _autotradesettings.IsDisposed Then Return
+        If _autotradesettings.Visible Then
+            _autotradesettings.Hide()
+        Else
+            _autotradesettings.Show()
+            _autotradesettings.BringToFront()
+        End If
     End Sub
 
     ' Decouple v2: mode switching extracted from btnBuy_Click/btnSell_Click (bodies unchanged) so
