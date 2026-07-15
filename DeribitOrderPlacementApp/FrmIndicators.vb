@@ -26,14 +26,6 @@ Public Class FrmIndicators
     Private heartbeatTimer As New System.Windows.Forms.Timer() With {.Interval = 500, .Enabled = False}
     Private score As Integer = 0
     Private startupFired As Boolean = False
-    ' #7: while a backtest runs, pause live indicator evaluation so the backtest's walk of the
-    ' indicator Static state / shared score / labels can't corrupt the live readout. Re-seeded after.
-    Private isBacktesting As Boolean = False
-    Private formLoadTimestamp As DateTime = DateTime.MinValue
-    Private formLoadOHLCIndex As Integer = -1
-
-    Private _autoTradeSettings As AutoTradeSettings  ' Reference to settings form
-
     ' Cross-thread fix: latest computed ATR, published for frmMainPageV2's receive-loop slippage check
     ' to read off-thread without touching lblATR. Updated wherever lblATR.Text is set.
     Private _currentATR As Decimal = 0D
@@ -50,67 +42,24 @@ Public Class FrmIndicators
         ' UI thread (New is called from the host's Load), so ConnectAndStream's background receive loop can
         ' never marshal (Me.Invoke -> UpdateSignals) before the handle exists. UiInvokeSafe additionally
         ' guards the reconnect/teardown windows where the handle can momentarily be absent.
+        ' RETIREMENT (docs/spec-back-autotrade-retirement.md): this form is never Shown any more, so the
+        ' handle realized here is the ONLY thing that makes the receive loop's marshals legal - do not remove.
         Dim forceHandle As IntPtr = Me.Handle
     End Sub
 
-    ' Signal-bridge tie-in: UNUSED since the frmMainPageV2 call sites were repointed to
-    ' signalBridge.IsLiveStarted (spec-autotrade-tiein section 5). enableAutoTrading can no longer
-    ' turn on (btnAutoTrade is inert), so this always returns False; kept only because the form
-    ' retires post-soak.
-    Public ReadOnly Property IsAutoTradingEnabled As Boolean
-        Get
-            Return enableAutoTrading
-        End Get
-    End Property
-
-    ' Signal-bridge tie-in transition scaffolding: frmMainPageV2 constructs the bridge and hands it
-    ' through here to the settings form's SIGNAL BRIDGE panel (this form still owns/positions the
-    ' settings form until post-soak retirement).
-    Public Sub AttachBridgeToSettings(bridge As SignalBridge)
-        _autoTradeSettings.Bridge = bridge
-    End Sub
-
-
-    ' ── Form Load ───────────────────────────────────────────────────────────────
-    Private Sub FrmIndicators_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-
-        _autoTradeSettings = New AutoTradeSettings(Me)
-
+    ' ── Headless start ──────────────────────────────────────────────────────────
+    ' RETIREMENT: the autotrade + backtest modules and this form's UI are retired (the VerdictEngine
+    ' signal bridge is the sole signal source, contract R1). The form is no longer Shown, so Form.Load
+    ' would never fire - the host calls this instead, right after construction. What survives is the
+    ' indicator/ATR engine: the WS stream keeps filling ohlcList and UpdateSignals keeps publishing
+    ' _currentATR, which frmMainPageV2's slippage guard uses as its fallback ATR source (payload atr
+    ' first, then this, then the configurable fallback constant).
+    Public Sub StartHeadless()
         AddHandler heartbeatTimer.Tick, AddressOf heartbeatTimer_Tick
         pollTimer.AutoReset = True
         AddHandler pollTimer.Elapsed, AddressOf OnPollElapsed
 
         Task.Run(AddressOf ConnectAndStream)
-
-        formLoadTimestamp = DateTime.UtcNow
-        formLoadOHLCIndex = ohlcList.Count   ' next bar that arrives
-
-        'Form positioning
-        StickToHost()                           ' first positioning
-        AddHandler _host.LocationChanged, AddressOf HostMovedOrResized
-        AddHandler _host.SizeChanged, AddressOf HostMovedOrResized
-
-        AUTO_TRADE_COOLDOWN_MS = 60000 * Integer.Parse(_autoTradeSettings.txtCooloff.Text) ' x minutes between trades
-
-        ' Signal-bridge tie-in (R1): this form's own autotrade trigger is neutralized - the AUTO
-        ' button is inert (kept visible as a pointer to the SIGNAL BRIDGE panel until retirement).
-        btnAutoTrade.Enabled = False
-        btnAutoTrade.Text = "AUTO: see Bridge"
-        btnAutoTrade.BackColor = Color.DimGray
-    End Sub
-
-    Private Sub HostMovedOrResized(sender As Object, e As EventArgs)
-        StickToHost()
-    End Sub
-
-    Private Sub StickToHost()
-        If _host Is Nothing OrElse _host.IsDisposed Then Return
-
-        ' place Indicators just outside the host’s right border, aligned to top
-        Me.StartPosition = FormStartPosition.Manual
-        Me.Location = New Point(_host.Right, _host.Top)
-        'Me.Location = New Point(_host.Right - Me.Width, _host.Top)
-
     End Sub
 
 
@@ -361,332 +310,14 @@ Public Class FrmIndicators
         startupFired = True
     End Sub
 
-    'AUTOMATED TRADING SYSTEM CODE BELOW
-    '------------------------------------------
-
-    Private Sub ProcessAutomatedSignal(currentScore As Integer, bias As Decimal)
-        Try
-            ' Log entry point
-            ' AppendLog($"ProcessAutomatedSignal: Score={currentScore}, Bias={bias:F1}%", Color.Cyan)
-
-            Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
-
-            If (enableAutoTrading = True) Then
-                ' Circuit breaker: txtCircuitBreaker holds a positive loss magnitude (e.g. 50 = stop at $50 loss).
-                ' USDPublicSession is session PnL in USD (negative in a loss). Guard blank/zero so an unset
-                ' field DISABLES the breaker rather than tripping on any loss (TryParse would leave it 0).
-                Dim cbOk As Boolean = Decimal.TryParse(_autoTradeSettings.txtCircuitBreaker.Text, CircuitBreak)
-                If cbOk AndAlso CircuitBreak > 0D AndAlso frmMainPageV2.USDPublicSession <= -Math.Abs(CircuitBreak) Then
-                    'LogTradeDecision("ANY", currentScore, "Circuit breaker active", False)
-
-                    enableAutoTrading = False
-                    btnAutoTrade.Text = "AUTO: STOPPED"
-                    btnAutoTrade.BackColor = Color.DarkRed
-                    AppendLog($"Circuit breaker triggered! Loss limit reached: ${CircuitBreak:F2}", Color.Red)
-                    LogTradeDecision("ANY", currentScore, "Circuit breaker triggered.", False)
-
-                    Return
-                End If
-            End If
-
-            ' ATR Filter Check with logging
-            Dim currentATR As Decimal = 0
-            If Not Decimal.TryParse(lblATR.Text, currentATR) Then
-                AppendLog($"Auto-trade blocked: Invalid ATR value '{lblATR.Text}'", Color.Red)
-                Return
-            End If
-
-            Dim atrLimit As Decimal = 0
-            If Not String.IsNullOrEmpty(_autoTradeSettings.txtATRLimit.Text) Then
-                If Not Decimal.TryParse(_autoTradeSettings.txtATRLimit.Text, atrLimit) Then
-                    AppendLog($"Auto-trade blocked: Invalid ATR limit '{_autoTradeSettings.txtATRLimit.Text}'", Color.Red)
-                    Return
-                End If
-            End If
-
-            'AppendLog($"ATR Check: Current={currentATR:F2}, Limit={atrLimit:F2}", Color.Gray)
-
-            If atrLimit > 0 AndAlso currentATR < atrLimit Then
-                ' AppendLog($"Auto-trade blocked: ATR {currentATR:F2} < limit {atrLimit:F2}", Color.Yellow)
-                Return
-            End If
-
-            ' Signal Strength Validation with logging
-            Dim longThreshold As Integer = 0
-            Dim shortThreshold As Integer = 0
-
-            If Not Integer.TryParse(_autoTradeSettings.txtLScore.Text, longThreshold) Then
-                AppendLog($"Auto-trade blocked: Invalid long threshold '{_autoTradeSettings.txtLScore.Text}'", Color.Red)
-                Return
-            End If
-
-            If Not Integer.TryParse(_autoTradeSettings.txtSScore.Text, shortThreshold) Then
-                AppendLog($"Auto-trade blocked: Invalid short threshold '{_autoTradeSettings.txtSScore.Text}'", Color.Red)
-                Return
-            End If
-
-            'AppendLog($"Threshold Check: Score={currentScore}, Long≥{longThreshold}, Short≤{shortThreshold}", Color.Gray)
-
-            If Decimal.Parse(mainForm.txtPlacedPrice.Text) = 0 Then
-                If currentScore >= longThreshold Then
-                    ' Check trend alignment before executing LONG trade
-                    If IsTrendAligned("LONG") Then
-                        AppendLog($"LONG signal triggered: {currentScore} >= {longThreshold} (Trend Aligned)", Color.Green)
-                        ExecuteAutomatedTrade("LONG", currentScore, currentATR)
-                        LogTradeDecision("LONG", currentScore, "Signal threshold met - Trend aligned", True)
-                    Else
-                        AppendLog($"LONG signal blocked: Trend not aligned (Score: {currentScore})", Color.Orange)
-                        LogTradeDecision("LONG", currentScore, "Signal blocked - No Long trend confirmation", False)
-                    End If
-                ElseIf currentScore <= shortThreshold Then
-                    ' Check trend alignment before executing SHORT trade
-                    If IsTrendAligned("SHORT") Then
-                        AppendLog($"SHORT signal triggered: {currentScore} <= {shortThreshold} (Trend Aligned)", Color.Green)
-                        ExecuteAutomatedTrade("SHORT", currentScore, currentATR)
-                        LogTradeDecision("SHORT", currentScore, "Signal threshold met - Trend aligned", True)
-                    Else
-                        AppendLog($"SHORT signal blocked: Trend not aligned (Score: {currentScore})", Color.Orange)
-                        LogTradeDecision("SHORT", currentScore, "Signal blocked - No Short trend confirmation", False)
-                    End If
-                    'Else
-                    '    AppendLog($"No signal: Score {currentScore} between thresholds ({shortThreshold} to {longThreshold})", Color.Gray)
-                End If
-            End If
-
-
-        Catch ex As Exception
-            AppendLog($"Auto-trading error in ProcessAutomatedSignal: {ex.Message}", Color.Red)
-        End Try
-    End Sub
-
-    Private Function IsTrendAligned(direction As String) As Boolean
-        Try
-            Dim quotes = SyncLockCopy(ohlcList)
-            If quotes.Count < 200 Then Return True ' Not enough data for EMA200
-
-            Dim ema50 = quotes.GetEma(50).LastOrDefault()?.Ema
-            Dim ema200 = quotes.GetEma(200).LastOrDefault()?.Ema
-
-            If Not ema50.HasValue OrElse Not ema200.HasValue Then Return True
-
-            Dim currentPrice = quotes.Last().Close
-
-            'For minimum trend strength calculation
-            '-----------------------------------------
-            Dim minSeparation As Decimal = 0.5 ' Default
-            If Not String.IsNullOrEmpty(_autoTradeSettings.txtTrendStrength.Text) Then
-                Decimal.TryParse(_autoTradeSettings.txtTrendStrength.Text, minSeparation)
-            End If
-
-            Dim trendStrength = Math.Abs(ema50.Value - ema200.Value) / ema200.Value * 100
-
-            '-----------------------------------------
-
-            If direction = "LONG" Then
-                ' Only go long if price > EMA50 > EMA200 (strong bullish trend) and trend strength is sufficient
-                Return currentPrice > ema50.Value AndAlso ema50.Value > ema200.Value AndAlso trendStrength > minSeparation
-            Else
-                ' Only go short if price < EMA50 < EMA200 (strong bearish trend) and trend strength is sufficient
-                Return currentPrice < ema50.Value AndAlso ema50.Value < ema200.Value AndAlso trendStrength > minSeparation
-            End If
-        Catch ex As Exception
-            AppendLog($"Trend alignment check error: {ex.Message}", Color.Orange)
-            Return True ' Default to allowing trade on error
-        End Try
-    End Function
-
-
-    Private enableAutoTrading As Boolean = False
-    Public lastAutoTradeTime As DateTime = DateTime.MinValue
-    Private AUTO_TRADE_COOLDOWN_MS As Integer
-
-    Private Function CanPlaceAutomatedOrder() As Boolean
-
-        ' Time-based restriction check (FIRST PRIORITY)
-        If IsWithinRestrictedTimeRange() Then
-            ' Only log once per minute to avoid spam
-            ' Static lastRestrictedLog As DateTime = DateTime.MinValue
-            ' If (DateTime.Now - lastRestrictedLog).TotalMinutes >= 1 Then
-            ' Dim utc8Time As DateTime = DateTime.UtcNow.AddHours(8)
-            ' AppendLog($"Auto-trade blocked: Restricted time period (Current: {utc8Time:HH:mm})", Color.Orange)
-            ' lastRestrictedLog = DateTime.Now
-            ' End If
-            Return False
-        End If
-
-        ' Cooldown Check
-        If (DateTime.Now - lastAutoTradeTime).TotalMilliseconds < AUTO_TRADE_COOLDOWN_MS Then
-            Return False
-        End If
-
-        ' WebSocket Health Check - use consistent reference
-        Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
-
-        ' Add diagnostic logging
-        'AppendLog($"Auto-trade check: EnableAutoTrading={enableAutoTrading}", Color.Gray)
-        'AppendLog($"Auto-trade check: WebSocket={mainForm.IsWebSocketConnected}", Color.Gray)
-        'AppendLog($"Auto-trade check: RateLimiter initialized={mainForm.RateLimiterInstance IsNot Nothing}", Color.Gray)
-
-        'If mainForm.RateLimiterInstance IsNot Nothing Then
-        ' AppendLog($"Auto-trade check: Can make request={mainForm.RateLimiterInstance.CanMakeRequest()}", Color.Gray)
-        ' End If
-
-        If Not mainForm.IsWebSocketConnected Then
-            Return False
-        End If
-
-        ' FIXED: Use the CanMakeAPIRequest property instead of direct rate limiter access
-        If Not mainForm.CanMakeAPIRequest Then
-            AppendLog("Auto-trade blocked: Rate limit active", Color.Orange)
-
-            ' Force rate limiter initialization if it's not ready
-            If mainForm.RateLimiterInstance Is Nothing Then
-                AppendLog("Rate limiter not initialized - triggering initialization", Color.Yellow)
-                ' Trigger initialization in main form
-                Task.Run(Async Function()
-                             Try
-                                 Await mainForm.InitializeRateLimits()
-                             Catch ex As Exception
-                                 AppendLog($"Failed to initialize rate limiter: {ex.Message}", Color.Red)
-                             End Try
-                             Return Nothing
-                         End Function)
-            End If
-
-            Return False
-        End If
-
-        Return enableAutoTrading
-    End Function
-
-    Private Sub UpdateLastAutoTradeTime()
-        lastAutoTradeTime = DateTime.Now
-    End Sub
-
-    Private Sub ExecuteAutomatedTrade(direction As String, score As Integer, atr As Decimal)
-        Try
-            Dim mainForm As frmMainPageV2 = CType(_host, frmMainPageV2)
-
-            ' Check if we can make the request
-            If Not mainForm.CanMakeAPIRequest Then
-                AppendLog("Auto-trade execution blocked: Rate limit active", Color.Orange)
-                Return
-            End If
-
-            ' Position Status Check
-            If Decimal.Parse(mainForm.txtPlacedPrice.Text) > 0 Then
-                '     AppendLog("Auto-trade blocked: Position already open", Color.Yellow)
-                Return
-            End If
-
-            ' Update last trade time immediately to prevent multiple rapid executions
-            UpdateLastAutoTradeTime()
-
-            If direction = "LONG" Then
-                btnATR.PerformClick()
-                mainForm.btnBuy.PerformClick()
-                mainForm.btnLimit.PerformClick()
-            ElseIf direction = "SHORT" Then
-                btnATR.PerformClick()
-                mainForm.btnSell.PerformClick()
-                mainForm.btnLimit.PerformClick()
-            End If
-
-            AppendLog($"AUTO-TRADE: {direction} executed (Score: {score}, ATR: {atr:F2})", Color.Cyan)
-
-        Catch ex As Exception
-            AppendLog($"Auto-trade execution failed: {ex.Message}", Color.Red)
-        End Try
-    End Sub
-
-    'For checking if the current time is within the restricted time range for auto trading
-    Private Function IsWithinRestrictedTimeRange() As Boolean
-        Try
-            ' Get current time in UTC+8 (Singapore/Malaysia/Hong Kong time)
-            Dim utc8Time As DateTime = DateTime.UtcNow.AddHours(8)
-            Dim currentTime As TimeSpan = utc8Time.TimeOfDay
-
-            ' Check if textboxes are empty - if so, no time restrictions
-            If String.IsNullOrWhiteSpace(_autoTradeSettings.txtStartTime.Text) OrElse String.IsNullOrWhiteSpace(_autoTradeSettings.txtEndTime.Text) Then
-                Return False
-            End If
-
-            ' Parse start and end times from textboxes
-            Dim startTime As TimeSpan
-            Dim endTime As TimeSpan
-
-            If Not TimeSpan.TryParse(_autoTradeSettings.txtStartTime.Text.Trim(), startTime) Then
-                AppendLog($"Invalid start time format: '{_autoTradeSettings.txtStartTime.Text}'. Use HH:mm format (e.g., 21:30)", Color.Yellow)
-                Return False ' Invalid format means no restriction
-            End If
-
-            If Not TimeSpan.TryParse(_autoTradeSettings.txtEndTime.Text.Trim(), endTime) Then
-                AppendLog($"Invalid end time format: '{_autoTradeSettings.txtEndTime.Text}'. Use HH:mm format (e.g., 22:00)", Color.Yellow)
-                Return False ' Invalid format means no restriction
-            End If
-
-            ' Handle time ranges that span midnight
-            If startTime <= endTime Then
-                ' Normal range (e.g., 09:30 - 22:00)
-                Return currentTime >= startTime AndAlso currentTime <= endTime
-            Else
-                ' Range spans midnight (e.g., 22:00 - 02:00 next day)
-                Return currentTime >= startTime OrElse currentTime <= endTime
-            End If
-
-        Catch ex As Exception
-            AppendLog($"Error checking restricted time range: {ex.Message}", Color.Red)
-            Return False ' If error, don't restrict trading
-        End Try
-    End Function
-
-    Private Function GetCurrentUTC8TimeString() As String
-        Dim utc8Time As DateTime = DateTime.UtcNow.AddHours(8)
-        Return utc8Time.ToString("HH:mm:ss")
-    End Function
-
-    'For text file trade logging
-    Private Sub LogTradeDecision(signal As String, score As Integer, reason As String, executed As Boolean)
-
-        'Dim topBidPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTopBid.Text)
-        'Dim takeProfitprice As Decimal = Decimal.Parse(frmMainPageV2.txtTakeProfit.Text)
-        'Dim triggerPrice As Decimal = Decimal.Parse(frmMainPageV2.txtTrigger.Text)
-
-        'Dim TPPrice, STPrice As Decimal
-
-        'If signal = "LONG" Then
-        ' TPPrice = topBidPrice + takeProfitprice
-        'STPrice = topBidPrice - triggerPrice
-        'Else
-        'TPPrice = topBidPrice - takeProfitprice
-        'STPrice = topBidPrice + triggerPrice
-        'End If
-
-        Dim logEntry As String = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " &
-                           $"Signal: {signal} | Score: {score} | " &
-                           $"Reason: {reason} | Executed: {executed} "
-        ' $"Init. Price: {topBidPrice} | Take Profit: {TPPrice} | " &
-        '  $"Stop Loss: {STPrice} "
-
-        ' Write to file for later analysis
-        Try
-            File.AppendAllText("AutoTradeLog.txt", logEntry & Environment.NewLine)
-        Catch
-            AppendLog("Text file IO error", Color.Red) ' Handle file write errors
-        End Try
-
-        'AppendLog(logEntry, If(executed, Color.Cyan, Color.Gray))
-    End Sub
-
-    'Private USDPL As Decimal = 0
-    Private CircuitBreak As Decimal = 0
 
     '--------------------------------------------
 
     'Start of live signal calls & updates
     Private Sub UpdateSignals()
-        ' #7: suppressed while a backtest is walking the indicator state (re-seeded when it finishes).
-        If isBacktesting Then Return
+        ' RETIREMENT: the #7 isBacktesting suppression went with the backtest module; the autotrade
+        ' integration point that used to sit below went with R1 (the signal bridge is the sole source).
+        ' What remains is the indicator readout + the ATR publish the slippage guard falls back on.
         Dim quotes = SyncLockCopy(ohlcList)
         If quotes.Count < 14 Then Return
 
@@ -702,10 +333,10 @@ Public Class FrmIndicators
         ' Log current score for monitoring
         'AppendLog($"Current Signal Score: {score}/21 ({signedBias:F1}%)", Color.LightBlue)
 
-        ' AUTO-TRADING INTEGRATION POINT - REMOVED (signal-bridge tie-in, contract R1: the
-        ' VerdictEngine verdict is the SOLE signal source; SignalBridge drives the order API now).
-        ' ProcessAutomatedSignal / ExecuteAutomatedTrade / CanPlaceAutomatedOrder remain below but
-        ' are unreachable - they die with this form at post-soak retirement.
+        ' The auto-trading integration point that used to sit here is GONE, along with the whole
+        ' autotrade module it called (contract R1: the VerdictEngine verdict is the sole signal
+        ' source; SignalBridge drives the order API now). See git history before the retirement
+        ' commit if the old scoring trigger is ever needed for reference.
 
         If signedBias > 0 Then
 
@@ -1609,7 +1240,10 @@ Public Class FrmIndicators
         ' ═══════════════════════════════════════════════════════════════════
         ' Compute 7‐period ATR using Skender
 
-        Dim textATR As Integer = Integer.Parse(_autoTradeSettings.txtATR.Text.Trim())
+        ' RETIREMENT: the ATR length lives on the host now (AutoTradeSettings' Tooling section mirrors
+        ' it into frmMainPageV2.AtrLength). Host-owned + already validated, so no parse/throw here -
+        ' the old Integer.Parse on a raw textbox threw on any non-numeric edit.
+        Dim textATR As Integer = CType(_host, frmMainPageV2).AtrLength
         Dim atrSeries = quotes.GetAtr(textATR)
         Dim atrValue = atrSeries.LastOrDefault()?.Atr
 
@@ -1708,234 +1342,4 @@ Public Class FrmIndicators
     End Sub
 
 
-    'BACKTESTING CODE
-    '--------------------------------------------------------------------------------------------
-    '═══════════════════════════════════════════════════════════════════════
-    ' 1. Button handler
-    '═══════════════════════════════════════════════════════════════════════
-    Private Sub btnBacktest_Click(sender As Object, e As EventArgs) Handles btnBacktest.Click
-        Task.Run(AddressOf BacktestSignals)   ' keep UI responsive
-    End Sub
-
-    '═══════════════════════════════════════════════════════════════════════
-    ' 2. Back-test core
-    '═══════════════════════════════════════════════════════════════════════
-    Private Sub BacktestSignals()
-        '──── parameters ────
-
-        Dim LScore As String = _autoTradeSettings.txtLScore.Text.Trim()
-        Dim longThreshold As Integer = 0
-        Integer.TryParse(LScore, longThreshold)
-
-        Dim SScore As String = _autoTradeSettings.txtSScore.Text.Trim()
-        Dim shortThreshold As Integer = 0
-        Integer.TryParse(SScore, shortThreshold)
-
-        Dim ATRString As String = _autoTradeSettings.txtATR.Text.Trim()
-        Dim atrPeriod As Integer = 0
-        Integer.TryParse(ATRString, atrPeriod)
-
-        Dim ATRLimitString As String = _autoTradeSettings.txtATRLimit.Text.Trim
-        Dim atrLimit As Decimal = 0
-        If Not String.IsNullOrEmpty(ATRLimitString) Then
-            Decimal.TryParse(ATRLimitString, atrLimit)
-        End If
-
-        Dim tpATRString As String = _autoTradeSettings.txtTP.Text.Trim()
-        Dim tpATR As Decimal = 0
-        Decimal.TryParse(tpATRString, tpATR)
-
-        Dim slATRString As String = _autoTradeSettings.txtSL.Text.Trim()
-        Dim slATR As Decimal = 0
-        Decimal.TryParse(slATRString, slATR)
-
-        Dim lookbackBarsString As String = txtTestTime.Text.Trim()
-        Dim lookbackBars As Integer = 0
-        Integer.TryParse(lookbackBarsString, lookbackBars)
-        ' last 17 h - 1024 is Deribit limit per window request
-
-        '──── pull history ────
-        Dim history = SyncLockCopy(ohlcList)
-        If history.Count < atrPeriod + 2 Then
-            AppendLog("Back-test aborted: not enough bars.", Color.Red)
-            Return
-        End If
-        'history = history.Skip(Math.Max(0, history.Count - lookbackBars)).ToList()
-        Dim formLoadHistory = history.Skip(formLoadOHLCIndex).ToList()
-
-        If lookbackBars > 0 AndAlso lookbackBars < formLoadHistory.Count Then
-            formLoadHistory =
-            formLoadHistory.Skip(formLoadHistory.Count - lookbackBars).ToList()
-        End If
-        If formLoadHistory.Count < atrPeriod + 2 Then
-            AppendLog("Insufficient data after form-load filter.", Color.Red)
-            Return
-        End If
-
-        'Dim atrSeries = history.GetAtr(atrPeriod).ToList()
-        Dim atrSeries = formLoadHistory.GetAtr(atrPeriod).ToList()
-
-        '──── stats ────
-        Dim trades%, longWins%, longLoss%, shortWins%, shortLoss%
-        Dim netPL As Decimal = 0D
-        Dim filteredBars As Integer = 0  ' Track filtered candles
-
-        ' #7: pause live evaluation for the duration of the walk; re-seed live state/labels in Finally.
-        isBacktesting = True
-        Try
-
-        For i As Integer = atrPeriod To formLoadHistory.Count - 2
-
-            Dim currentATR As Decimal = atrSeries(i).Atr.GetValueOrDefault(0)
-
-            If atrLimit > 0 AndAlso currentATR < atrLimit Then
-                filteredBars += 1
-                'AppendLog($"Bar {i}: ATR {currentATR:F2} below limit {atrLimit:F2} - SKIPPED", Color.Gray)
-                Continue For  ' Skip this candle
-            End If
-
-            Dim window = formLoadHistory.Take(i + 1).ToList()
-
-            ' fire your live indicator subs → labels + global score
-            score = 0
-            Me.Invoke(Sub()
-                          UpdateDmi(window)
-                          UpdateMacd(window)
-                          UpdateRsi(window)
-                          UpdateStochastic(window)
-                          EvaluateEmaVwapSignals(window)
-                      End Sub)
-            Dim barScore As Integer = score     ' capture
-            score = 0                           ' clear
-
-            Dim entrySide As String = Nothing
-            If barScore >= longThreshold Then
-                entrySide = "LONG"
-            ElseIf barScore <= shortThreshold Then
-                entrySide = "SHORT"
-            End If
-            If entrySide Is Nothing Then Continue For
-
-            trades += 1
-            Dim entryPrice = window.Last().Close
-            Dim atr = atrSeries(i).Atr.GetValueOrDefault()
-
-            Dim tp As Decimal, sl As Decimal
-            If entrySide = "LONG" Then
-                tp = entryPrice + tpATR * atr
-                sl = entryPrice - slATR * atr
-            Else                               ' SHORT
-                tp = entryPrice - tpATR * atr  ' profit when price falls
-                sl = entryPrice + slATR * atr
-            End If
-
-            '──── forward scan for exit ────
-            Dim pl As Decimal = 0D : Dim hitTP As Boolean = False
-            For j As Integer = i + 1 To formLoadHistory.Count - 1
-                Dim hi = formLoadHistory(j).High, lo = formLoadHistory(j).Low
-                If entrySide = "LONG" Then
-                    If hi >= tp Then pl = tp - entryPrice : hitTP = True : Exit For
-                    If lo <= sl Then pl = sl - entryPrice : Exit For
-                Else ' SHORT
-                    If lo <= tp Then pl = entryPrice - tp : hitTP = True : Exit For
-                    If hi >= sl Then pl = entryPrice - sl : Exit For
-                End If
-            Next
-
-            ' if neither TP nor SL hit, close at last bar
-            If pl = 0D AndAlso i < formLoadHistory.Count - 2 Then
-                pl = If(entrySide = "LONG",
-                    formLoadHistory.Last().Close - entryPrice,
-                    entryPrice - formLoadHistory.Last().Close)
-            End If
-
-            If entrySide = "LONG" Then
-                If pl >= 0D Then longWins += 1 Else longLoss += 1
-            Else
-                If pl >= 0D Then shortWins += 1 Else shortLoss += 1
-            End If
-            netPL += pl
-        Next
-
-        '──── results ────
-        Dim longTrades = longWins + longLoss
-        Dim shortTrades = shortWins + shortLoss
-        Dim winRateLong = If(longTrades > 0, longWins * 100D / longTrades, 0D)
-        Dim winRateShort = If(shortTrades > 0, shortWins * 100D / shortTrades, 0D)
-
-        AppendLog($"──── Back-test {lookbackBars / 60:F2}h  (1-min) ────", Color.Cyan)
-        AppendLog($"ATR Filter: {If(atrLimit > 0, $"≥{atrLimit:F2}", "DISABLED")}", Color.Yellow)
-        AppendLog($"Filtered Bars: {filteredBars} ({(filteredBars * 100D) / (formLoadHistory.Count - atrPeriod):F1}%)", Color.Gray)
-        AppendLog($"Long Trades: {longTrades} | Wins: {longWins} | Losses: {longLoss} | Win%: {winRateLong:F1}", Color.Cyan)
-        AppendLog($"Short Trades: {shortTrades} | Wins: {shortWins} | Losses: {shortLoss} | Win%: {winRateShort:F1}", Color.Cyan)
-        AppendLog($"Total Trades: {trades}", Color.Cyan)
-        AppendLog($"Net P&L: {netPL:F2}", Color.Cyan)
-
-        Finally
-            ' #7: resume live evaluation and re-seed the indicator Static state + labels from live data,
-            ' so the backtest's walk doesn't leave the live readout stale. Marshal to the UI thread.
-            isBacktesting = False
-            Try
-                Me.Invoke(Sub() UpdateSignals())
-            Catch
-                ' form closing / handle not created - nothing to re-seed
-            End Try
-        End Try
-    End Sub
-
-    Private Sub btnATR_Click(sender As Object, e As EventArgs) Handles btnATR.Click
-        Dim ATRInt, TPInt, SLInt As Decimal
-        Dim TPResult, SLResult As Integer
-        Dim ATRString = lblATR.Text
-        Dim TPString = _autoTradeSettings.txtTP.Text
-        Dim SLString = _autoTradeSettings.txtSL.Text
-
-        Decimal.TryParse(ATRString, ATRInt)
-
-        Decimal.TryParse(TPString, TPInt)
-        TPResult = CInt(ATRInt * TPInt)
-
-        Decimal.TryParse(SLString, SLInt)
-        SLResult = CInt(ATRInt * SLInt)
-
-        frmMainPageV2.txtTakeProfit.Text = TPResult.ToString
-        frmMainPageV2.txtTrigger.Text = SLResult.ToString
-
-        AppendLog($"ATR Pasted: TP:{TPResult} SL:{SLResult}", Color.Cyan)
-
-
-    End Sub
-
-    ' Add to frmIndicators
-    Private Sub btnAutoTrade_Click(sender As Object, e As EventArgs) Handles btnAutoTrade.Click
-        enableAutoTrading = Not enableAutoTrading
-
-        If enableAutoTrading Then
-            btnAutoTrade.Text = "AUTO: ON"
-            btnAutoTrade.BackColor = Color.LimeGreen
-            AppendLog("Automated trading ENABLED", Color.Green)
-        Else
-            btnAutoTrade.Text = "AUTO: OFF"
-            btnAutoTrade.BackColor = Color.Red
-            AppendLog("Automated trading DISABLED", Color.Red)
-        End If
-    End Sub
-
-    Private Sub btnAutoTradeSettings_Click(sender As Object, e As EventArgs) Handles btnAutoTradeSettings.Click
-        If _autoTradeSettings.Visible Then
-            _autoTradeSettings.Hide()
-        Else
-            '_autoTradeSettings.Location = New Point(Me.Right + 6, Me.Top)
-            _autoTradeSettings.Show()
-            _autoTradeSettings.BringToFront()
-            ' StickToHost() will be called automatically via the Load event
-        End If
-    End Sub
-
-    ' Clean up when frmIndicators closes
-    Private Sub FrmIndicators_FormClosed(sender As Object, e As FormClosedEventArgs) Handles Me.FormClosed
-        If _autoTradeSettings IsNot Nothing AndAlso Not _autoTradeSettings.IsDisposed Then
-            _autoTradeSettings.Close()
-        End If
-    End Sub
 End Class

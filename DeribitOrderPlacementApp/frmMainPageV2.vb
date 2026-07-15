@@ -17,12 +17,32 @@ Imports Newtonsoft.Json.Linq
 
 Public Class frmMainPageV2
 
+    ' RETIREMENT (docs/spec-back-autotrade-retirement.md): FrmIndicators is no longer shown - it runs
+    ' headless purely as the indicator/ATR engine (StartHeadless). This form now OWNS the settings form
+    ' (btnAutoSettings opens it); _autotradesettings was a dead never-assigned field before this pass.
     Private _indicators As FrmIndicators
     Private _autotradesettings As AutoTradeSettings
 
     ' Signal-bridge tie-in (docs/spec-autotrade-tiein.md): the VerdictEngine signal consumer.
     ' Constructed after Shown init; mode/ARM/START live on the AutoTradeSettings SIGNAL BRIDGE panel.
     Private signalBridge As SignalBridge
+
+    ' Tooling mirrors, owned here so the receive thread reads plain fields (never a cross-form control).
+    ' AutoTradeSettings pushes these on commit (focus-loss/Enter, not per keystroke - a half-typed value
+    ' must never reach the engine). Defaults match the pre-retirement constants.
+    Private atrLengthVal As Integer = 14           ' ATR period for FrmIndicators' headless ATR calc
+    Private atrFallbackVal As Decimal = 70D        ' slippage-limit fallback when no ATR is available
+
+    Friend ReadOnly Property AtrLength As Integer
+        Get
+            Return If(atrLengthVal > 0, atrLengthVal, 14)
+        End Get
+    End Property
+
+    Friend Sub SetToolingValues(atrLength As Integer, atrFallback As Decimal)
+        If atrLength > 0 Then atrLengthVal = atrLength
+        If atrFallback > 0D Then atrFallbackVal = atrFallback
+    End Sub
 
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
@@ -500,8 +520,14 @@ Public Class frmMainPageV2
             SyncTradeInputsFromUi()
             SyncToggleInputsFromUi()
 
+            ' RETIREMENT: the indicators form is never shown now - it is a headless indicator/ATR engine.
+            ' It is NOT Shown, so Form.Load never fires; StartHeadless does the init Load used to do.
+            ' Its handle is realized in the constructor, which keeps the receive loop's marshals legal.
             _indicators = New FrmIndicators(Me)     ' pass “self” as host
-            _indicators.Show()                      ' non-modal; use .ShowDialog() if you prefer modal
+            _indicators.StartHeadless()
+
+            ' This form owns the settings window now (FrmIndicators used to); btnAutoSettings shows it.
+            _autotradesettings = New AutoTradeSettings(Me)
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Startup Error: {ex.Message}{vbCrLf}{ex.StackTrace}", Color.Red)
@@ -538,9 +564,8 @@ Public Class frmMainPageV2
         ' Starts in mode Off (nothing watches, nothing places) until the SIGNAL BRIDGE panel drives it.
         Try
             signalBridge = New SignalBridge(Me, AddressOf BridgeLog)
-            ' Transition scaffolding (spec section 5): FrmIndicators passes the reference through to
-            ' the settings form's SIGNAL BRIDGE panel (_indicators exists - created in Load).
-            _indicators?.AttachBridgeToSettings(signalBridge)
+            ' This form owns the settings window now (retirement) - hand the bridge to its panel directly.
+            If _autotradesettings IsNot Nothing Then _autotradesettings.Bridge = signalBridge
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Signal bridge init failed: {ex.Message}", Color.Red)
         End Try
@@ -2722,7 +2747,7 @@ Public Class frmMainPageV2
         Dim bridgeAtr As Decimal = If(signalBridge IsNot Nothing, signalBridge.LastSignalAtr, 0D)
         Dim currentATR As Decimal = If(bridgeAtr > 0D, bridgeAtr, If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D))
         If currentATR <= 0D Then
-            Return 70 ' Fallback to $70 if ATR unavailable
+            Return atrFallbackVal ' no ATR available - configurable fallback (Tooling; was a hard-coded $70)
         End If
 
         ' Get ATR multiplier from settings (blank/0 -> default 0.6x ATR)
@@ -2748,10 +2773,12 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) exceeds limit ${slippageLimit:F2}", Color.Red)
 
             ' Reset for next attempt
-            ResetOrderAttempt() 'Temp fix - suppose to call LogFailedEntry below which is giving an error
+            ResetOrderAttempt()
 
-            ' Log failed attempt
-            'LogFailedEntry("ATR slippage exceeded", slippageInATR)
+            ' RETIREMENT: LogFailedEntry was removed here - it never ran (this call site was commented
+            ' out) and it read the never-assigned _autotradesettings field, so it would have thrown a
+            ' NullReferenceException on its first real call. It also stamped a cooloff on an abandoned
+            ' entry; if that behaviour is wanted, it belongs on the bridge, not here.
             Return True
         End If
 
@@ -2759,30 +2786,6 @@ Public Class frmMainPageV2
         'AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) within limit", Color.Gray)
         Return False
     End Function
-
-    Private Sub LogFailedEntry(reason As String, Optional slippageATR As Decimal = 0)
-        ' Create failed trade record
-        Dim failedTrade = New TradeRecord With {
-        .AttemptType = "Failed",
-        .OrderType = reason,
-        .Timestamp = DateTime.UtcNow,
-        .RequoteCount = currentRequoteCount,
-        .SignalPrice = originalSignalPrice,
-        .SlippageATR = slippageATR,
-        .MaxSlippageExceeded = True
-    }
-
-        ' You could optionally save failed attempts to database for analysis
-
-        ' Engage cooldown
-        Dim cooloffMins = Integer.Parse(_autotradesettings.txtCooloff.Text)
-        _indicators.lastAutoTradeTime = DateTime.Now.AddMinutes(cooloffMins)
-
-        'AppendLog($"Entry failed: {reason}. Cooloff: {cooloffMins}min", Color.Orange)
-
-        ' Reset for next attempt
-        ResetOrderAttempt()
-    End Sub
 
     Private Sub ResetOrderAttempt()
         currentRequoteCount = 0
@@ -4375,8 +4378,11 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "Position closed.", Color.Yellow)
         End If
 
-        ' Update last trade time immediately to prevent multiple rapid executions
-        _indicators.lastAutoTradeTime = DateTime.Now
+        ' Cooloff anchor: the position is now closed. The old autotrader stamped
+        ' _indicators.lastAutoTradeTime here; the bridge's cooloff anchors on the same event, so
+        ' "cooloff" means "wait N minutes after going flat" (owner ruling 2026-07-15) rather than
+        ' N minutes after the entry was placed - which would expire during the trade itself.
+        signalBridge?.NotifyPositionClosed()
     End Function
 
     Public Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal,

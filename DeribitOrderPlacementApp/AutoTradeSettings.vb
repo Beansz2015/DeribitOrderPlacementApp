@@ -3,10 +3,10 @@
     Private ReadOnly _hostIndicators As Form  ' Reference to frmIndicators
 
     ' ============ SIGNAL BRIDGE panel (docs/spec-autotrade-tiein.md section 4) ============
-    ' The bridge reference arrives via FrmIndicators.AttachBridgeToSettings (transition scaffolding:
-    ' frmMainPageV2 constructs the bridge; this form only displays/drives it). Mode, ARM and Started
-    ' deliberately NEVER persist - they reset to Off/unchecked/stopped at every app start. Do NOT add
-    ' them to the item-A ergonomics persistence pass later (contract section 6: restart = disarmed).
+    ' frmMainPageV2 owns this form and the bridge, and assigns Bridge directly after constructing it
+    ' (this form only displays/drives the bridge). Mode, ARM and Started deliberately NEVER persist -
+    ' they reset to Off/unchecked/stopped at every app start. Do NOT add them to the item-A
+    ' ergonomics persistence pass later (contract section 6: restart = disarmed).
     Private _bridge As SignalBridge
     Private _suppressBridgeUi As Boolean = False ' guards programmatic combo/checkbox writes in RefreshBridgePanel
 

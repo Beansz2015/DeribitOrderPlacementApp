@@ -785,13 +785,28 @@ Public Class SignalBridge
         Return nowT >= tStart OrElse nowT <= tEnd ' spans midnight (e.g. 22:00 - 02:00)
     End Function
 
+    ' Records the acted/would-acted signal as the de-dupe watermark. Note it does NOT start the
+    ' cooloff: the cooloff anchors on the position CLOSE (NotifyPositionClosed), because the flat
+    ' gate already blocks entries for the whole life of the trade - a placement-anchored cooloff
+    ' would burn off during the position and give no pause at all after the exit.
     Private Sub RecordActed(p As PayloadSnapshot)
         SyncLock _sync
             _lastActedInstanceId = p.InstanceId
             _lastActedSignalId = p.SignalId
-            _lastActionUtc = DateTime.UtcNow
         End SyncLock
         PersistState()
+    End Sub
+
+    ' Called by the host from CompletePositionClose (the single once-per-close completion path) -
+    ' starts the cooloff clock from the moment the position goes flat. Any thread.
+    Public Sub NotifyPositionClosed()
+        SyncLock _sync
+            _lastActionUtc = DateTime.UtcNow
+        End SyncLock
+        If _mode <> BridgeMode.Off AndAlso _cooloffMin > 0D Then
+            _log($"cooloff started: {_cooloffMin.ToString(CultureInfo.InvariantCulture)} min from position close", Color.Gray)
+        End If
+        RaiseEvent StatusChanged()
     End Sub
 
     ' One line per consumed payload: host log + append-only bridge-dispositions.log
