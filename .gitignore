@@ -369,3 +369,8 @@ secrets.json
 bridge.json
 bridge-state.json
 bridge-dispositions.log
+
+# UI-test-harness local config (beside the exe; ship the .example copy instead) and
+# harness working artifacts (PID files, screenshot markers/outputs — delete after use).
+harness.json
+verify/

@@ -70,6 +70,13 @@
     <None Update="bridge-state.example.json">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
+    <!-- Local, git-ignored UI-test-harness config. Copied to output only if present (hooks stay dormant without it). -->
+    <None Update="harness.json" Condition="Exists('harness.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="harness.example.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

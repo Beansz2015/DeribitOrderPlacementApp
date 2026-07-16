@@ -570,6 +570,64 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, $"Startup Error: {ex.Message}{vbCrLf}{ex.StackTrace}", Color.Red)
             'Application.Exit()
         End Try
+
+        ' UI-test-harness hooks (docs/spec-ui-test-harness.md section 2) - config-gated, zero
+        ' contact with the order/receive paths. AccessibleNames are NOT gated: they are inert
+        ' metadata (UIA only), and the drive scripts need them whether or not the hotkey is on.
+        txtLogs.AccessibleName = "txtLogs"
+        txtAmount.AccessibleName = "txtAmount"
+        InitialiseHarnessHooks()
+    End Sub
+
+    ' ============ UI-test-harness hooks (docs/spec-ui-test-harness.md section 2) ============
+    ' harness.json beside the exe (git-ignored; harness.example.json documents it), read ONCE at
+    ' startup. Absent / unreadable / enabled=false = the KeyDown handler is never even added and
+    ' KeyPreview stays False - byte-identical behavior to before this hook existed.
+    Private Sub InitialiseHarnessHooks()
+        Try
+            Dim cfgPath As String = Path.Combine(AppContext.BaseDirectory, "harness.json")
+            If Not File.Exists(cfgPath) Then Return
+            Dim enabled As Boolean =
+                If(JObject.Parse(File.ReadAllText(cfgPath)).SelectToken("enabled")?.ToObject(Of Boolean)(), False)
+            If Not enabled Then Return
+            Me.KeyPreview = True
+            AddHandler Me.KeyDown, AddressOf OnHarnessScreenshotHotkey
+            AppendColoredText(txtLogs, "[HARNESS] hooks enabled (Ctrl+Shift+S full-form screenshot)", Color.Gray)
+        Catch ex As Exception
+            ' A malformed harness.json must never break startup - report and stay dormant.
+            AppendColoredText(txtLogs, $"[HARNESS] harness.json ignored: {ex.Message}", Color.Gray)
+        End Try
+    End Sub
+
+    ' Ctrl+Shift+S: full-form capture via DrawToBitmap (renders the complete form, including
+    ' regions clipped off-screen - the engine handoff section 3b technique). The output path
+    ' comes from the marker file verify\.screenshot-target beside the exe; the marker is deleted
+    ' after the save so the driving script can poll for completion. UI thread only (KeyDown).
+    Private Sub OnHarnessScreenshotHotkey(sender As Object, e As KeyEventArgs)
+        If Not (e.Control AndAlso e.Shift AndAlso e.KeyCode = Keys.S) Then Return
+        e.Handled = True
+        e.SuppressKeyPress = True
+        Try
+            Dim marker As String = Path.Combine(AppContext.BaseDirectory, "verify", ".screenshot-target")
+            If Not File.Exists(marker) Then
+                AppendColoredText(txtLogs, "[HARNESS] screenshot hotkey: no verify\.screenshot-target marker", Color.Gray)
+                Return
+            End If
+            Dim target As String = File.ReadAllText(marker).Trim()
+            If target.Length = 0 Then Return
+            Dim outDir As String = Path.GetDirectoryName(target)
+            If Not String.IsNullOrEmpty(outDir) AndAlso Not Directory.Exists(outDir) Then
+                Directory.CreateDirectory(outDir)
+            End If
+            Using bmp As New Bitmap(Me.Width, Me.Height)
+                Me.DrawToBitmap(bmp, New Rectangle(0, 0, Me.Width, Me.Height))
+                bmp.Save(target, Drawing.Imaging.ImageFormat.Png)
+            End Using
+            File.Delete(marker)
+            AppendColoredText(txtLogs, $"[HARNESS] screenshot → {target}", Color.Gray)
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"[HARNESS] screenshot failed: {ex.Message}", Color.Gray)
+        End Try
     End Sub
 
     Private Sub frmMainPageV2_Shown(sender As Object, e As EventArgs) Handles MyBase.Shown

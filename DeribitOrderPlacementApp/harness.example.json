@@ -1,0 +1,4 @@
+{
+  "_comment": "Copy to harness.json beside the exe to enable the UI-test-harness in-app hooks (docs/spec-ui-test-harness.md section 2). Absent or enabled=false = no handler is even hooked; zero behavior change. Currently gates one thing: the Ctrl+Shift+S full-form screenshot hotkey (reads the output path from verify/.screenshot-target beside the exe, saves the PNG, deletes the marker).",
+  "enabled": false
+}

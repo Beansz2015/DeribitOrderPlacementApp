@@ -111,7 +111,12 @@ Public Class AutoTradeSettings
             AddHandler tb.Click, AddressOf SelectAllOnEnter
             AddHandler tb.Leave, AddressOf CommitOnLeave
             AddHandler tb.KeyDown, AddressOf CommitOnEnterKey
+            ' UI-test-harness (spec section 2): WinForms exposes no UIA Name for bare TextBoxes,
+            ' so the set-textbox script matches on AccessibleName = the designer control name.
+            ' Inert metadata (UIA only); deliberately NOT gated by harness.json.
+            tb.AccessibleName = tb.Name
         Next
+        cboBridgeMode.AccessibleName = "cboBridgeMode"
     End Sub
 
     ' Only burn a timer tick while the window is on screen.
