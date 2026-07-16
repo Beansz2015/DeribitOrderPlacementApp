@@ -19,7 +19,14 @@ Public Class FrmIndicators
     Private ReadOnly _host As Form          ' reference to frmMainPageV2
     Private client As ClientWebSocket
     Private Shared ohlcList As New List(Of Quote)()
-    Private Const DeribitUrl As String = "wss://www.deribit.com/ws/api/v2"
+    ' Environment-selected endpoint (harness spec section 1): was a live-only Const; now follows
+    ' secrets.json's Environment. The host loads secrets at Load BEFORE constructing this form,
+    ' so ConnectAndStream (and any reconnect) always reads the resolved environment.
+    Private ReadOnly Property DeribitUrl As String
+        Get
+            Return AppSecrets.WsUrl
+        End Get
+    End Property
     Private lastTimestamp As Long
     'Private pollTimer As New Timers.Timer(60000) ' 60 000 ms = 1 minute
     Private pollTimer As New Timers.Timer(5000) ' 5-second intervals

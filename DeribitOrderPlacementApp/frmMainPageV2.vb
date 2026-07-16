@@ -530,6 +530,24 @@ Public Class frmMainPageV2
     '----------------------------------------------------------------------------------------------
 
     Private Sub frmMainPageV2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        ' Load API credentials from git-ignored secrets.json before any connection attempt.
+        ' Moved here from Shown (harness spec section 1): the headless indicator engine below reads
+        ' AppSecrets.WsUrl on a background task the moment StartHeadless runs, so the environment
+        ' must be resolved BEFORE it starts - loading at Shown raced it. The form handle exists by
+        ' Load, so AppendColoredText's handle guard passes and these lines still reach the log.
+        Dim secretsError As String = AppSecrets.Load()
+        If secretsError IsNot Nothing Then
+            AppendColoredText(txtLogs, $"API credentials: {secretsError}", Color.Red)
+        Else
+            AppendColoredText(txtLogs, "API credentials loaded", Color.LimeGreen)
+        End If
+
+        ' Window title environment convention (harness spec section 1) - LOAD-BEARING:
+        ' the prefix "Deribit Order Placement App" is frozen forever (every harness script matches
+        ' on it) and the environment suffix is what the script safety tier gates on. The version
+        ' may change; the prefix and the suffix placement may not.
+        Me.Text = "Deribit Order Placement App V2.2" & If(AppSecrets.IsTestnet, " — TESTNET", " — LIVE")
+
         Try
             ' Seed the engine input fields from whatever the controls currently hold (cross-thread fix).
             SyncTradeInputsFromUi()
@@ -555,14 +573,8 @@ Public Class frmMainPageV2
     End Sub
 
     Private Sub frmMainPageV2_Shown(sender As Object, e As EventArgs) Handles MyBase.Shown
-        ' Load API credentials from git-ignored secrets.json before any connection attempt
-        Dim secretsError As String = AppSecrets.Load()
-        If secretsError IsNot Nothing Then
-            AppendColoredText(txtLogs, $"API credentials: {secretsError}", Color.Red)
-        Else
-            AppendColoredText(txtLogs, "API credentials loaded", Color.LimeGreen)
-        End If
-
+        ' (Secrets now load at Load - see frmMainPageV2_Load - so the headless indicator engine
+        ' and the window-title environment suffix see the selected environment from the start.)
         Try
             ' Initialize trade database
             tradeDatabase = New TradeDatabase()
@@ -876,10 +888,16 @@ Public Class frmMainPageV2
             cancellationTokenSource.Token, connectTimeout.Token)
 
                 Await webSocketClient.ConnectAsync(
-                New Uri("wss://www.deribit.com/ws/api/v2"),
+                New Uri(AppSecrets.WsUrl),
                 combined.Token)
             End Using
         End Using
+
+        ' Environment self-documentation (harness spec section 6.2): say out loud when this
+        ' connection is against the test exchange.
+        If AppSecrets.IsTestnet Then
+            AppendColoredText(txtLogs, "TESTNET environment — test.deribit.com", Color.LimeGreen)
+        End If
 
         ' Authenticate and subscribe
         Await AuthorizeWebSocketConnection()
