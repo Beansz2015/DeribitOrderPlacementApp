@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-07-03T14:31:02Z",
+  "signal_state": "OK",
+  "confidence": "HIGH",
+  "direction": "LONG",
+  "atr": 30.0,
+  "levels": {
+    "long": { "entry": 59012.5, "stop": 58962.9, "target": 59095.1 }
+  },
+  "health": { "ws": "OK", "ledger_mismatch": false }
+}

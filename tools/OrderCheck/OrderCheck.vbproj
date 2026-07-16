@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Must match the app's TFM (net9.0-windows8.0): a plain net9.0-windows target may not
+         reference a project pinned to a higher Windows platform version. -->
+    <TargetFramework>net9.0-windows8.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>OrderCheck</RootNamespace>
+    <StartupObject>OrderCheck.Program</StartupObject>
+    <OptionStrict>On</OptionStrict>
+    <OptionExplicit>On</OptionExplicit>
+    <Platforms>AnyCPU;x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\DeribitOrderPlacementApp\DeribitOrderPlacementApp.vbproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="fixtures\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

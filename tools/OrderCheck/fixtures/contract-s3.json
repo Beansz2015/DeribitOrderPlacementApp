@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "signal_id": 1234,
+  "generated_at_utc": "2026-07-03T14:31:02Z",
+  "engine": { "instance_id": "9f0c…-guid", "autotrade_armed": false,
+              "settings_version": 48, "app": "DeribitVerdictEngine" },
+  "instrument": "BTC-PERPETUAL",
+  "signal_state": "OK",
+  "skip_reason": null,
+
+  "verdict": "STRONG SHORT",
+  "confidence": "HIGH",
+  "direction": "SHORT",
+  "verdict_context": "CONFIRMED",
+  "mtf_blocked": false,
+  "scores": { "long": 4, "short": 13, "eff_long": 4, "eff_short": 13, "max": 20 },
+
+  "price": 59012.5,
+  "exec_resolution_min": 1,
+  "trigger_mode": "on_close",
+  "atr": 41.3,
+
+  "levels": {
+    "long":  { "entry": 59012.5, "stop": 58962.9, "target": 59095.1,
+               "target_capped": true, "cap_reason": "SWING_HIGH_5M", "raw_target": 59095.1 },
+    "short": { "entry": 59012.5, "stop": 59062.1, "target": 58929.9,
+               "target_capped": false, "cap_reason": null, "raw_target": 58929.9 }
+  },
+  "structural": { "swing_target_long": 59095.0, "swing_stop_long": 58860.0,
+                  "swing_target_short": 58860.0, "swing_stop_short": 59095.0 },
+
+  "hold_status": null,
+  "kelly": { "contracts": 2, "risk_usd": 32.5, "lev_capped": false },
+
+  "health": { "ws": "OK", "degraded_this_run": false, "ledger_mismatch": false }
+}

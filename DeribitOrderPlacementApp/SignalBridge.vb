@@ -596,7 +596,7 @@ Public Class SignalBridge
 
         ' 4.3 de-dupe against the persisted acted pair. signal_id is monotonic per instance_id, so
         ' anything <= the last acted id from the same engine process is a replay, never a new signal.
-        If disposition Is Nothing AndAlso p.InstanceId = _lastActedInstanceId AndAlso p.SignalId <= _lastActedSignalId Then
+        If disposition Is Nothing AndAlso IsDuplicateOf(p.InstanceId, p.SignalId, _lastActedInstanceId, _lastActedSignalId) Then
             disposition = "duplicate"
         End If
 
@@ -678,7 +678,7 @@ Public Class SignalBridge
                 ' under its own slippage cap.
                 ' Size is deliberately NOT passed: it already IS the main form's Amount box, which is
                 ' where SetTradeTargets would write it. Writing it back would be a no-op at best.
-                Dim manualSl As Decimal = If(isLong, p.StopLevel - _host.StopLimitOffset, p.StopLevel + _host.StopLimitOffset)
+                Dim manualSl As Decimal = DeriveManualSl(isLong, p.StopLevel, _host.StopLimitOffset)
                 _host.SetTradeTargets(manualTP:=p.Target, manualSL:=manualSl)
                 Dim result As frmMainPageV2.PlacementResult = Await _host.PlaceAutomatedOrder(If(isLong, "long", "short"), "limit")
                 If result.Accepted Then
@@ -732,14 +732,18 @@ Public Class SignalBridge
     ' could never act - silently, and only on day-first cultures (en-US happened to work, which is
     ' exactly why this survived review). The contract pins ISO-8601-with-Z + invariant culture and
     ' the engine emits precisely that; keeping tokens as raw strings is what honours it.
-    Private Shared Function ParsePayloadJson(text As String) As JObject
+    ' Friend (was Private) for the OrderCheck logic harness - the day-first-culture parse
+    ' fixture pins exactly the failure mode described above. Behavior unchanged.
+    Friend Shared Function ParsePayloadJson(text As String) As JObject
         Using reader As New JsonTextReader(New StringReader(text))
             reader.DateParseHandling = DateParseHandling.None
             Return JObject.Load(reader)
         End Using
     End Function
 
-    Private Shared Function ParsePayload(json As JObject) As PayloadSnapshot
+    ' Friend (was Private) for the OrderCheck logic harness - fixtures assert on the parse
+    ' defaults (identity, levels, timestamp) that the F-1 guard and the gate chain rely on.
+    Friend Shared Function ParsePayload(json As JObject) As PayloadSnapshot
         Dim p As New PayloadSnapshot With {
             .SchemaVersion = If(json.SelectToken("schema_version")?.ToObject(Of Integer)(), 0),
             .SignalId = If(json.SelectToken("signal_id")?.ToObject(Of Long)(), -1L),
@@ -791,15 +795,34 @@ Public Class SignalBridge
     Private Function IsInsideSessionWindow() As Boolean
         Dim s As AutoTradeSettings = Settings
         If s Is Nothing Then Return True
-        Dim ws As String = If(s.WindowStart, "").Trim(), we As String = If(s.WindowEnd, "").Trim()
+        Return IsInsideWindowCore(DateTime.UtcNow.AddHours(8).TimeOfDay, s.WindowStart, s.WindowEnd)
+    End Function
+
+    ' The window math, extracted (behavior-identical) as an OrderCheck testability seam - the
+    ' fixtures PIN the shipped fail-closed semantics; any change here is spec-back material.
+    Friend Shared Function IsInsideWindowCore(nowUtc8 As TimeSpan, startText As String, endText As String) As Boolean
+        Dim ws As String = If(startText, "").Trim(), we As String = If(endText, "").Trim()
         If ws.Length = 0 AndAlso we.Length = 0 Then Return True ' both blank = no time restriction
         Dim tStart, tEnd As TimeSpan
         If Not TimeSpan.TryParse(ws, tStart) OrElse Not TimeSpan.TryParse(we, tEnd) Then Return False
-        Dim nowT As TimeSpan = DateTime.UtcNow.AddHours(8).TimeOfDay
         If tStart <= tEnd Then
-            Return nowT >= tStart AndAlso nowT <= tEnd
+            Return nowUtc8 >= tStart AndAlso nowUtc8 <= tEnd
         End If
-        Return nowT >= tStart OrElse nowT <= tEnd ' spans midnight (e.g. 22:00 - 02:00)
+        Return nowUtc8 >= tStart OrElse nowUtc8 <= tEnd ' spans midnight (e.g. 22:00 - 02:00)
+    End Function
+
+    ' The section-4.3 watermark comparison, extracted (behavior-identical) as an OrderCheck seam.
+    ' signal_id is monotonic per instance_id, so same-instance <= watermark is a replay.
+    Friend Shared Function IsDuplicateOf(instanceId As String, signalId As Long,
+                                         lastInstanceId As String, lastSignalId As Long) As Boolean
+        Return instanceId = lastInstanceId AndAlso signalId <= lastSignalId
+    End Function
+
+    ' The act-path manualSL derivation, extracted (behavior-identical) as an OrderCheck seam.
+    ' manualSL = the stop-limit's LIMIT leg, one execution offset BEYOND the engine's stop, so the
+    ' app-derived trigger (limit +/- offset) lands exactly on the engine's stop level.
+    Friend Shared Function DeriveManualSl(isLong As Boolean, stopLevel As Decimal, offset As Decimal) As Decimal
+        Return If(isLong, stopLevel - offset, stopLevel + offset)
     End Function
 
     ' Records the acted/would-acted signal as the de-dupe watermark. Note it does NOT start the
@@ -860,7 +883,7 @@ Public Class SignalBridge
         _log($"signal #{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction}) -> {disposition}", c)
     End Sub
 
-    Private Class PayloadSnapshot
+    Friend Class PayloadSnapshot
         Public SchemaVersion As Integer
         Public SignalId As Long
         Public GeneratedUtc As DateTime

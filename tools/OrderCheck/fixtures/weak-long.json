@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "signal_id": 79,
+  "generated_at_utc": "2026-07-03T14:31:02Z",
+  "engine": { "instance_id": "fixture-weak", "autotrade_armed": true },
+  "signal_state": "OK",
+  "verdict": "WEAK LONG",
+  "confidence": "LOW",
+  "direction": "LONG",
+  "verdict_context": "CONFIRMED",
+  "mtf_blocked": false,
+  "atr": 25.5,
+  "levels": {
+    "long": { "entry": 60000.0, "stop": 59950.0, "target": 60080.0 }
+  },
+  "health": { "ws": "OK", "ledger_mismatch": false }
+}

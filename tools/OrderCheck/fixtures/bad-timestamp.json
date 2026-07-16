@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "signal_id": 77,
+  "generated_at_utc": "not-a-timestamp",
+  "engine": { "instance_id": "fixture-bad-ts", "autotrade_armed": false },
+  "signal_state": "OK",
+  "confidence": "HIGH",
+  "direction": "NONE",
+  "atr": 30.0,
+  "health": { "ws": "OK", "ledger_mismatch": false }
+}
