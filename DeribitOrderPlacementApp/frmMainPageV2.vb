@@ -178,6 +178,14 @@ Public Class frmMainPageV2
 
     ' --- Entry-chase v2 (docs/spec-entry-chase-v2.md) ---
     Private Const ChaseTickUSD As Decimal = 0.5D            ' BTC-PERPETUAL tick (matches the NoSpread branches)
+
+    ' Exchange tick grid (BTC-PERPETUAL = 0.5). Engine levels and average_price fills are the two
+    ' fractional price sources in this app; every exchange-bound price derived from them must land
+    ' on the grid or Deribit rejects -32602 (harness finding 2026-07-17, testnet fill 64066.83).
+    ' NEAREST tick (owner ruling): midpoints round away from zero for determinism.
+    Friend Shared Function RoundToTick(price As Decimal) As Decimal
+        Return Math.Round(price * 2D, MidpointRounding.AwayFromZero) / 2D
+    End Function
     Private Const EntryChaseMinIntervalMs As Integer = 350  ' floor between chase edits (entry-only mode default);
     ' use 700-1000 if EntryOnlyChase is reverted to False
     Private Const EntryOnlyChase As Boolean = True          ' OWNER RULING: default ON. One-line revert switch.
@@ -2404,9 +2412,11 @@ Public Class frmMainPageV2
                                                       ' chased away from the leg anchor, re-anchor THIS leg to the fill.
                                                       ' Stage the id/prices here; dispatch the edit after the lambda.
                                                       If pendingReanchorFill > 0D Then
-                                                          Dim newTP As Decimal = If(manualTPval > 0D, manualTPval,
+                                                          ' Tick-rounding (docs/spec-tick-rounding.md): the fill is average_price and can be
+                                                          ' fractional; the whole derivation is rounded (idempotent for on-tick values).
+                                                          Dim newTP As Decimal = RoundToTick(If(manualTPval > 0D, manualTPval,
                                                                                     If(TradeMode, pendingReanchorFill + takeProfitOffset,
-                                                                                                  pendingReanchorFill - takeProfitOffset))
+                                                                                                  pendingReanchorFill - takeProfitOffset)))
                                                           ' Skip a pointless edit when the leg already rests at the target
                                                           ' (e.g. manual-TP mode - the absolute price didn't move).
                                                           If (Not price.HasValue) OrElse Math.Abs(newTP - price.Value) > 0.01D Then

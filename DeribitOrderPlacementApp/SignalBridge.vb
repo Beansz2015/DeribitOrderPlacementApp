@@ -671,15 +671,17 @@ Public Class SignalBridge
             Dim isLong As Boolean = p.Direction = "LONG"
             Dim inv As CultureInfo = CultureInfo.InvariantCulture
             If _mode = BridgeMode.Live Then
-                ' Levels per contract section 5 + section 3 semantics: target = TP limit as-is (R2);
-                ' manualSL = the stop-limit's LIMIT leg, one execution offset beyond the engine's stop
-                ' (the app derives trigger = limit +/- StopLimitOffset, so the TRIGGER lands exactly
-                ' on the engine's stop); entry is a reference only - the app enters at top-of-book
+                ' Levels per contract section 5 + section 3 semantics: target = TP limit as-is (R2,
+                ' satisfied to the exchange tick grid - docs/spec-tick-rounding.md: engine levels are
+                ' ATR-derived fractionals and off-tick prices reject -32602); manualSL = the stop-limit's
+                ' LIMIT leg, one execution offset beyond the engine's stop, tick-rounded (the app derives
+                ' trigger = limit +/- StopLimitOffset, so the TRIGGER lands within a quarter-tick of the
+                ' engine's stop); entry is a reference only - the app enters at top-of-book
                 ' under its own slippage cap.
                 ' Size is deliberately NOT passed: it already IS the main form's Amount box, which is
                 ' where SetTradeTargets would write it. Writing it back would be a no-op at best.
                 Dim manualSl As Decimal = DeriveManualSl(isLong, p.StopLevel, _host.StopLimitOffset)
-                _host.SetTradeTargets(manualTP:=p.Target, manualSL:=manualSl)
+                _host.SetTradeTargets(manualTP:=frmMainPageV2.RoundToTick(p.Target), manualSL:=manualSl)
                 Dim result As frmMainPageV2.PlacementResult = Await _host.PlaceAutomatedOrder(If(isLong, "long", "short"), "limit")
                 If result.Accepted Then
                     disposition = $"acted (id {result.OrderId})"
@@ -819,10 +821,12 @@ Public Class SignalBridge
     End Function
 
     ' The act-path manualSL derivation, extracted (behavior-identical) as an OrderCheck seam.
-    ' manualSL = the stop-limit's LIMIT leg, one execution offset BEYOND the engine's stop, so the
-    ' app-derived trigger (limit +/- offset) lands exactly on the engine's stop level.
+    ' manualSL = the stop-limit's LIMIT leg, one execution offset BEYOND the engine's stop, rounded
+    ' to the exchange tick grid (docs/spec-tick-rounding.md: engine stops are ATR-derived fractionals
+    ' and off-tick prices reject -32602). The offset is integer, so the app-derived trigger
+    ' (limit +/- offset) stays on-tick and lands within a quarter-tick (0.25) of the engine's stop.
     Friend Shared Function DeriveManualSl(isLong As Boolean, stopLevel As Decimal, offset As Decimal) As Decimal
-        Return If(isLong, stopLevel - offset, stopLevel + offset)
+        Return frmMainPageV2.RoundToTick(If(isLong, stopLevel - offset, stopLevel + offset))
     End Function
 
     ' Records the acted/would-acted signal as the de-dupe watermark. Note it does NOT start the

@@ -124,6 +124,39 @@ Module Program
         Check("not duplicate: different instance, any id",
               Not SignalBridge.IsDuplicateOf("engine-b", 1L, "engine-a", 100L))
 
+        ' ---- 9. RoundToTick (docs/spec-tick-rounding.md): NEAREST 0.5 tick, midpoints away from zero ----
+        ' Engine levels and average_price fills are the app's two fractional price sources; every
+        ' exchange-bound price derived from them must land on the tick grid or Deribit rejects -32602.
+        Check("RoundToTick harness-finding fill: 64126.83 -> 64127.0",
+              frmMainPageV2.RoundToTick(64126.83D) = 64127D)
+        Check("RoundToTick contract-s3 stop: 59062.1 -> 59062.0",
+              frmMainPageV2.RoundToTick(59062.1D) = 59062D)
+        Check("RoundToTick contract-s3 target: 59095.1 -> 59095.0",
+              frmMainPageV2.RoundToTick(59095.1D) = 59095D)
+        Check("RoundToTick midpoint x.25 -> x.5 (away from zero)",
+              frmMainPageV2.RoundToTick(64126.25D) = 64126.5D)
+        Check("RoundToTick midpoint x.75 -> x+1.0 (away from zero)",
+              frmMainPageV2.RoundToTick(64126.75D) = 64127D)
+        Check("RoundToTick on-tick passthrough: 64126.5 -> 64126.5",
+              frmMainPageV2.RoundToTick(64126.5D) = 64126.5D)
+        Check("RoundToTick on-tick passthrough: 64127.0 -> 64127.0",
+              frmMainPageV2.RoundToTick(64127D) = 64127D)
+
+        ' ---- 10. DeriveManualSl composition on fractional engine stops: on-tick + trigger-near-stop ----
+        ' The derived limit must be on the tick grid, and the app-derived trigger (limit +/- offset)
+        ' must land within a quarter-tick (0.25) of the engine's raw stop.
+        Dim fracStop As Decimal = 59062.1D ' contract section-3 example stop
+        Dim slLong As Decimal = SignalBridge.DeriveManualSl(True, fracStop, 30D)
+        Check("DeriveManualSl fractional stop LONG: result on-tick",
+              Decimal.Remainder(slLong * 2D, 1D) = 0D, $"got {slLong}")
+        Check("DeriveManualSl fractional stop LONG: trigger within 0.25 of stop",
+              Math.Abs((slLong + 30D) - fracStop) <= 0.25D, $"got {slLong}")
+        Dim slShort As Decimal = SignalBridge.DeriveManualSl(False, fracStop, 30D)
+        Check("DeriveManualSl fractional stop SHORT: result on-tick",
+              Decimal.Remainder(slShort * 2D, 1D) = 0D, $"got {slShort}")
+        Check("DeriveManualSl fractional stop SHORT: trigger within 0.25 of stop",
+              Math.Abs((slShort - 30D) - fracStop) <= 0.25D, $"got {slShort}")
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then
