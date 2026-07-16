@@ -63,3 +63,15 @@ Lands now (the owner holds the app on testnet until this is in). After it: the o
 - Teardown: scratch closes both rounds (testnet trades #2–#5 in the DB); `stop-app` clean.
 
 **Owner should know:** local `secrets.json` was found at `Environment: "live"` (memory said the app was held on testnet) — flipped to `testnet` for this run only and **restored to `"live"` verbatim after**; the testnet key block is intact. Harness nit for the backlog: `set-textbox` substring matching cannot target `txtTrigger` (`txtTriggerOffset` matches first in tree order); the run used the default trigger instead.
+
+---
+
+## 7. Coordinator review (2026-07-17) — APPROVED
+
+**Method:** full diff read (`git show bc00910`); the verify gate **executed by the reviewer** at HEAD — `GATE PASSED`, exit 0 (both builds + OrderCheck + guards); fixture and runtime arithmetic re-derived independently (`64181.14 + 200.33 = 64381.47 → 64381.50` matches the logged edit exactly).
+
+- Helper body spec-verbatim beside `ChaseTickUSD`; all three sites wrapped exactly as §2 wrote them; skip-if-equal logic untouched; `would-act` untouched (soak format holds); the comment-falsehood extension (act-path block + `DeriveManualSl` header) is comment-only and correct — accepted.
+- **The runtime instrument is sound and the closure argument survives it:** the fractional `txtTakeProfit` offset (200.33) deliberately exploits the *user-typed* fractional class, which the spec keeps out of scope (loud rejection, user-correctable — the full-bracket re-derivation the addendum notes as never-fired belongs to that same class). The two AUTONOMOUS fractional sources — engine levels and `average_price` — are the fixed set, and round 2 proved the real one live (natural fractional fill on top of the instrument).
+- The `secrets.json`-found-live episode is the safety model working as designed (PLACES-ORDER would have refused the live title; the flip-restore discipline was correct). Net state now: **the app config is LIVE — which is exactly what the next step needs.**
+
+**Gate consequence:** the tick-rounding half of the live-at-min-size gate is CLEARED (the engine geometry pass remains). **Next: the owner's live-regression session** — normal live start (title `— LIVE`, behaves as always), §9.7 manual place+cancel in Off and Log-only, no FrmIndicators window, **and restart the VerdictEngine** (stopped since the §9.4/9.5 payload tests — the soak clock is frozen until it's back). Backlog additions: the `set-textbox` tree-order nit; the user-typed fractional-offset class stays a housekeeping candidate.
