@@ -16,18 +16,16 @@ param([int]$Tail = 0)
 
 $form = Get-MainForm
 
-# txtLogs carries AccessibleName "txtLogs" (commit 2). RichTextBox surfaces as Document or
-# Edit depending on the UIA stack — match by name across ALL descendants instead of one type.
+# UIA quirk (found at the testnet runtime pass): WinForms RichTextBox does NOT surface
+# AccessibleName as the UIA Name (a neighbouring-label heuristic wins) and its AutomationId is
+# a volatile numeric handle — so match by ControlType.Document instead: txtLogs is the ONLY
+# RichTextBox/Document on the main form, which makes this deterministic.
 $cond = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::NameProperty, "txtLogs")
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Document)
 $log = $form.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
 if ($null -eq $log) {
-    $cond2 = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, "txtLogs")
-    $log = $form.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond2)
-}
-if ($null -eq $log) {
-    Write-Error "txtLogs not found under the main form (AccessibleName/AutomationId 'txtLogs')."
+    Write-Error "No Document (RichTextBox) element found under the main form — txtLogs missing?"
     exit 2
 }
 

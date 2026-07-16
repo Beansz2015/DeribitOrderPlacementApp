@@ -16,8 +16,12 @@
 param(
     [Parameter(Mandatory=$true, Position=0)]
     [string]$NamePattern,
-    [Parameter(Mandatory=$true, Position=1)]
-    [string]$Value,
+    # NOT Mandatory, defaults to "": blanking a box is a legitimate value (the window boxes,
+    # where both-blank = unrestricted), and an empty-string argument gets DROPPED by nested
+    # shell invocations — a Mandatory parameter then PROMPTS and hangs a non-interactive
+    # harness run (found at the testnet pass). Omit the value to blank the box.
+    [Parameter(Position=1)]
+    [string]$Value = "",
     [switch]$CommitViaBlur
 )
 
@@ -33,6 +37,15 @@ foreach ($w in $windows) {
         $allNames.Add($label)
         if (-not (Test-ElementMatch -Element $e -Pattern $NamePattern)) { continue }
         try {
+            # Blur needs REAL keyboard focus, and Windows only grants focus to the foreground
+            # application: with the terminal in front (or the window minimized), UIA SetFocus
+            # silently no-ops, Leave never fires, and the app keeps its LAST committed mirror
+            # while the box shows the new text (found at the testnet runtime pass). So for
+            # -CommitViaBlur, foreground+restore the owning window first (thread-attach bypass).
+            if ($CommitViaBlur) {
+                Set-AppForeground -Hwnd ([IntPtr]$w.Current.NativeWindowHandle)
+                Start-Sleep -Milliseconds 400
+            }
             $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
             $vp.SetValue($Value)
             Write-Host "Set $label = '$Value'"
