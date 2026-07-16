@@ -1,0 +1,13 @@
+# Maintained deny list for tools/click-button.ps1 (docs/spec-ui-test-harness.md section 4).
+# One case-insensitive SUBSTRING per line; '#' lines are comments. A button whose UIA Name or
+# AutomationId contains any entry is REFUSED by the generic click script — only
+# click-PLACES-ORDER.ps1 (TESTNET-title-gated) may touch it. False-positive refusals are safe
+# by design; keep this list generous.
+#
+# The built-in regex already covers: buy, sell, reduce, rdc, cancel, trail, sprd, limit, mkt,
+# "edit t", and the exact name "TS". Entries below catch what the regex does not.
+
+# SIGNAL BRIDGE panel (AutoTradeSettings window): starting/stopping the bridge is
+# trade-affecting in live mode.
+START
+STOP
