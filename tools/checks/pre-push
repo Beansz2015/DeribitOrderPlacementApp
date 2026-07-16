@@ -1,0 +1,6 @@
+#!/bin/sh
+# Tracked template for .git/hooks/pre-push - installed by tools/install-hooks.ps1.
+# Runs the build + logic-fixture gate; a failing gate blocks the push.
+repo="$(git rev-parse --show-toplevel)"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$repo/tools/checks/verify-gate.ps1"
+exit $?
