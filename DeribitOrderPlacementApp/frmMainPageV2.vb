@@ -4579,6 +4579,36 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+    ' ===== Ergonomics item I (docs/spec-execution-ergonomics.md, owner-decided 2026-07-17): =====
+    ' sticky-bottom log follow. P/Invoke local to the form: GetScrollInfo reads the vertical
+    ' scroll state BEFORE an append; WM_VSCROLL/SB_BOTTOM scrolls AFTER it WITHOUT touching the
+    ' caret or selection - which is exactly why ScrollToCaret/SelectionStart are NOT used to scroll.
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure SCROLLINFO
+        Public cbSize As UInteger
+        Public fMask As UInteger
+        Public nMin As Integer
+        Public nMax As Integer
+        Public nPage As UInteger
+        Public nPos As Integer
+        Public nTrackPos As Integer
+    End Structure
+
+    <DllImport("user32.dll")>
+    Private Shared Function GetScrollInfo(hwnd As IntPtr, fnBar As Integer, ByRef lpsi As SCROLLINFO) As Boolean
+    End Function
+
+    <DllImport("user32.dll")>
+    Private Shared Function SendMessage(hWnd As IntPtr, msg As Integer, wParam As IntPtr, lParam As IntPtr) As IntPtr
+    End Function
+
+    Private Const SB_VERT As Integer = 1
+    Private Const WM_VSCROLL As Integer = &H115
+    Private Const SB_BOTTOM As Integer = 7
+    Private Const SIF_RANGE As UInteger = &H1UI
+    Private Const SIF_PAGE As UInteger = &H2UI
+    Private Const SIF_POS As UInteger = &H4UI
+
     ' --- place in frmMainPageV2 (replace existing helper) -------------------
     Private Sub AppendColoredText(rtb As RichTextBox, text As String, color As Color)
         Const RL_MSG As String = "Rate limiter not initialized - skipping order update"
@@ -4602,12 +4632,37 @@ Public Class frmMainPageV2
         ' during teardown. Drop the line in that window rather than crash (matches the UiInvoke guard).
         If Not (Me.IsHandleCreated AndAlso Not Me.IsDisposed) Then Return
         Try
+            ' Item I: check + append + scroll all inside the ONE marshalled action (atomic per
+            ' append, UI thread only, display-only).
             Me.Invoke(Sub()
+                          ' BEFORE the append: were we at (or within ~one line of) the bottom?
+                          ' No scrollbar yet (nPage 0) counts as at-bottom - always follow.
+                          Dim atBottom As Boolean = True
+                          Dim si As New SCROLLINFO With {
+                              .cbSize = CUInt(Marshal.SizeOf(GetType(SCROLLINFO))),
+                              .fMask = SIF_RANGE Or SIF_PAGE Or SIF_POS
+                          }
+                          If GetScrollInfo(rtb.Handle, SB_VERT, si) AndAlso CInt(si.nPage) > 0 Then
+                              atBottom = (si.nPos + CInt(si.nPage)) >= (si.nMax - rtb.Font.Height)
+                          End If
+
+                          ' The coloring below moves the caret, so a user's in-progress selection
+                          ' (copying mid-stream) is saved and restored around the append - required
+                          ' by the item's acceptance; rtb.Select does not scroll.
+                          Dim selStart As Integer = rtb.SelectionStart
+                          Dim selLength As Integer = rtb.SelectionLength
+
                           rtb.SelectionStart = rtb.TextLength
                           rtb.SelectionLength = 0
                           rtb.SelectionColor = color
                           rtb.AppendText(text & Environment.NewLine)
                           rtb.SelectionColor = rtb.ForeColor
+
+                          If selLength > 0 Then rtb.Select(selStart, selLength)
+
+                          ' AFTER the append: follow only if the view was at the bottom. WM_VSCROLL
+                          ' scrolls without touching caret/selection (never ScrollToCaret).
+                          If atBottom Then SendMessage(rtb.Handle, WM_VSCROLL, New IntPtr(SB_BOTTOM), IntPtr.Zero)
                       End Sub)
         Catch
             ' handle went away between the check and the invoke - drop this log line
