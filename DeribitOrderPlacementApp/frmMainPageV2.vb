@@ -185,6 +185,48 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+    ' Ergonomics item B (docs/spec-execution-ergonomics.md): risk-based sizing. UI thread (button
+    ' handler); reads the engine mirrors + best-price fields, writes ONLY txtAmount.Text (the
+    ' TextChanged sync mirrors it into orderAmountVal - same path as typing).
+    ' size = risk x ref / dist (inverse-contract linearization), floored to the 10-USD contract
+    ' step (a non-multiple rejects -32602), clamped to max_size_usd. Refusals leave txtAmount alone.
+    Private Sub btnRiskSize_Click(sender As Object, e As EventArgs) Handles btnRiskSize.Click
+        Try
+            Dim refPrice As Decimal = If(TradeMode, BestBidPrice, BestAskPrice)
+            If refPrice <= 0D Then
+                AppendColoredText(txtLogs, "SIZE: no live best price for the active side - connect first", Color.Yellow)
+                Return
+            End If
+
+            ' Stop distance: an explicit manual SL when set, else the trigger distance (the trigger
+            ' distance IS the planned stop distance in offset mode - spec item B).
+            Dim dist As Decimal = If(manualSLval > 0D, Math.Abs(refPrice - manualSLval), triggerDistance)
+            If dist <= 0D Then
+                AppendColoredText(txtLogs, "SIZE: stop distance is 0 (set Manual SL or Trig. P.) - amount untouched", Color.Yellow)
+                Return
+            End If
+
+            Dim riskUsd As Decimal = If(userSettings IsNot Nothing, userSettings.RiskPerTradeUsd, 25D)
+            Dim maxUsd As Decimal = If(userSettings IsNot Nothing, userSettings.MaxSizeUsd, 500D)
+            If riskUsd <= 0D Then
+                AppendColoredText(txtLogs, "SIZE: risk_per_trade_usd is 0 in orderapp-settings.json - amount untouched", Color.Yellow)
+                Return
+            End If
+
+            Dim size As Decimal = Math.Floor(riskUsd * refPrice / dist / 10D) * 10D
+            If maxUsd > 0D AndAlso size > maxUsd Then size = Math.Floor(maxUsd / 10D) * 10D
+            If size < 10D Then
+                AppendColoredText(txtLogs, $"SIZE: risk ${riskUsd:0.##} over ${dist:0.##} rounds below the 10-USD contract step - amount untouched", Color.Yellow)
+                Return
+            End If
+
+            txtAmount.Text = size.ToString("0")
+            AppendColoredText(txtLogs, $"Size: ${size:0} (risk ${riskUsd:0.##} over ${dist:0.##} stop distance)", Color.LimeGreen)
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in btnRiskSize_Click: {ex.Message}", Color.Red)
+        End Try
+    End Sub
+
     'To prevent duplicate API calls
     Private isRequestingLiveData As Boolean = False
     Private lastLiveDataRequest As DateTime = DateTime.MinValue
