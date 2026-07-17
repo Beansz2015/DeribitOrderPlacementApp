@@ -690,8 +690,12 @@ Public Class SignalBridge
                     disposition = $"rejected: {result.Reason}"
                 End If
             Else
-                disposition = $"would-act: {p.Direction} @ {p.Entry.ToString(inv)}, stop {p.StopLevel.ToString(inv)}, " &
-                              $"target {p.Target.ToString(inv)}, size {SizeUsd.ToString(inv)}"
+                ' Levels display at 2dp (owner request 2026-07-17) - engine emits full-precision
+                ' doubles (e.g. stop 62881.5767038064). Display precision only: the values stay
+                ' engine-raw (NOT tick-rounded - that is placement mechanics, spec-tick-rounding.md
+                ' section 2), and the token prefix/format stays soak-stable.
+                disposition = $"would-act: {p.Direction} @ {p.Entry.ToString("F2", inv)}, stop {p.StopLevel.ToString("F2", inv)}, " &
+                              $"target {p.Target.ToString("F2", inv)}, size {SizeUsd.ToString(inv)}"
                 ' Advance the de-dupe watermark in log-only too, so the soak's disposition stream is
                 ' gate-for-gate identical to what live mode would have produced. (The cooloff anchor
                 ' is NOT advanced here - it starts at the position close, and log-only opens none.)
