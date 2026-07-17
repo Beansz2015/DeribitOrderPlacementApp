@@ -70,6 +70,22 @@
 
 **Acceptance:** slippage-guard abort while flat → both placed-SL displays read 0 and `placedStopLossPrice = 0`; the same abort with an open position (rare manual double-placement case) → displays untouched; normal placement/fill/trigger flows byte-identical.
 
+## Item H — Live-mode disposition filter for the main log (Phase A; owner-decided 2026-07-17)
+
+**Context:** every consumed payload emits one `[BRIDGE] signal #N … -> <disposition>` line to `txtLogs`. In Log-only that stream IS the product (the soak). In Live it becomes interruption — the engine emits every run (30 s–3 min), and the owner does not want NO-TRADE/WEAK/stale chatter mid-position or mid-chase. **Owner ruling: in Live mode the main log shows `acted` and `rejected:` dispositions ONLY** (the quiet option — blocked-actionable signals surface on the Auto Settings panel's last-disposition label and in the file, not the main box).
+
+**Design:** in `SignalBridge.EmitDisposition`, the HOST-LOG emission becomes mode-conditional via a new pure predicate, `Friend Shared ShowDispositionInLiveLog(disposition As String) As Boolean` — True iff the disposition starts with `acted` or `rejected` (ordinal). LogOnly/Off: emit all (unchanged). Live: emit only when the predicate passes. **Everything else is untouched:** the `bridge-dispositions.log` file append (soak/join integrity), `_lastDisposition`, `StatusChanged`, the panel label, and every non-disposition bridge line (mode changes, START refusals, auto-STOP, stand-down/schema/malformed-payload alerts — those never pass through `EmitDisposition` and are never filtered). `would-act` cannot occur in Live; the predicate returns False for it anyway (defensive). OrderCheck fixtures pin the predicate (acted/rejected → True; would-act, `refused: *`, stale, skipped, duplicate → False).
+
+**Acceptance:** Log-only behaves exactly as today; Live with a streaming engine shows no per-run chatter, but an `acted` or a placement rejection prints; the disposition file line count is identical across modes.
+
+## Item I — sticky-bottom log follow (Phase A; owner-decided 2026-07-17)
+
+**Context:** the owner scrolls manually to see the latest `txtLogs` line. Ruling: **sticky-bottom** — follow the newest line automatically UNLESS the user has scrolled up (reading history), and resume following once they return to the bottom.
+
+**Design:** in `AppendColoredText`'s marshalled append action (the single append point — the behavior applies to whatever box it targets): BEFORE appending, read the vertical scroll state via `GetScrollInfo` (`SIF_RANGE Or SIF_PAGE Or SIF_POS`) and compute `atBottom = nPos + nPage >= nMax − slack` (slack ≈ one line-height in scroll units); append as today; AFTER appending, if `atBottom`, `SendMessage(handle, WM_VSCROLL, SB_BOTTOM, 0)` — scrolls **without touching the caret or selection** (a user's in-progress text selection for copying survives; this is why `ScrollToCaret`/`SelectionStart` are NOT used). New P/Invoke declarations (`GetScrollInfo`, `SendMessage`) local to the form; check + append + scroll all inside the one marshalled action (atomic per append), UI thread only, display-only.
+
+**Acceptance (owner-eyeball):** idle at the bottom → new lines stay visible without scrolling; scroll up during an active chase (~3 lines/s) → the view holds still; scroll back to the bottom → following resumes; selecting text mid-stream survives an append.
+
 ## Item F — engine levels for manual trades (Phase B)
 
 **Design:** button `USE ENGINE LEVELS` (near the manual TP/SL boxes). Reads the tie-in's `BridgeReader.LatestPayload` (the same consumer the autotrade path uses — do **not** build a second file reader): refuse (yellow log) if payload is stale per the contract age gate, `signal_state ≠ OK`, or `direction = NONE`. Otherwise: `txtManualTP = levels.<direction>.target`; **stop mapping per the contract semantics** — `levels.<direction>.stop` is the exit *trigger* level, and the manual-SL path derives trigger = `manualSL ± txtStopLoss`, so write `txtManualSL = stop ∓ txtStopLoss` (long: `stop − txtStopLoss`; short: `stop + txtStopLoss`) so the resulting trigger lands exactly on the engine's stop. Log both levels + `signal_id`. Works regardless of arming (it's a manual-trading aid; the interlock is untouched). If the payload direction disagrees with the current Buy/Sell mode, log the mismatch and still populate (the owner decides — they may be fading; do not block).
@@ -80,13 +96,16 @@
 
 ## Commits
 
-1. `Ergonomics (1/6): orderapp-settings.json - persist standing inputs` (A)
-2. `Ergonomics (2/6): risk-based SIZE button` (B)
-3. `Ergonomics (3/6): journal MAE/MFE, planned R, fees + schema migration` (C, signal columns empty)
-4. `Ergonomics (4/6): alerts` (D)
-5. `Ergonomics (5/6): break-even button via shared EditStopLossTo` (E)
-6. `Ergonomics (6/6): guarded placed-SL display clear on entry-abort` (G, added 2026-07-14)
+1. `Ergonomics (1/8): orderapp-settings.json - persist standing inputs` (A)
+2. `Ergonomics (2/8): risk-based SIZE button` (B)
+3. `Ergonomics (3/8): journal MAE/MFE, planned R, fees + schema migration` (C, signal columns empty)
+4. `Ergonomics (4/8): alerts` (D)
+5. `Ergonomics (5/8): break-even button via shared EditStopLossTo` (E)
+6. `Ergonomics (6/8): guarded placed-SL display clear on entry-abort` (G, added 2026-07-14)
+7. `Ergonomics (7/8): Live-mode disposition filter (acted/rejected only) + predicate fixtures` (H, added 2026-07-17)
+8. `Ergonomics (8/8): sticky-bottom log follow` (I, added 2026-07-17)
 Phase B (post-tie-in, separate mini-handoff): F + C's signal columns + D's two bridge alerts.
+Post-retirement note (2026-07-17): items A–E were specced before the autotrade retirement (`spec-back-autotrade-retirement.md`) — the implementer must reconcile control references against the CURRENT forms (e.g. gate config now lives on Auto Settings via commit-on-blur mirrors; FrmIndicators is headless; item A must additionally exclude the bridge gate-config boxes unless the owner asks for their persistence — they currently reset per session by design). Deviations go in the impl report.
 
 ## Implementation report
 
