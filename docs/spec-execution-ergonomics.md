@@ -86,6 +86,14 @@
 
 **Acceptance (owner-eyeball):** idle at the bottom → new lines stay visible without scrolling; scroll up during an active chase (~3 lines/s) → the view holds still; scroll back to the bottom → following resumes; selecting text mid-stream survives an append.
 
+## Item J — "Position entered" line shows the TRUE average fill (Phase A; owner-requested 2026-07-17)
+
+**Context:** the `Position entered: SHORT 10 @ $62538.50` log line shows the ORDER (limit) price; the actual volume-weighted fill was 62541.82 (`average_price` in the same filled echo — live #82 showed the discrepancy). The position MODEL is already correct (`positionAvgEntry` comes from the positions echo); only this log line favors the order price.
+
+**Design:** in the filled-entry branch(es) that print `Position entered`, read `average_price` from the echo (same pattern as the fill-reanchor: `order.SelectToken("average_price")?.ToObject(Of Decimal?)()`) and print it when present/non-zero, falling back to the current value otherwise; format `F2`. **Display-only, log-line-only:** `placedPrice`/`txtPlacedPrice` (the chase/order reference — display and logic deliberately show the ORDER price) and the DB record are untouched. Both entry paths (limit + trailing) get the same treatment; report which lines were touched.
+
+**Acceptance:** a price-improved fill prints the averaged price on the `Position entered` line; the Placed panel and chase behavior byte-identical.
+
 ## Item F — engine levels for manual trades (Phase B)
 
 **Design:** button `USE ENGINE LEVELS` (near the manual TP/SL boxes). Reads the tie-in's `BridgeReader.LatestPayload` (the same consumer the autotrade path uses — do **not** build a second file reader): refuse (yellow log) if payload is stale per the contract age gate, `signal_state ≠ OK`, or `direction = NONE`. Otherwise: `txtManualTP = levels.<direction>.target`; **stop mapping per the contract semantics** — `levels.<direction>.stop` is the exit *trigger* level, and the manual-SL path derives trigger = `manualSL ± txtStopLoss`, so write `txtManualSL = stop ∓ txtStopLoss` (long: `stop − txtStopLoss`; short: `stop + txtStopLoss`) so the resulting trigger lands exactly on the engine's stop. Log both levels + `signal_id`. Works regardless of arming (it's a manual-trading aid; the interlock is untouched). If the payload direction disagrees with the current Buy/Sell mode, log the mismatch and still populate (the owner decides — they may be fading; do not block).
@@ -102,8 +110,9 @@
 4. `Ergonomics (4/8): alerts` (D)
 5. `Ergonomics (5/8): break-even button via shared EditStopLossTo` (E)
 6. `Ergonomics (6/8): guarded placed-SL display clear on entry-abort` (G, added 2026-07-14)
-7. `Ergonomics (7/8): Live-mode disposition filter (acted/rejected only) + predicate fixtures` (H, added 2026-07-17)
-8. `Ergonomics (8/8): sticky-bottom log follow` (I, added 2026-07-17)
+7. `Ergonomics (7/9): Live-mode disposition filter (acted/rejected only) + predicate fixtures` (H, added 2026-07-17)
+8. `Ergonomics (8/9): sticky-bottom log follow` (I, added 2026-07-17)
+9. `Ergonomics (9/9): Position-entered line shows the true average fill` (J, added 2026-07-17)
 Phase B (post-tie-in, separate mini-handoff): F + C's signal columns + D's two bridge alerts.
 Post-retirement note (2026-07-17): items A–E were specced before the autotrade retirement (`spec-back-autotrade-retirement.md`) — the implementer must reconcile control references against the CURRENT forms (e.g. gate config now lives on Auto Settings via commit-on-blur mirrors; FrmIndicators is headless; item A must additionally exclude the bridge gate-config boxes unless the owner asks for their persistence — they currently reset per session by design). Deviations go in the impl report.
 
