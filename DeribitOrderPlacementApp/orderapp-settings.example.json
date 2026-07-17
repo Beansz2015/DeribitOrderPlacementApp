@@ -1,0 +1,22 @@
+{
+  "_comment": "Copy to orderapp-settings.json beside the exe (git-ignored). Standing trade inputs restored at startup; saved automatically on close and via right-click 'Save Trade Defaults' on the MARGINS / AMOUNT($) groups. Missing keys fall back to the Designer defaults. risk_per_trade_usd / max_size_usd drive the SIZE button; the alerts block gates the sound/taskbar alerts (all default on).",
+  "amount": 10,
+  "take_profit": 60,
+  "trigger": 60,
+  "stop_loss": 30,
+  "trigger_offset": 30,
+  "tp_offset": 60,
+  "market_stop_loss": 70,
+  "max_slippage_atr_checked": true,
+  "market_stop_checked": true,
+  "max_slippage_atr_mult": 0.6,
+  "risk_per_trade_usd": 25,
+  "max_size_usd": 500,
+  "alerts": {
+    "entry_fill": true,
+    "close_fill": true,
+    "emergency_stop": true,
+    "order_rejected": true,
+    "connection": true
+  }
+}

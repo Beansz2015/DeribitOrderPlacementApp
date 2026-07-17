@@ -50,7 +50,7 @@ Section 'repo guards'
 $tracked = @(& git ls-files)
 
 # Local-only config must NEVER be tracked (secrets/keys, machine paths, harness enablement).
-foreach ($name in @('secrets.json', 'bridge.json', 'bridge-state.json', 'harness.json')) {
+foreach ($name in @('secrets.json', 'bridge.json', 'bridge-state.json', 'harness.json', 'orderapp-settings.json')) {
     $hits = @($tracked | Where-Object { ($_ -split '/')[-1] -ieq $name })
     if ($hits.Count -gt 0) {
         Fail "local-only file is TRACKED: $($hits -join ', ') — untrack it before pushing"
@@ -63,7 +63,8 @@ foreach ($name in @('secrets.json', 'bridge.json', 'bridge-state.json', 'harness
 foreach ($path in @('tools/trade-buttons.txt',
                     'DeribitOrderPlacementApp/secrets.example.json',
                     'DeribitOrderPlacementApp/bridge.example.json',
-                    'DeribitOrderPlacementApp/harness.example.json')) {
+                    'DeribitOrderPlacementApp/harness.example.json',
+                    'DeribitOrderPlacementApp/orderapp-settings.example.json')) {
     if (Test-Path (Join-Path $repo $path)) { Ok "$path present" } else { Fail "$path MISSING" }
 }
 

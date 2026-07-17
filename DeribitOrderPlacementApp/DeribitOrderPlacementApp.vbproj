@@ -75,6 +75,13 @@
     <None Update="bridge-state.example.json">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
+    <!-- Local, git-ignored trade defaults (ergonomics item A). Copied to output only if present (Designer defaults apply without it). -->
+    <None Update="orderapp-settings.json" Condition="Exists('orderapp-settings.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="orderapp-settings.example.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
     <!-- Local, git-ignored UI-test-harness config. Copied to output only if present (hooks stay dormant without it). -->
     <None Update="harness.json" Condition="Exists('harness.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

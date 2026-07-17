@@ -133,6 +133,58 @@ Public Class frmMainPageV2
     Private tradeDatabase As TradeDatabase
     Private tradeAnalytics As TradeAnalytics
 
+    ' Ergonomics item A (docs/spec-execution-ergonomics.md): persisted standing inputs + the
+    ' item-B/item-D config keys. Loaded at frmMainPageV2_Load (before the mirror sync), saved at
+    ' FormClosing (before teardown) and via the "Save Trade Defaults" context item.
+    Private userSettings As AppUserSettings
+
+    ' Apply on the UI thread only: writes the textboxes/checkboxes; the existing TextChanged /
+    ' CheckedChanged handlers sync the engine mirrors (never set mirror fields directly - spec).
+    Private Sub ApplyUserSettingsToControls()
+        If userSettings Is Nothing Then Return
+        If userSettings.Amount.HasValue Then txtAmount.Text = userSettings.Amount.Value.ToString()
+        If userSettings.TakeProfit.HasValue Then txtTakeProfit.Text = userSettings.TakeProfit.Value.ToString()
+        If userSettings.Trigger.HasValue Then txtTrigger.Text = userSettings.Trigger.Value.ToString()
+        If userSettings.StopLoss.HasValue Then txtStopLoss.Text = userSettings.StopLoss.Value.ToString()
+        If userSettings.TriggerOffset.HasValue Then txtTriggerOffset.Text = userSettings.TriggerOffset.Value.ToString()
+        If userSettings.TpOffset.HasValue Then txtTPOffset.Text = userSettings.TpOffset.Value.ToString()
+        If userSettings.MarketStopLoss.HasValue Then txtMarketStopLoss.Text = userSettings.MarketStopLoss.Value.ToString()
+        If userSettings.MaxSlippageAtrMult.HasValue Then txtMaxSlippageATR.Text = userSettings.MaxSlippageAtrMult.Value.ToString()
+        If userSettings.MaxSlippageAtrChecked.HasValue Then chkMaxSlippageATR.Checked = userSettings.MaxSlippageAtrChecked.Value
+        If userSettings.MarketStopChecked.HasValue Then chkMarketStopLoss.Checked = userSettings.MarketStopChecked.Value
+    End Sub
+
+    ' Snapshot the current control values into the settings instance (UI thread only). Blank or
+    ' unparseable text persists as 0 - same "not set" convention as the engine mirrors.
+    Private Sub CaptureUserSettingsFromControls()
+        If userSettings Is Nothing Then userSettings = New AppUserSettings()
+        Dim d As Decimal
+        userSettings.Amount = If(Decimal.TryParse(txtAmount.Text, d), d, 0D)
+        userSettings.TakeProfit = If(Decimal.TryParse(txtTakeProfit.Text, d), d, 0D)
+        userSettings.Trigger = If(Decimal.TryParse(txtTrigger.Text, d), d, 0D)
+        userSettings.StopLoss = If(Decimal.TryParse(txtStopLoss.Text, d), d, 0D)
+        userSettings.TriggerOffset = If(Decimal.TryParse(txtTriggerOffset.Text, d), d, 0D)
+        userSettings.TpOffset = If(Decimal.TryParse(txtTPOffset.Text, d), d, 0D)
+        userSettings.MarketStopLoss = If(Decimal.TryParse(txtMarketStopLoss.Text, d), d, 0D)
+        userSettings.MaxSlippageAtrMult = If(Decimal.TryParse(txtMaxSlippageATR.Text, d), d, 0D)
+        userSettings.MaxSlippageAtrChecked = chkMaxSlippageATR.Checked
+        userSettings.MarketStopChecked = chkMarketStopLoss.Checked
+    End Sub
+
+    Private Sub SaveUserSettings(Optional announce As Boolean = True)
+        Try
+            CaptureUserSettingsFromControls()
+            Dim err As String = userSettings.Save()
+            If err IsNot Nothing Then
+                AppendColoredText(txtLogs, err, Color.Yellow)
+            ElseIf announce Then
+                AppendColoredText(txtLogs, "Trade defaults saved to orderapp-settings.json", Color.LimeGreen)
+            End If
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Trade defaults save failed: {ex.Message}", Color.Yellow)
+        End Try
+    End Sub
+
     'To prevent duplicate API calls
     Private isRequestingLiveData As Boolean = False
     Private lastLiveDataRequest As DateTime = DateTime.MinValue
@@ -557,6 +609,26 @@ Public Class frmMainPageV2
         Me.Text = "Deribit Order Placement App V2.2" & If(AppSecrets.IsTestnet, " — TESTNET", " — LIVE")
 
         Try
+            ' Ergonomics item A: restore the persisted standing inputs BEFORE the mirror sync below,
+            ' so the engine fields snapshot the restored values (the TextChanged handlers fire on
+            ' assignment too - order matters only for correctness-by-construction). Missing/broken
+            ' file = Designer defaults + a yellow note; never blocks startup.
+            Dim settingsMsg As String = Nothing
+            userSettings = AppUserSettings.Load(settingsMsg)
+            If settingsMsg IsNot Nothing Then
+                AppendColoredText(txtLogs, settingsMsg, Color.Yellow)
+            Else
+                AppendColoredText(txtLogs, "Trade defaults restored from orderapp-settings.json", Color.LimeGreen)
+            End If
+            ApplyUserSettingsToControls()
+
+            ' Item A save affordance (implementer's choice per spec: context item over a button -
+            ' no free space near the inputs): right-click the MARGINS or AMOUNT($) group.
+            Dim saveDefaultsMenu As New ContextMenuStrip()
+            saveDefaultsMenu.Items.Add("Save Trade Defaults", Nothing, Sub(s, ev) SaveUserSettings())
+            MarginControl.ContextMenuStrip = saveDefaultsMenu
+            OrderAmount.ContextMenuStrip = saveDefaultsMenu
+
             ' Seed the engine input fields from whatever the controls currently hold (cross-thread fix).
             SyncTradeInputsFromUi()
             SyncToggleInputsFromUi()
@@ -4995,6 +5067,12 @@ Public Class frmMainPageV2
         If shutdownStarted Then Return
         shutdownStarted = True
         isClosing = True
+        ' Ergonomics item A: persist the standing inputs FIRST, before any teardown (spec: config
+        ' save at the top of this handler). Its own Try - a save failure must never block shutdown.
+        Try
+            SaveUserSettings(announce:=False)
+        Catch
+        End Try
         Try
             signalBridge?.Dispose() ' stop the watcher/timers before the sockets go down
             ' Retirement: this form owns the settings window now (FrmIndicators used to close it).

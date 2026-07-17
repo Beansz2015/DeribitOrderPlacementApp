@@ -374,3 +374,5 @@ bridge-dispositions.log
 # harness working artifacts (PID files, screenshot markers/outputs — delete after use).
 harness.json
 verify/
+# Ergonomics item A: per-machine trade defaults (beside the exe; ship the .example copy instead).
+orderapp-settings.json
