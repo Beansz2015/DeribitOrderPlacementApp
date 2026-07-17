@@ -1785,6 +1785,15 @@ Public Class frmMainPageV2
                               End Sub)
                 End If
 
+                ' Item C (journal enrichment): track the raw price extremes since entry - two guarded
+                ' compares per tick, engine fields only, no allocation (spec hot-path budget). The
+                ' maePrice = 0 arm reseeds after a restart-restore, where no flat->nonzero transition
+                ' was observed. Direction is applied at close (CompletePositionClose).
+                If positionSizeUSD <> 0D Then
+                    If BestBidPrice > 0D AndAlso (maePrice = 0D OrElse BestBidPrice < maePrice) Then maePrice = BestBidPrice
+                    If BestAskPrice > mfePrice Then mfePrice = BestAskPrice
+                End If
+
                 ' Cross-thread fix: hot-path decisions read engine fields, NEVER the controls. placedPrice is
                 ' set at placement, from the exchange's open EntryLimitOrder, and after each reposition below;
                 ' orderAmountVal mirrors txtAmount. A 0 field means "not set" (same as the old blank/#6 case).
@@ -2365,6 +2374,17 @@ Public Class frmMainPageV2
     ' Restart restore: one "Open position detected" announcement per connection (display only).
     Private positionRestoreAnnounced As Boolean = False
 
+    ' Ergonomics item C (docs/spec-execution-ergonomics.md): trade-quality trackers. Receive-thread
+    ' engine fields only. maePrice/mfePrice are the RAW low/high extremes seen since entry (min bid /
+    ' max ask - direction is applied at close, where MAE/MFE become sign-adjusted USD excursions);
+    ' plannedStopAtEntry snapshots StopLossTriggerOriginal at the flat->nonzero transition (the
+    ' bracket's trigger was recorded at placement); cumFeesBTC accumulates user.changes trades[].fee.
+    ' Reset at the flat->nonzero transition and cleared again after each recorded close.
+    Private maePrice As Decimal = 0D
+    Private mfePrice As Decimal = 0D
+    Private plannedStopAtEntry As Decimal = 0D
+    Private cumFeesBTC As Decimal = 0D
+
     ' Reliable close (docs/spec-close-completion-fix.md + review): the closing fill's P/L is captured
     ' in these fields so it survives across echoes - the fill and the flat-position update can arrive
     ' in SEPARATE user.changes messages. ApplyCloseFill writes them; CompletePositionClose (invoked on
@@ -2450,13 +2470,35 @@ Public Class frmMainPageV2
                                 Dim wasOpen As Boolean = (positionSizeUSD <> 0D)
                                 positionSizeUSD = sz.Value
                                 If sz.Value <> 0D Then
-                                    If Not wasOpen Then pendingCloseValid = False
                                     Dim avg = p.SelectToken("average_price")?.ToObject(Of Decimal?)()
                                     If avg.HasValue AndAlso avg.Value > 0D Then positionAvgEntry = avg.Value
+                                    If Not wasOpen Then
+                                        pendingCloseValid = False
+                                        ' Item C: this IS the flat->nonzero transition (spec: reset HERE,
+                                        ' never duplicate the detection). Seed both extremes at the incoming
+                                        ' average entry; snapshot the placed bracket's trigger as the planned
+                                        ' stop; zero the fee accumulator (this echo's own trades[] fees are
+                                        ' summed AFTER the positions pass, so the entry fee still counts).
+                                        maePrice = positionAvgEntry
+                                        mfePrice = positionAvgEntry
+                                        plannedStopAtEntry = StopLossTriggerOriginal
+                                        cumFeesBTC = 0D
+                                    End If
                                 ElseIf wasOpen Then
                                     positionJustClosed = True
                                 End If
                             End If
+                        Next
+                    End If
+
+                    ' Item C: user.changes carries the fills' trades array, previously ignored -
+                    ' accumulate the BTC fees (fee_currency is BTC on this instrument; null-safe).
+                    ' Runs AFTER the positions pass so an entry echo's fee lands after the reset,
+                    ' and BEFORE CompletePositionClose below so the closing fill's fee is counted.
+                    Dim feeTokens = orderData.SelectToken("trades")?.ToObject(Of List(Of JObject))()
+                    If feeTokens IsNot Nothing Then
+                        For Each t In feeTokens
+                            cumFeesBTC += If(t.SelectToken("fee")?.ToObject(Of Decimal?)(), 0D)
                         Next
                     End If
 
@@ -4597,16 +4639,49 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, "Scratch close: P/L ≈ $0.00.", Color.Yellow)
             End If
 
+            ' Item C (journal enrichment): trade-quality metrics, computed HERE next to the record
+            ' call (spec: the close path lives in CompletePositionClose; accounting reads the
+            ' pendingClose* fields). Direction-aware: MAE is the adverse excursion (<= 0), MFE the
+            ' favorable one (>= 0), both linearized at amount/entry like the close P/L itself.
+            Dim closeAmt As Decimal = If(pendingCloseAmountUSD > 0D, pendingCloseAmountUSD, orderAmountVal)
+            Dim maeUsd As Decimal = 0D, mfeUsd As Decimal = 0D, rMult As Decimal = 0D
+            If entryPriceAtClose > 0D AndAlso closeAmt > 0D Then
+                Dim btcSize As Decimal = closeAmt / entryPriceAtClose
+                If maePrice > 0D AndAlso mfePrice > 0D Then
+                    If pendingCloseWasLong Then
+                        maeUsd = Math.Min(0D, (maePrice - entryPriceAtClose) * btcSize)
+                        mfeUsd = Math.Max(0D, (mfePrice - entryPriceAtClose) * btcSize)
+                    Else
+                        maeUsd = Math.Min(0D, (entryPriceAtClose - mfePrice) * btcSize)
+                        mfeUsd = Math.Max(0D, (entryPriceAtClose - maePrice) * btcSize)
+                    End If
+                End If
+                ' R-multiple vs the PLANNED stop (0 when the planned risk is unknown - spec).
+                If plannedStopAtEntry > 0D Then
+                    Dim plannedRiskUSD As Decimal = Math.Abs(entryPriceAtClose - plannedStopAtEntry) * btcSize
+                    If plannedRiskUSD > 0D Then
+                        Dim signedPL As Decimal = If(pendingClosePorL, pendingClosePorLAmt, -pendingClosePorLAmt)
+                        rMult = Math.Round(signedPL / plannedRiskUSD, 2, MidpointRounding.AwayFromZero)
+                    End If
+                End If
+            End If
+            Dim feesUsd As Decimal = Math.Round(cumFeesBTC * indexPriceVal, 2, MidpointRounding.AwayFromZero)
+
             ' Audit2 fix 7 + position model: record every computed close - $0.00 scratches and market
             ' reduces included; they are real trades and their absence biased the stats.
             Dim tradeId = RecordCompletedTrade(
                 entryPriceAtClose,
                 pendingCloseExecPrice,
-                If(pendingCloseAmountUSD > 0D, pendingCloseAmountUSD, orderAmountVal),
+                closeAmt,
                 pendingClosePorLAmt,
                 pendingClosePorL,
                 pendingCloseWasLong,
-                pendingCloseLabel
+                pendingCloseLabel,
+                Math.Round(maeUsd, 2, MidpointRounding.AwayFromZero),
+                Math.Round(mfeUsd, 2, MidpointRounding.AwayFromZero),
+                plannedStopAtEntry,
+                rMult,
+                feesUsd
             )
 
             pendingCloseValid = False
@@ -4615,6 +4690,13 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "Position closed.", Color.Yellow)
         End If
 
+        ' Item C: clear the trackers after the close is accounted (both branches - the next
+        ' flat->nonzero transition reseeds them anyway; this keeps restart states honest).
+        maePrice = 0D
+        mfePrice = 0D
+        plannedStopAtEntry = 0D
+        cumFeesBTC = 0D
+
         ' Cooloff anchor: the position is now closed. The old autotrader stamped
         ' _indicators.lastAutoTradeTime here; the bridge's cooloff anchors on the same event, so
         ' "cooloff" means "wait N minutes after going flat" (owner ruling 2026-07-15) rather than
@@ -4622,10 +4704,18 @@ Public Class frmMainPageV2
         signalBridge?.NotifyPositionClosed()
     End Function
 
+    ' Item C: the five trade-quality metrics are optional (default 0) so the signature stays
+    ' compatible; SignalId/SignalConfidence are written empty in Phase A (bridge fills them in
+    ' Phase B via the TradeRecord properties).
     Public Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal,
                                    orderSizeUSD As Decimal, profitLossUSD As Decimal,
                                    isProfit As Boolean, tradeMode As Boolean,
-                                   orderType As String) As Integer
+                                   orderType As String,
+                                   Optional maeUsd As Decimal = 0D,
+                                   Optional mfeUsd As Decimal = 0D,
+                                   Optional plannedStop As Decimal = 0D,
+                                   Optional rMultiple As Decimal = 0D,
+                                   Optional feesUsd As Decimal = 0D) As Integer
         Try
             If tradeDatabase Is Nothing Then
                 AppendColoredText(txtLogs, "Trade database not initialized", Color.Red)
@@ -4642,6 +4732,11 @@ Public Class frmMainPageV2
             profitLossUSD,
             isProfit
         )
+            completedTrade.MaeUSD = maeUsd
+            completedTrade.MfeUSD = mfeUsd
+            completedTrade.PlannedStop = plannedStop
+            completedTrade.RMultiple = rMultiple
+            completedTrade.FeesUSD = feesUsd
 
             ' Record the completed trade (synchronous)
             Dim tradeId As Integer = tradeDatabase.RecordCompletedTrade(completedTrade)
@@ -5572,7 +5667,9 @@ Public Class frmMainPageV2
             If trades.Count > 0 Then
                 Dim viewForm As New Form
                 viewForm.Text = "Trade History - Right-click to Delete"
-                viewForm.Size = New Size(1000, 700)
+                ' Item C: 1000 -> 1180 to seat the four new metric columns (Entry/Exit/Size/PL
+                ' shrank 100 -> 90 each to help; nothing was dropped).
+                viewForm.Size = New Size(1180, 700)
                 viewForm.StartPosition = FormStartPosition.CenterScreen
 
                 Dim dataGrid As New DataGridView
@@ -5616,7 +5713,7 @@ Public Class frmMainPageV2
                 dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
                 .HeaderText = "Entry Price",
                 .DataPropertyName = "EntryPrice",
-                .Width = 100,
+                .Width = 90,
                 .DefaultCellStyle = New DataGridViewCellStyle With {
                     .Format = "F2",
                     .Alignment = DataGridViewContentAlignment.MiddleRight
@@ -5626,7 +5723,7 @@ Public Class frmMainPageV2
                 dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
                 .HeaderText = "Exit Price",
                 .DataPropertyName = "ExitPrice",
-                .Width = 100,
+                .Width = 90,
                 .DefaultCellStyle = New DataGridViewCellStyle With {
                     .Format = "F2",
                     .Alignment = DataGridViewContentAlignment.MiddleRight
@@ -5636,7 +5733,7 @@ Public Class frmMainPageV2
                 dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
                 .HeaderText = "Size (USD)",
                 .DataPropertyName = "OrderSizeUSD",
-                .Width = 100,
+                .Width = 90,
                 .DefaultCellStyle = New DataGridViewCellStyle With {
                     .Format = "F2",
                     .Alignment = DataGridViewContentAlignment.MiddleRight
@@ -5646,7 +5743,49 @@ Public Class frmMainPageV2
                 dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
                 .HeaderText = "P/L (USD)",
                 .DataPropertyName = "ProfitLossUSD",
-                .Width = 100,
+                .Width = 90,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                ' Item C: the four trade-quality columns (MAE <= 0 <= MFE; R vs the planned stop;
+                ' net fees). Old rows (pre-migration) show 0.00 - the columns backfill as defaults.
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "MAE",
+                .DataPropertyName = "MaeUSD",
+                .Width = 80,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "MFE",
+                .DataPropertyName = "MfeUSD",
+                .Width = 80,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "R",
+                .DataPropertyName = "RMultiple",
+                .Width = 60,
+                .DefaultCellStyle = New DataGridViewCellStyle With {
+                    .Format = "F2",
+                    .Alignment = DataGridViewContentAlignment.MiddleRight
+                }
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Fees",
+                .DataPropertyName = "FeesUSD",
+                .Width = 80,
                 .DefaultCellStyle = New DataGridViewCellStyle With {
                     .Format = "F2",
                     .Alignment = DataGridViewContentAlignment.MiddleRight

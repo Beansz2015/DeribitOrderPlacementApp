@@ -51,6 +51,11 @@ Public Class TradeDatabase
                     command.ExecuteNonQuery()
                 End Using
 
+                ' Ergonomics item C: additive schema migration for the trade-quality columns.
+                ' Idempotent: SQLite throws "duplicate column name" on an existing column - those
+                ' are swallowed per column; anything else surfaces via DatabaseError as usual.
+                MigrateSchema(connection)
+
                 ' Create indexes for better performance
                 CreateIndexes(connection)
             End Using
@@ -59,6 +64,29 @@ Public Class TradeDatabase
             RaiseEvent DatabaseError($"Failed to initialize database: {ex.Message}")
             Throw
         End Try
+    End Sub
+
+    ' Item C migration: one ALTER per column, individually try/caught. Existing rows read the
+    ' DEFAULTs (0 / '') through CreateTradeFromReader's null-safe converters either way.
+    Private Sub MigrateSchema(connection As SQLiteConnection)
+        Dim newColumns() As String = {
+            "ALTER TABLE Trades ADD COLUMN MaeUSD DECIMAL(18,8) NOT NULL DEFAULT 0;",
+            "ALTER TABLE Trades ADD COLUMN MfeUSD DECIMAL(18,8) NOT NULL DEFAULT 0;",
+            "ALTER TABLE Trades ADD COLUMN PlannedStop DECIMAL(18,8) NOT NULL DEFAULT 0;",
+            "ALTER TABLE Trades ADD COLUMN RMultiple DECIMAL(18,8) NOT NULL DEFAULT 0;",
+            "ALTER TABLE Trades ADD COLUMN FeesUSD DECIMAL(18,8) NOT NULL DEFAULT 0;",
+            "ALTER TABLE Trades ADD COLUMN SignalId TEXT NOT NULL DEFAULT '';",
+            "ALTER TABLE Trades ADD COLUMN SignalConfidence TEXT NOT NULL DEFAULT '';"
+        }
+        For Each alterQuery In newColumns
+            Try
+                Using command As New SQLiteCommand(alterQuery, connection)
+                    command.ExecuteNonQuery()
+                End Using
+            Catch ex As SQLiteException When ex.Message.Contains("duplicate column name")
+                ' Column already exists - the migration has run before. Expected on every start.
+            End Try
+        Next
     End Sub
 
     Private Sub CreateIndexes(connection As SQLiteConnection)
@@ -83,11 +111,13 @@ Public Class TradeDatabase
 
                 Dim insertQuery As String = "
                 INSERT INTO Trades (
-                    Timestamp, OrderType, Direction, EntryPrice, ExitPrice, 
-                    OrderSizeUSD, ProfitLossUSD, IsProfit
+                    Timestamp, OrderType, Direction, EntryPrice, ExitPrice,
+                    OrderSizeUSD, ProfitLossUSD, IsProfit,
+                    MaeUSD, MfeUSD, PlannedStop, RMultiple, FeesUSD, SignalId, SignalConfidence
                 ) VALUES (
                     @Timestamp, @OrderType, @Direction, @EntryPrice, @ExitPrice,
-                    @OrderSizeUSD, @ProfitLossUSD, @IsProfit
+                    @OrderSizeUSD, @ProfitLossUSD, @IsProfit,
+                    @MaeUSD, @MfeUSD, @PlannedStop, @RMultiple, @FeesUSD, @SignalId, @SignalConfidence
                 )"
 
                 Using command As New SQLiteCommand(insertQuery, connection)
@@ -99,6 +129,13 @@ Public Class TradeDatabase
                     command.Parameters.AddWithValue("@OrderSizeUSD", trade.OrderSizeUSD)
                     command.Parameters.AddWithValue("@ProfitLossUSD", trade.ProfitLossUSD)
                     command.Parameters.AddWithValue("@IsProfit", trade.IsProfit)
+                    command.Parameters.AddWithValue("@MaeUSD", trade.MaeUSD)
+                    command.Parameters.AddWithValue("@MfeUSD", trade.MfeUSD)
+                    command.Parameters.AddWithValue("@PlannedStop", trade.PlannedStop)
+                    command.Parameters.AddWithValue("@RMultiple", trade.RMultiple)
+                    command.Parameters.AddWithValue("@FeesUSD", trade.FeesUSD)
+                    command.Parameters.AddWithValue("@SignalId", If(trade.SignalId, ""))
+                    command.Parameters.AddWithValue("@SignalConfidence", If(trade.SignalConfidence, ""))
 
                     command.ExecuteNonQuery()
 
@@ -151,8 +188,27 @@ Public Class TradeDatabase
             .ExitPrice = Convert.ToDecimal(reader("ExitPrice")),
             .OrderSizeUSD = Convert.ToDecimal(reader("OrderSizeUSD")),
             .ProfitLossUSD = Convert.ToDecimal(reader("ProfitLossUSD")),
-            .IsProfit = Convert.ToBoolean(reader("IsProfit"))
+            .IsProfit = Convert.ToBoolean(reader("IsProfit")),
+            .MaeUSD = ReadDecimalOrZero(reader, "MaeUSD"),
+            .MfeUSD = ReadDecimalOrZero(reader, "MfeUSD"),
+            .PlannedStop = ReadDecimalOrZero(reader, "PlannedStop"),
+            .RMultiple = ReadDecimalOrZero(reader, "RMultiple"),
+            .FeesUSD = ReadDecimalOrZero(reader, "FeesUSD"),
+            .SignalId = ReadStringOrEmpty(reader, "SignalId"),
+            .SignalConfidence = ReadStringOrEmpty(reader, "SignalConfidence")
         }
+    End Function
+
+    ' Item C: null-safe readers for the migrated columns (pre-migration rows are NULL there;
+    ' Convert.ToDecimal(DBNull) would throw and drop the whole trade list).
+    Private Shared Function ReadDecimalOrZero(reader As SQLiteDataReader, column As String) As Decimal
+        Dim value As Object = reader(column)
+        Return If(value Is Nothing OrElse value Is DBNull.Value, 0D, Convert.ToDecimal(value))
+    End Function
+
+    Private Shared Function ReadStringOrEmpty(reader As SQLiteDataReader, column As String) As String
+        Dim value As Object = reader(column)
+        Return If(value Is Nothing OrElse value Is DBNull.Value, "", value.ToString())
     End Function
 
     Public Function DeleteTrade(tradeId As Integer) As Boolean

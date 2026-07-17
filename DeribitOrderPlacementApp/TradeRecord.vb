@@ -18,6 +18,19 @@ Public Class TradeRecord
     Public Property SlippageATR As Decimal = 0 ' Slippage in ATR units
     Public Property MaxSlippageExceeded As Boolean = False
 
+    ' Ergonomics item C (docs/spec-execution-ergonomics.md): trade-quality metrics for
+    ' structural-stop calibration. MAE <= 0 <= MFE (sign-adjusted USD excursions vs entry);
+    ' RMultiple = signed P/L over the PLANNED risk (0 when the planned stop was unknown);
+    ' FeesUSD = cumulative BTC fees x index at close. SignalId/SignalConfidence are written
+    ' empty in Phase A and populated by the bridge consumer in Phase B.
+    Public Property MaeUSD As Decimal = 0
+    Public Property MfeUSD As Decimal = 0
+    Public Property PlannedStop As Decimal = 0
+    Public Property RMultiple As Decimal = 0
+    Public Property FeesUSD As Decimal = 0
+    Public Property SignalId As String = ""
+    Public Property SignalConfidence As String = ""
+
     Public Sub New()
         Timestamp = DateTime.UtcNow
     End Sub

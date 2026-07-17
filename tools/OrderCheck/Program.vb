@@ -1,6 +1,7 @@
 Option Strict On
 Option Explicit On
 
+Imports System.Data.SQLite
 Imports System.Globalization
 Imports System.IO
 Imports DeribitOrderPlacementApp
@@ -156,6 +157,60 @@ Module Program
               Decimal.Remainder(slShort * 2D, 1D) = 0D, $"got {slShort}")
         Check("DeriveManualSl fractional stop SHORT: trigger within 0.25 of stop",
               Math.Abs((slShort - 30D) - fracStop) <= 0.25D, $"got {slShort}")
+
+        ' ---- 11. Item C schema migration (spec-execution-ergonomics): an OLD-schema trades DB ----
+        ' opens cleanly through TradeDatabase (the ALTERs run + backfill), legacy rows read with
+        ' metric defaults, an enriched row round-trips, and a SECOND open proves idempotency
+        ' (the duplicate-column throws are swallowed per column).
+        Dim dbPath As String = Path.Combine(Path.GetTempPath(), $"ordercheck-migration-{Guid.NewGuid():N}.db")
+        Try
+            ' The PRE-item-C schema, verbatim (8 columns), plus one legacy row.
+            Using conn As New SQLiteConnection($"Data Source={dbPath};Version=3;")
+                conn.Open()
+                Using cmd As New SQLiteCommand(
+                    "CREATE TABLE Trades (
+                        TradeId INTEGER PRIMARY KEY AUTOINCREMENT, Timestamp DATETIME NOT NULL,
+                        OrderType TEXT NOT NULL, Direction TEXT NOT NULL,
+                        EntryPrice DECIMAL(18,8) NOT NULL, ExitPrice DECIMAL(18,8) NOT NULL,
+                        OrderSizeUSD DECIMAL(18,8) NOT NULL, ProfitLossUSD DECIMAL(18,8) NOT NULL,
+                        IsProfit BOOLEAN NOT NULL);", conn)
+                    cmd.ExecuteNonQuery()
+                End Using
+                Using cmd As New SQLiteCommand(
+                    "INSERT INTO Trades (Timestamp, OrderType, Direction, EntryPrice, ExitPrice,
+                     OrderSizeUSD, ProfitLossUSD, IsProfit)
+                     VALUES ('2026-07-01 00:00:00','Limit','Long',60000,60050,10,0.5,1);", conn)
+                    cmd.ExecuteNonQuery()
+                End Using
+            End Using
+
+            Dim db As New TradeDatabase(dbPath)   ' ctor runs InitializeDatabase -> MigrateSchema
+            Dim enriched As New TradeRecord("Limit", "Short", 61000D, 60900D, 20D, 0.33D, True) With {
+                .MaeUSD = -1.23D, .MfeUSD = 4.56D, .PlannedStop = 61060D, .RMultiple = 1.67D, .FeesUSD = 0.12D}
+            db.RecordCompletedTrade(enriched)
+
+            Dim all = db.GetAllTrades()
+            Dim legacy = all.FirstOrDefault(Function(t) t.Direction = "Long")
+            Dim round = all.FirstOrDefault(Function(t) t.Direction = "Short")
+            Check("migration: old DB opened, both rows readable", all.Count = 2)
+            Check("migration: legacy row reads metric defaults (0 / '')",
+                  legacy IsNot Nothing AndAlso legacy.MaeUSD = 0D AndAlso legacy.MfeUSD = 0D AndAlso
+                  legacy.RMultiple = 0D AndAlso legacy.FeesUSD = 0D AndAlso legacy.SignalId = "")
+            Check("migration: enriched row round-trips MAE/MFE/PlannedStop/R/Fees",
+                  round IsNot Nothing AndAlso round.MaeUSD = -1.23D AndAlso round.MfeUSD = 4.56D AndAlso
+                  round.PlannedStop = 61060D AndAlso round.RMultiple = 1.67D AndAlso round.FeesUSD = 0.12D)
+
+            Dim db2 As New TradeDatabase(dbPath)  ' second open: ALTERs all throw duplicate-column
+            Check("migration idempotent: re-open clean, rows intact", db2.GetAllTrades().Count = 2)
+        Catch ex As Exception
+            Check("migration fixture: no throw", False, ex.Message)
+        Finally
+            Try
+                SQLiteConnection.ClearAllPools() ' release the file handle before delete (Windows)
+                File.Delete(dbPath)
+            Catch
+            End Try
+        End Try
 
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
