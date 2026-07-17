@@ -3588,6 +3588,21 @@ Public Class frmMainPageV2
                      End If
                  End Sub)
 
+        ' Ergonomics item G (owner-requested 2026-07-14): display-hygiene clear of the dead
+        ' bracket's SL for the PROVABLY-FLAT case only. The guard is the load-bearing part -
+        ' with any live position / triggered-SL context this must NOT run (HANDOVER-2 §4
+        ' invariant 3: those fields may belong to a live position's legs, and a zero can stall
+        ' an actively-trailing SL). This is NOT an 8th SL-context reset site:
+        ' emergencyBaseline / the commanded set are already 0 on this path from the placement
+        ' reset and are deliberately not touched.
+        If positionSizeUSD = 0D AndAlso Not SLTriggered AndAlso PositionSLOrderId Is Nothing Then
+            placedStopLossPrice = 0D
+            UiInvoke(Sub()
+                         txtPlacedStopLossPrice.Text = "0"
+                         txtPlacedTrigStopPrice.Text = "0" ' idempotent - already cleared above
+                     End Sub)
+        End If
+
         AppendColoredText(txtLogs, $"Working entry cancelled ({reason}) - position legs untouched", Color.Yellow)
     End Function
 
