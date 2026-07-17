@@ -2788,7 +2788,14 @@ Public Class frmMainPageV2
                                                      lblOrderStatus.Text = "In Position"
                                                      lblOrderStatus.ForeColor = Color.Yellow
                                                  End Sub)
-                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${placedPrice:F2}", Color.LimeGreen)
+                                        ' Item J (owner-requested 2026-07-17): the log line shows the TRUE
+                                        ' volume-weighted fill (the echo's average_price, same read pattern as
+                                        ' the fill-reanchor) when present/non-zero, else the order price as
+                                        ' before. Display/log-line ONLY: placedPrice / txtPlacedPrice (the
+                                        ' chase and order reference) and the DB record are untouched.
+                                        Dim entryShownPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(), 0D)
+                                        If entryShownPrice <= 0D Then entryShownPrice = placedPrice
+                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${entryShownPrice:F2}", Color.LimeGreen)
                                         Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
@@ -2826,7 +2833,11 @@ Public Class frmMainPageV2
                                                      lblOrderStatus.Text = "In Position"
                                                      lblOrderStatus.ForeColor = Color.Yellow
                                                  End Sub)
-                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${placedPrice:F2}", Color.LimeGreen)
+                                        ' Item J: same true-average-fill treatment as the EntryLimitOrder
+                                        ' branch (display/log-line only).
+                                        Dim trailShownPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(), 0D)
+                                        If trailShownPrice <= 0D Then trailShownPrice = placedPrice
+                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${trailShownPrice:F2}", Color.LimeGreen)
                                         Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
