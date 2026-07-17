@@ -5651,38 +5651,41 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Async Sub btnEditSLPrice_Click(sender As Object, e As EventArgs) Handles btnEditSLPrice.Click
-        Try
-            If Decimal.Parse(txtPlacedTrigStopPrice.Text) > 0 Then
-                Dim newTSprice As Decimal = Decimal.Parse(txtPlacedTrigStopPrice.Text)
-                Dim newSLprice As Decimal
-                Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
-                Dim SLOrderID As String = Nothing
+    ' Ergonomics item E: the SL-edit core, extracted verbatim from btnEditSLPrice_Click (id
+    ' resolution incl. the audit-2 fixed fallbacks, limit = trigger -/+ txtStopLoss offset,
+    ' payload id 223346, send, logs). UI thread only (button paths). BINDING (spec item E +
+    ' spec-back-session-2026-07-04 §9/§10): this is a USER edit path, so it must NOT call
+    ' RecordCommandedSLPrice - the commanded-price discriminator deliberately treats its echo
+    ' as a manual edit and follows it; recording here would make it ignore the user's own move.
+    Private Async Function EditStopLossTo(newTrigger As Decimal) As Task
+        Dim newTSprice As Decimal = newTrigger
+        Dim newSLprice As Decimal
+        Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
+        Dim SLOrderID As String = Nothing
 
-                ' Ensure WebSocket is connected
-                If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
-                    'txtLogs.AppendText("WebSocket is not connected." + Environment.NewLine)
-                    AppendColoredText(txtLogs, "WebSocket is not connected.", Color.Red)
-                    Return
-                End If
+        ' Ensure WebSocket is connected
+        If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
+            AppendColoredText(txtLogs, "WebSocket is not connected.", Color.Red)
+            Return
+        End If
 
-                If CurrentSLOrderId IsNot Nothing Then
-                    SLOrderID = CurrentSLOrderId
-                ElseIf PositionSLOrderId IsNot Nothing Then
-                    SLOrderID = PositionSLOrderId
-                Else
-                    AppendColoredText(txtLogs, "S.L. Order ID not found for edit.", Color.Yellow)
-                    Return ' Audit2 F4: don't send an edit with a null order_id
-                End If
+        If CurrentSLOrderId IsNot Nothing Then
+            SLOrderID = CurrentSLOrderId
+        ElseIf PositionSLOrderId IsNot Nothing Then
+            SLOrderID = PositionSLOrderId
+        Else
+            AppendColoredText(txtLogs, "S.L. Order ID not found for edit.", Color.Yellow)
+            Return ' Audit2 F4: don't send an edit with a null order_id
+        End If
 
-                If TradeMode = True Then
-                    newSLprice = newTSprice - Decimal.Parse(txtStopLoss.Text)
-                Else
-                    newSLprice = newTSprice + Decimal.Parse(txtStopLoss.Text)
-                End If
+        If TradeMode = True Then
+            newSLprice = newTSprice - Decimal.Parse(txtStopLoss.Text)
+        Else
+            newSLprice = newTSprice + Decimal.Parse(txtStopLoss.Text)
+        End If
 
-                ' Construct the payload for updating the take profit order
-                Dim updateTakeProfitPayload As New JObject From {
+        ' Construct the payload for updating the take profit order
+        Dim updateTakeProfitPayload As New JObject From {
             {"jsonrpc", "2.0"},
             {"id", 223346},
             {"method", "private/edit"},
@@ -5696,17 +5699,42 @@ Public Class frmMainPageV2
             }}
         }
 
-                ' Send the payload to update the take profit order
-                Await SendWebSocketMessageAsync(updateTakeProfitPayload.ToString())
+        ' Send the payload to update the take profit order
+        Await SendWebSocketMessageAsync(updateTakeProfitPayload.ToString())
 
-                AppendColoredText(txtLogs, $"Updated T.S. to: ${newTSprice}", Color.Yellow)
-                AppendColoredText(txtLogs, $"Updated S.L. to: ${newSLprice}", Color.Yellow)
+        AppendColoredText(txtLogs, $"Updated T.S. to: ${newTSprice}", Color.Yellow)
+        AppendColoredText(txtLogs, $"Updated S.L. to: ${newSLprice}", Color.Yellow)
+    End Function
+
+    Private Async Sub btnEditSLPrice_Click(sender As Object, e As EventArgs) Handles btnEditSLPrice.Click
+        Try
+            If Decimal.Parse(txtPlacedTrigStopPrice.Text) > 0 Then
+                Await EditStopLossTo(Decimal.Parse(txtPlacedTrigStopPrice.Text))
             Else
                 AppendColoredText(txtLogs, "S.L. textbox is 0", Color.Yellow)
             End If
 
         Catch ex As Exception
             txtLogs.AppendText("Error in btnEditSLPrice: " & ex.Message & Environment.NewLine)
+        End Try
+    End Sub
+
+    ' Item E: one-click break-even stop - trigger = avg entry + Comms (long) / - Comms (short),
+    ' covering round-trip cost, rounded to the 0.5 tick. Gates on a live position; the id
+    ' refusal (rare no-SL states) lives in the shared core. Direction from the POSITION sign
+    ' (the model is the truth), not TradeMode.
+    Private Async Sub btnBreakEven_Click(sender As Object, e As EventArgs) Handles btnBreakEven.Click
+        Try
+            If positionSizeUSD = 0D OrElse positionAvgEntry <= 0D Then
+                AppendColoredText(txtLogs, "B.E.: no open position", Color.Yellow)
+                Return
+            End If
+            Dim isLong As Boolean = positionSizeUSD > 0D
+            Dim beTrigger As Decimal = RoundToTick(If(isLong, positionAvgEntry + commsVal, positionAvgEntry - commsVal))
+            AppendColoredText(txtLogs, $"B.E.: moving stop trigger to ${beTrigger:F2} (entry {positionAvgEntry:F2} {If(isLong, "+", "-")} comms {commsVal:F2})", Color.Yellow)
+            Await EditStopLossTo(beTrigger)
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in btnBreakEven_Click: {ex.Message}", Color.Red)
         End Try
     End Sub
 

@@ -79,6 +79,7 @@ Partial Class frmMainPageV2
         lblStatus = New Label()
         Label2 = New Label()
         PlacedOrders = New GroupBox()
+        btnBreakEven = New Button()
         btnTPOffset = New Button()
         btnEditSLPrice = New Button()
         btnEditTPPrice = New Button()
@@ -819,6 +820,7 @@ Partial Class frmMainPageV2
         ' 
         ' PlacedOrders
         ' 
+        PlacedOrders.Controls.Add(btnBreakEven)
         PlacedOrders.Controls.Add(btnTPOffset)
         PlacedOrders.Controls.Add(btnEditSLPrice)
         PlacedOrders.Controls.Add(btnEditTPPrice)
@@ -842,9 +844,26 @@ Partial Class frmMainPageV2
         PlacedOrders.TabIndex = 109
         PlacedOrders.TabStop = False
         PlacedOrders.Text = "Placed Long"
-        ' 
+        '
+        ' btnBreakEven
+        '
+        ' Ergonomics item E: one-click break-even stop. STATIC position (379,299) on the P/L row -
+        ' SetTradeMode shuffles the three edit buttons between rows 93/146/194/247, so the free
+        ' band below 294 (btnTPOffset's Buy-mode bottom edge) is the one spot safe in BOTH modes.
+        btnBreakEven.BackColor = Color.Gold
+        btnBreakEven.Cursor = Cursors.Hand
+        btnBreakEven.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
+        btnBreakEven.ForeColor = SystemColors.ControlText
+        btnBreakEven.Location = New Point(379, 299)
+        btnBreakEven.Name = "btnBreakEven"
+        btnBreakEven.Size = New Size(107, 42)
+        btnBreakEven.TabIndex = 57
+        btnBreakEven.Text = "B.E."
+        ToolTip1.SetToolTip(btnBreakEven, "Move the stop trigger to average entry +/- Comms." & vbCrLf & "(covers round-trip cost), rounded to the 0.5 tick." & vbCrLf & "Refuses when flat or no SL order id resolves.")
+        btnBreakEven.UseVisualStyleBackColor = False
+        '
         ' btnTPOffset
-        ' 
+        '
         btnTPOffset.BackColor = Color.FromArgb(CByte(255), CByte(128), CByte(0))
         btnTPOffset.Cursor = Cursors.Hand
         btnTPOffset.Font = New Font("Calibri", 10F, FontStyle.Bold)
@@ -1312,6 +1331,7 @@ Partial Class frmMainPageV2
     Friend WithEvents ProgressBar1 As ProgressBar
     Friend WithEvents lblOrderStatus As CustomLabel
     Friend WithEvents CustomLabel3 As CustomLabel
+    Friend WithEvents btnBreakEven As Button
     Friend WithEvents btnTPOffset As Button
     Friend WithEvents btnEditSLPrice As Button
     Friend WithEvents btnEditTPPrice As Button
