@@ -6,7 +6,7 @@ Imports System.IO
 'Imports System.Net.WebRequestMethods
 Imports System.Net.WebSockets
 'Imports System.Reflection
-'Imports System.Runtime
+Imports System.Runtime.InteropServices ' ergonomics: FlashWindowEx (item D) + GetScrollInfo/SendMessage (item I)
 Imports System.Text
 Imports System.Threading
 'Imports System.Windows.Forms.VisualStyles
@@ -978,6 +978,7 @@ Public Class frmMainPageV2
 
             Try
                 AppendColoredText(txtLogs, "Connection lost - initiating recovery sequence", Color.Orange)
+                Alert("connection") ' item D: disconnect
 
                 ' Update UI immediately on UI thread
                 Me.BeginInvoke(Sub()
@@ -1025,6 +1026,7 @@ Public Class frmMainPageV2
 
                 ' All reconnection attempts failed
                 AppendColoredText(txtLogs, "All reconnection attempts failed - manual intervention required", Color.Red)
+                Alert("connection") ' item D: reconnect-failure
 
             Finally
                 Interlocked.Exchange(isReconnecting, 0)
@@ -1451,6 +1453,7 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs,
                     $"ORDER REJECTED (id {messageId.Value}): code {If(code?.ToString(), "?")} - {msg}{If(data IsNot Nothing, " | " & data, "")} - engine state rolled back",
                     Color.Red)
+                Alert("order_rejected") ' item D
                 entry.Tcs?.TrySetResult(New PlacementResult With {.Accepted = False, .Reason = $"{code}: {msg}"})
                 Return
             End If
@@ -2786,6 +2789,7 @@ Public Class frmMainPageV2
                                                      lblOrderStatus.ForeColor = Color.Yellow
                                                  End Sub)
                                         AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${placedPrice:F2}", Color.LimeGreen)
+                                        Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
                                         UpdateFlag = False
@@ -2823,6 +2827,7 @@ Public Class frmMainPageV2
                                                      lblOrderStatus.ForeColor = Color.Yellow
                                                  End Sub)
                                         AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${placedPrice:F2}", Color.LimeGreen)
+                                        Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
                                         isTrailingStop = True 'For checking if is trailing order when executing In Position code
@@ -3903,12 +3908,14 @@ Public Class frmMainPageV2
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
+                Alert("emergency_stop") ' item D
                 Return ' Exit early after emergency execution
             ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = False) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
+                Alert("emergency_stop") ' item D
                 Return ' Exit early after emergency execution
             End If
 
@@ -4491,6 +4498,72 @@ Public Class frmMainPageV2
         End Try
     End Function
 
+    ' ===== Ergonomics item D (docs/spec-execution-ergonomics.md): alerts =====
+    ' One line per call site; config-gated via item A's alerts block (all default ON; reposition
+    ' noise is not alertable at all - no such kind exists). Sound = SystemSounds (Exclamation for
+    ' adverse, Asterisk for benign; safe from any thread); taskbar flash = FlashWindowEx,
+    ' marshalled + handle-guarded. Best-effort: never lets a failure break an engine path.
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure FLASHWINFO
+        Public cbSize As UInteger
+        Public hwnd As IntPtr
+        Public dwFlags As UInteger
+        Public uCount As UInteger
+        Public dwTimeout As UInteger
+    End Structure
+
+    <DllImport("user32.dll")>
+    Private Shared Function FlashWindowEx(ByRef pwfi As FLASHWINFO) As Boolean
+    End Function
+
+    Private Const FLASHW_ALL As UInteger = 3UI          ' flash caption + taskbar button
+    Private Const FLASHW_TIMERNOFG As UInteger = 12UI   ' keep flashing until the window is foregrounded
+
+    Private Sub Alert(kind As String)
+        Try
+            Dim s As AppUserSettings = userSettings
+            Dim enabled As Boolean
+            Dim adverse As Boolean
+            Select Case kind
+                Case "entry_fill"
+                    enabled = If(s Is Nothing, True, s.AlertEntryFill) : adverse = False
+                Case "close_profit", "close_scratch"
+                    enabled = If(s Is Nothing, True, s.AlertCloseFill) : adverse = False
+                Case "close_loss"
+                    enabled = If(s Is Nothing, True, s.AlertCloseFill) : adverse = True
+                Case "emergency_stop"
+                    enabled = If(s Is Nothing, True, s.AlertEmergencyStop) : adverse = True
+                Case "order_rejected"
+                    enabled = If(s Is Nothing, True, s.AlertOrderRejected) : adverse = True
+                Case "connection"
+                    enabled = If(s Is Nothing, True, s.AlertConnection) : adverse = True
+                Case Else
+                    enabled = True : adverse = True ' unknown kind: fail audible, never silent
+            End Select
+            If Not enabled Then Return
+
+            If adverse Then
+                System.Media.SystemSounds.Exclamation.Play()
+            Else
+                System.Media.SystemSounds.Asterisk.Play()
+            End If
+
+            UiInvoke(Sub()
+                         If Not (Me.IsHandleCreated AndAlso Not Me.IsDisposed) Then Return
+                         Dim fi As New FLASHWINFO With {
+                             .cbSize = CUInt(Marshal.SizeOf(GetType(FLASHWINFO))),
+                             .hwnd = Me.Handle,
+                             .dwFlags = FLASHW_ALL Or FLASHW_TIMERNOFG,
+                             .uCount = UInteger.MaxValue,
+                             .dwTimeout = 0UI
+                         }
+                         FlashWindowEx(fi)
+                     End Sub)
+        Catch
+            ' Alerts are best-effort.
+        End Try
+    End Sub
+
     ' --- place in frmMainPageV2 (replace existing helper) -------------------
     Private Sub AppendColoredText(rtb As RichTextBox, text As String, color As Color)
         Const RL_MSG As String = "Rate limiter not initialized - skipping order update"
@@ -4619,6 +4692,7 @@ Public Class frmMainPageV2
             If (pendingClosePorL = True) And (pendingClosePorLAmt > 0) Then
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.LimeGreen)
                 AppendColoredText(txtLogs, $"Profit made: ${pendingClosePorLAmt}.", Color.LimeGreen)
+                Alert("close_profit") ' item D
 
                 If signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted Then
                     LogTradeDecision("Exit Position - Profit", pendingClosePorLAmt, pendingCloseExecPrice)
@@ -4627,6 +4701,7 @@ Public Class frmMainPageV2
             ElseIf (pendingClosePorL = False) And (pendingClosePorLAmt > 0) Then
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.Crimson)
                 AppendColoredText(txtLogs, $"Loss of: ${pendingClosePorLAmt}.", Color.Crimson)
+                Alert("close_loss") ' item D
 
                 If signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted Then
                     LogTradeDecision("Exit Position - Loss", pendingClosePorLAmt, pendingCloseExecPrice)
@@ -4637,6 +4712,7 @@ Public Class frmMainPageV2
                 ' logs and records. No LogTradeDecision here: it has no scratch branch (would write an empty line).
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.Yellow)
                 AppendColoredText(txtLogs, "Scratch close: P/L ≈ $0.00.", Color.Yellow)
+                Alert("close_scratch") ' item D
             End If
 
             ' Item C (journal enrichment): trade-quality metrics, computed HERE next to the record
