@@ -858,6 +858,16 @@ Public Class SignalBridge
         RaiseEvent StatusChanged()
     End Sub
 
+    ' Ergonomics item H (docs/spec-execution-ergonomics.md, owner-decided + amended 2026-07-17):
+    ' the pure significance predicate for the host-log filter below. True iff the disposition
+    ' starts with "acted" or "rejected" (ordinal). "would-act" cannot occur in Live; it returns
+    ' False anyway (defensive). Pinned by OrderCheck fixtures.
+    Friend Shared Function IsSignificantDisposition(disposition As String) As Boolean
+        If disposition Is Nothing Then Return False
+        Return disposition.StartsWith("acted", StringComparison.Ordinal) OrElse
+               disposition.StartsWith("rejected", StringComparison.Ordinal)
+    End Function
+
     ' One line per consumed payload: host log + append-only bridge-dispositions.log
     ' (contract section 4 commitment; v2 feedback-file precursor). Format and tokens are
     ' soak-stable: utc | instance_id | signal_id | verdict | confidence | direction | disposition
@@ -876,19 +886,30 @@ Public Class SignalBridge
             _log($"disposition log write failed: {ex.Message}", Color.Yellow)
         End Try
 
-        Dim c As Color
-        If disposition.StartsWith("acted", StringComparison.Ordinal) Then
-            c = Color.LimeGreen
-        ElseIf disposition.StartsWith("would-act", StringComparison.Ordinal) Then
-            c = Color.Cyan
-        ElseIf disposition.StartsWith("rejected", StringComparison.Ordinal) Then
-            c = Color.Red
-        ElseIf disposition = "stale" OrElse disposition = "skipped" Then
-            c = Color.Yellow
-        Else
-            c = Color.Gray ' refused: <gate> / duplicate
+        ' Item H (owner ruling + 2026-07-17 amendment, signal #124): the HOST-LOG line only.
+        ' Significant dispositions (acted / rejected:) always print; the full chatter stream
+        ' prints only outside Live AND while flat with no working entry - so Live is always
+        ' quiet, Log-only mid-position/mid-chase is quiet too, and Log-only + flat keeps the
+        ' complete soak stream. IsFlat/HasWorkingEntryOrder are plain field-backed host reads
+        ' (same as the gate chain - safe from this thread). Everything above this line (the
+        ' disposition FILE append, _lastDisposition, and the caller's StatusChanged) is
+        ' unconditional - join integrity and the panel label see every disposition.
+        If IsSignificantDisposition(disposition) OrElse
+           (_mode <> BridgeMode.Live AndAlso _host.IsFlat AndAlso Not _host.HasWorkingEntryOrder) Then
+            Dim c As Color
+            If disposition.StartsWith("acted", StringComparison.Ordinal) Then
+                c = Color.LimeGreen
+            ElseIf disposition.StartsWith("would-act", StringComparison.Ordinal) Then
+                c = Color.Cyan
+            ElseIf disposition.StartsWith("rejected", StringComparison.Ordinal) Then
+                c = Color.Red
+            ElseIf disposition = "stale" OrElse disposition = "skipped" Then
+                c = Color.Yellow
+            Else
+                c = Color.Gray ' refused: <gate> / duplicate
+            End If
+            _log($"signal #{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction}) -> {disposition}", c)
         End If
-        _log($"signal #{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction}) -> {disposition}", c)
     End Sub
 
     Friend Class PayloadSnapshot

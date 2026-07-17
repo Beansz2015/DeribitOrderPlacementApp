@@ -158,7 +158,28 @@ Module Program
         Check("DeriveManualSl fractional stop SHORT: trigger within 0.25 of stop",
               Math.Abs((slShort - 30D) - fracStop) <= 0.25D, $"got {slShort}")
 
-        ' ---- 11. Item C schema migration (spec-execution-ergonomics): an OLD-schema trades DB ----
+        ' ---- 11. Item H: IsSignificantDisposition (spec-execution-ergonomics, owner-amended ----
+        ' 2026-07-17). Pins the host-log filter's predicate: acted/rejected = significant (always
+        ' print); everything else - would-act, refused: <gate>, stale, skipped, duplicate - is
+        ' chatter (printed only in Log-only/Off while flat with no working entry).
+        Check("significant: acted (id ...)",
+              SignalBridge.IsSignificantDisposition("acted (id ETH-123)"))
+        Check("significant: rejected: timeout",
+              SignalBridge.IsSignificantDisposition("rejected: timeout"))
+        Check("not significant: would-act (defensive - cannot occur in Live)",
+              Not SignalBridge.IsSignificantDisposition("would-act: LONG @ 60000.00, stop 59950.00, target 60080.00, size 10"))
+        Check("not significant: refused: not_flat",
+              Not SignalBridge.IsSignificantDisposition("refused: not_flat"))
+        Check("not significant: refused: levels",
+              Not SignalBridge.IsSignificantDisposition("refused: levels"))
+        Check("not significant: stale",
+              Not SignalBridge.IsSignificantDisposition("stale"))
+        Check("not significant: skipped",
+              Not SignalBridge.IsSignificantDisposition("skipped"))
+        Check("not significant: duplicate",
+              Not SignalBridge.IsSignificantDisposition("duplicate"))
+
+        ' ---- 12. Item C schema migration (spec-execution-ergonomics): an OLD-schema trades DB ----
         ' opens cleanly through TradeDatabase (the ALTERs run + backfill), legacy rows read with
         ' metric defaults, an enriched row round-trips, and a SECOND open proves idempotency
         ' (the duplicate-column throws are swallowed per column).
