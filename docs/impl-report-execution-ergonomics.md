@@ -191,6 +191,17 @@ behavior of the edit button). In the pathological "mode flipped while in a posit
 BE trigger (position-signed) and the limit derivation (TradeMode-signed) could disagree — exactly
 as a manual edit-button click would today. Not changed; flagged.
 
+**Follow-up `f28f811` (owner testnet 2026-07-18):** the first B.E. click on a long (entry 63962 +
+comms 32 = trigger 63994) with the market at ~63959 fired the edit and the exchange rejected it
+`10034 trigger_price_too_high` — a long's break-even sell-stop must rest BELOW the market (a
+short's buy-stop ABOVE it), so break-even is unplaceable until price has moved past it. The math
+was correct; only the missing pre-check was wrong. `btnBreakEven_Click` now refuses cleanly
+(yellow line) when `beTrigger >= BestBidPrice` (long) / `beTrigger <= BestAskPrice` (short), 0-price
+arms skipping the check, the exchange staying the final arbiter — no more doomed edit + red API
+ERROR. `Edit T.S.` path unchanged. **Runtime-confirmed working otherwise:** `Updated T.S.`/`Updated
+S.L.` lines emit with the correct byte-equal payload; the rejection was the exchange's, not the
+app's.
+
 ## Item G — guarded placed-SL display clear on entry-abort (`57d8ed7`)
 
 At the end of `CancelWorkingEntryCoreAsync`, after its existing context resets:
@@ -284,3 +295,27 @@ computed exactly as before), and the DB record are byte-identical.
 3. Item C acceptance's live half (plausible MAE/MFE/R/fees on a real test trade) and the
    owner-eyeball acceptances of B/D/E/G/I/J belong to the next runtime session — the
    deterministic halves (build, fixtures, migration) are green here.
+
+## Runtime acceptance results (owner testnet, 2026-07-18)
+
+- **A, D, J — PASS.** **I — PASS** with a cosmetic note (a selected-then-appended box nudges down
+  a little as `rtb.Select` scrolls the restored selection into view; selection survives; owner
+  accepted).
+- **B — PASS** (both the size line and the zero-distance refusal). Surfaced a config insight: at
+  the shipped defaults (risk 25 / cap 500) the raw risk-size exceeds the cap for any stop tighter
+  than ~$3,200, so the button returns `max_size_usd` for every normal structural stop (effective
+  risk ≪ $25). Working as designed; the owner tunes `max_size_usd` to make risk-sizing bind. No
+  code change.
+- **C — PASS** (values checked): min-size (10 USD) makes MAE/MFE/Fees land at ±$0.01 (correct
+  magnitude); signs correct (long ID 84 MAE −0.01); fees discriminate maker (0.00) vs taker close
+  (0.01); old rows read 0 (clean migration). Caveat noted: R is derived from the 2dp-rounded P/L,
+  so min-size scratch trades show R = 0.00 — meaningful only at real size.
+- **E — FIXED** (`f28f811`, above): the reported `10034 trigger_price_too_high` was the exchange
+  correctly rejecting a break-even stop placed before price reached break-even; the pre-flight
+  guard now refuses cleanly. Re-test pending.
+- **G — NOT YET EXERCISED:** the owner tested via **Cancel All Open** (the nuclear
+  `CancelOrderAsync`), not the scoped `CancelWorkingEntryCoreAsync` that item G touches; the
+  observed box-clear was pre-existing nuclear-cancel display behavior, and item G's guard would
+  have blocked its own clear anyway (position open + SL triggered). Correct test = force an
+  ATR-slippage-guard abort while FLAT (drop ATRSlip to ~0.05, place a Limit, let the chase trip
+  the guard) → the SL/Trig-Stop boxes should read 0. Still owner-eyeball-pending.
