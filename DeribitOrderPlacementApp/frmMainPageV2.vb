@@ -5812,6 +5812,22 @@ Public Class frmMainPageV2
             End If
             Dim isLong As Boolean = positionSizeUSD > 0D
             Dim beTrigger As Decimal = RoundToTick(If(isLong, positionAvgEntry + commsVal, positionAvgEntry - commsVal))
+
+            ' Item E follow-up (owner testnet 2026-07-18): a break-even stop can only REST once
+            ' price has moved past the break-even level - a long's sell-stop must sit below the
+            ' market, a short's buy-stop above it. Placing it early is exactly what the exchange
+            ' rejects as 10034 trigger_price_too_high (witnessed: long BE 63994 vs market ~63959).
+            ' Pre-check against top-of-book and refuse cleanly instead of firing a doomed edit that
+            ' logs a red API ERROR. The exchange (mark-price based) stays the final arbiter; the
+            ' 0-price arms just skip the check if a quote hasn't arrived yet.
+            If isLong AndAlso BestBidPrice > 0D AndAlso beTrigger >= BestBidPrice Then
+                AppendColoredText(txtLogs, $"B.E.: not there yet - break-even ${beTrigger:F2} is at/above the bid ${BestBidPrice:F2} (price must rise past break-even first)", Color.Yellow)
+                Return
+            ElseIf (Not isLong) AndAlso BestAskPrice > 0D AndAlso beTrigger <= BestAskPrice Then
+                AppendColoredText(txtLogs, $"B.E.: not there yet - break-even ${beTrigger:F2} is at/below the ask ${BestAskPrice:F2} (price must fall past break-even first)", Color.Yellow)
+                Return
+            End If
+
             AppendColoredText(txtLogs, $"B.E.: moving stop trigger to ${beTrigger:F2} (entry {positionAvgEntry:F2} {If(isLong, "+", "-")} comms {commsVal:F2})", Color.Yellow)
             Await EditStopLossTo(beTrigger)
         Catch ex As Exception
