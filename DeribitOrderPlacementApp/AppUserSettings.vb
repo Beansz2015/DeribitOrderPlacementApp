@@ -9,11 +9,14 @@ Imports Newtonsoft.Json.Linq
 ''' a local, git-ignored orderapp-settings.json beside the executable (same discovery pattern as
 ''' secrets.json; orderapp-settings.example.json documents the shape).
 '''
-''' Persisted: the seven standing inputs (amount / take_profit / trigger / stop_loss /
-''' trigger_offset / tp_offset / market_stop_loss), the two guard checkboxes + the ATR-slippage
-''' multiplier, the item-B risk-sizing keys (risk_per_trade_usd / max_size_usd) and the item-D
-''' alerts block. Per-trade values (txtManualTP/txtManualSL) and anything credential-like are
-''' deliberately NEVER persisted. The bridge gate-config boxes (Auto Settings) are excluded too -
+''' Persisted: the eight standing inputs (amount / take_profit / trigger / stop_loss /
+''' trigger_offset / tp_offset / comms / market_stop_loss), the two guard checkboxes + the
+''' ATR-slippage multiplier, the item-B risk-sizing keys (risk_per_trade_usd / max_size_usd) and
+''' the item-D alerts block. (comms was added by owner ruling 2026-07-18 - it is a standing
+''' session value like the rest, and the item-E break-even trigger derives from it, so a reset
+''' to the Designer default silently changes where B.E. puts the stop.)
+''' Per-trade values (txtManualTP/txtManualSL) and anything credential-like are deliberately
+''' NEVER persisted. The bridge gate-config boxes (Auto Settings) are excluded too -
 ''' they reset per session by design (spec post-retirement note).
 '''
 ''' Load is tolerant: a missing file or missing key leaves the Designer default untouched
@@ -29,6 +32,7 @@ Public NotInheritable Class AppUserSettings
     Public StopLoss As Decimal?
     Public TriggerOffset As Decimal?
     Public TpOffset As Decimal?
+    Public Comms As Decimal?
     Public MarketStopLoss As Decimal?
     Public MaxSlippageAtrChecked As Boolean?
     Public MarketStopChecked As Boolean?
@@ -41,6 +45,10 @@ Public NotInheritable Class AppUserSettings
     ' Item D (alerts) - all default ON; toggled per kind in the file (no UI).
     Public AlertEntryFill As Boolean = True
     Public AlertCloseFill As Boolean = True
+    ' Owner ruling 2026-07-18: the untracked close (liquidation / external or Deribit-UI close -
+    ' the position vanished without a fill WE tracked) is the highest-surprise close, so it gets
+    ' its own key and an ADVERSE tone - you can silence routine close chimes and keep this one on.
+    Public AlertExternalClose As Boolean = True
     Public AlertEmergencyStop As Boolean = True
     Public AlertOrderRejected As Boolean = True
     Public AlertConnection As Boolean = True
@@ -84,6 +92,7 @@ Public NotInheritable Class AppUserSettings
             result.StopLoss = json.SelectToken("stop_loss")?.ToObject(Of Decimal?)()
             result.TriggerOffset = json.SelectToken("trigger_offset")?.ToObject(Of Decimal?)()
             result.TpOffset = json.SelectToken("tp_offset")?.ToObject(Of Decimal?)()
+            result.Comms = json.SelectToken("comms")?.ToObject(Of Decimal?)()
             result.MarketStopLoss = json.SelectToken("market_stop_loss")?.ToObject(Of Decimal?)()
             result.MaxSlippageAtrChecked = json.SelectToken("max_slippage_atr_checked")?.ToObject(Of Boolean?)()
             result.MarketStopChecked = json.SelectToken("market_stop_checked")?.ToObject(Of Boolean?)()
@@ -96,6 +105,7 @@ Public NotInheritable Class AppUserSettings
             If alerts IsNot Nothing Then
                 result.AlertEntryFill = If(alerts.SelectToken("entry_fill")?.ToObject(Of Boolean?)(), True)
                 result.AlertCloseFill = If(alerts.SelectToken("close_fill")?.ToObject(Of Boolean?)(), True)
+                result.AlertExternalClose = If(alerts.SelectToken("external_close")?.ToObject(Of Boolean?)(), True)
                 result.AlertEmergencyStop = If(alerts.SelectToken("emergency_stop")?.ToObject(Of Boolean?)(), True)
                 result.AlertOrderRejected = If(alerts.SelectToken("order_rejected")?.ToObject(Of Boolean?)(), True)
                 result.AlertConnection = If(alerts.SelectToken("connection")?.ToObject(Of Boolean?)(), True)
@@ -120,6 +130,7 @@ Public NotInheritable Class AppUserSettings
                 {"stop_loss", StopLoss},
                 {"trigger_offset", TriggerOffset},
                 {"tp_offset", TpOffset},
+                {"comms", Comms},
                 {"market_stop_loss", MarketStopLoss},
                 {"max_slippage_atr_checked", MaxSlippageAtrChecked},
                 {"market_stop_checked", MarketStopChecked},
@@ -129,6 +140,7 @@ Public NotInheritable Class AppUserSettings
                 {"alerts", New JObject From {
                     {"entry_fill", AlertEntryFill},
                     {"close_fill", AlertCloseFill},
+                    {"external_close", AlertExternalClose},
                     {"emergency_stop", AlertEmergencyStop},
                     {"order_rejected", AlertOrderRejected},
                     {"connection", AlertConnection}

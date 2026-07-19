@@ -148,6 +148,7 @@ Public Class frmMainPageV2
         If userSettings.StopLoss.HasValue Then txtStopLoss.Text = userSettings.StopLoss.Value.ToString()
         If userSettings.TriggerOffset.HasValue Then txtTriggerOffset.Text = userSettings.TriggerOffset.Value.ToString()
         If userSettings.TpOffset.HasValue Then txtTPOffset.Text = userSettings.TpOffset.Value.ToString()
+        If userSettings.Comms.HasValue Then txtComms.Text = userSettings.Comms.Value.ToString()
         If userSettings.MarketStopLoss.HasValue Then txtMarketStopLoss.Text = userSettings.MarketStopLoss.Value.ToString()
         If userSettings.MaxSlippageAtrMult.HasValue Then txtMaxSlippageATR.Text = userSettings.MaxSlippageAtrMult.Value.ToString()
         If userSettings.MaxSlippageAtrChecked.HasValue Then chkMaxSlippageATR.Checked = userSettings.MaxSlippageAtrChecked.Value
@@ -165,6 +166,7 @@ Public Class frmMainPageV2
         userSettings.StopLoss = If(Decimal.TryParse(txtStopLoss.Text, d), d, 0D)
         userSettings.TriggerOffset = If(Decimal.TryParse(txtTriggerOffset.Text, d), d, 0D)
         userSettings.TpOffset = If(Decimal.TryParse(txtTPOffset.Text, d), d, 0D)
+        userSettings.Comms = If(Decimal.TryParse(txtComms.Text, d), d, 0D)
         userSettings.MarketStopLoss = If(Decimal.TryParse(txtMarketStopLoss.Text, d), d, 0D)
         userSettings.MaxSlippageAtrMult = If(Decimal.TryParse(txtMaxSlippageATR.Text, d), d, 0D)
         userSettings.MaxSlippageAtrChecked = chkMaxSlippageATR.Checked
@@ -4557,6 +4559,11 @@ Public Class frmMainPageV2
                     enabled = If(s Is Nothing, True, s.AlertCloseFill) : adverse = False
                 Case "close_loss"
                     enabled = If(s Is Nothing, True, s.AlertCloseFill) : adverse = True
+                Case "external_close"
+                    ' Owner ruling 2026-07-18: own key, ADVERSE - the position went flat without a
+                    ' fill we tracked (liquidation / external or Deribit-UI close). Highest-surprise
+                    ' close, so it stays audible even with routine close chimes off.
+                    enabled = If(s Is Nothing, True, s.AlertExternalClose) : adverse = True
                 Case "emergency_stop"
                     enabled = If(s Is Nothing, True, s.AlertEmergencyStop) : adverse = True
                 Case "order_rejected"
@@ -4845,6 +4852,7 @@ Public Class frmMainPageV2
         Else
             ' No tracked fill (external/liquidation close): complete the cleanup, nothing to record.
             AppendColoredText(txtLogs, "Position closed.", Color.Yellow)
+            Alert("external_close") ' item D, owner ruling 2026-07-18 - the highest-surprise close
         End If
 
         ' Item C: clear the trackers after the close is accounted (both branches - the next

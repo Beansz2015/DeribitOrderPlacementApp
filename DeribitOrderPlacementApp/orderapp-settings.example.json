@@ -6,6 +6,7 @@
   "stop_loss": 30,
   "trigger_offset": 30,
   "tp_offset": 60,
+  "comms": 30,
   "market_stop_loss": 70,
   "max_slippage_atr_checked": true,
   "market_stop_checked": true,
@@ -15,6 +16,7 @@
   "alerts": {
     "entry_fill": true,
     "close_fill": true,
+    "external_close": true,
     "emergency_stop": true,
     "order_rejected": true,
     "connection": true
