@@ -252,9 +252,16 @@ units; no scrollbar yet ⇒ at-bottom). Append as before. AFTER: if `atBottom`,
 itself moves the caret (`SelectionStart = TextLength` for coloring) — that alone would destroy a
 user's in-progress selection and fail the item's own acceptance ("selecting text mid-stream
 survives an append"). The action now saves a non-empty selection and restores it after the append
-(`rtb.Select(start, len)` — does not scroll). Display-only, same marshalled action; without it
-the acceptance is unachievable. A user holding a selection is necessarily scrolled-up-or-reading,
-so the restore and the follow-scroll don't fight.
+(`rtb.Select(start, len)`). Display-only, same marshalled action; without it the acceptance is
+unachievable.
+
+**Correction after the owner's runtime test (2026-07-18):** the original note here claimed
+`rtb.Select` "does not scroll" — it does. Restoring the selection scrolls it back into view, so
+with text selected and lines appending the box nudges down a little (NOT to the bottom — the
+`atBottom` follow is correctly suppressed while scrolled up). The selection itself survives, which
+is the acceptance criterion; the owner reviewed and accepted the nudge as cosmetic. Suppressing it
+would need the scroll position saved and restored around the `Select` call — not done, low value
+against the added P/Invoke.
 
 ## Item J — Position-entered line shows the true average fill (`0749a58`)
 
@@ -287,12 +294,25 @@ computed exactly as before), and the DB record are byte-identical.
 - **`positionRestoreAnnounced` / restore seeding (id 778)** — not extended to seed
   `plannedStopAtEntry`; a restored position records `RMultiple = 0` (risk unknown) by design.
 
-## Owner decisions queued from this pass
+## Owner decisions — BOTH RULED YES 2026-07-18, implemented in `e79026d`
 
-1. Persist `txtComms` too? (Item A's spec key list omits it; one-line addition.)
-2. Alert on the untracked external/liquidation "Position closed." branch? (Item D's call-site
-   list names close fills only.)
-3. Item C acceptance's live half (plausible MAE/MFE/R/fees on a real test trade) and the
+1. **Persist `txtComms`? → YES.** `comms` is now the eighth persisted standing input
+   (`AppUserSettings.Comms` + load/save, written in `ApplyUserSettingsToControls` so TextChanged
+   mirrors `commsVal` like the other seven, snapshotted in `CaptureUserSettingsFromControls`,
+   example json updated). Rationale recorded in the spec amendment: item E's break-even trigger
+   derives from `commsVal`, so a silent reset to the Designer default moves where B.E. puts the stop.
+2. **Alert on the untracked external/liquidation close? → YES.** New alert kind
+   `external_close` with its **own** config key (default on) and an **adverse** tone —
+   deliberately not folded into `close_fill` so it stays audible when routine close chimes are
+   off. Call site = the existing "Position closed." branch in `CompletePositionClose`, one line,
+   no logic change. Spec item D amended to match.
+
+Both changes gate-green (build ×3, OrderCheck 48/48). Spec `docs/spec-execution-ergonomics.md`
+items A and D carry the amendments so the decisions survive this conversation.
+
+## Still open
+
+1. Item C acceptance's live half (plausible MAE/MFE/R/fees on a real test trade) and the
    owner-eyeball acceptances of B/D/E/G/I/J belong to the next runtime session — the
    deterministic halves (build, fixtures, migration) are green here.
 
