@@ -2,6 +2,8 @@
 
 **For:** any fresh conversation continuing this work — a Fable seat before 2026-07-07, an Opus seat after. Auto-memory loads each session; this is the task-focused complement. **Supersedes `HANDOVER.md`** (2026-07-02, kept for history — its §5 invariants remain binding and are extended in §4 below).
 
+> **SUPERSEDED 2026-07-19 by `HANDOVER-3.md`** (the Fable-era close-out; this doc kept for history — its §3–§4 remain binding and are extended there).
+
 ## 1. Read-first map (in order, as needed)
 
 1. `docs/ROADMAP-2026-07.md` — the plan of record: window schedule, post-window ordering, spec inventory, decisions.
