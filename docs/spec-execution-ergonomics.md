@@ -34,6 +34,10 @@
 
 **Acceptance:** with R=$25, ref≈60000, dist=$60 → size 25×60000/60 = 25000 → clamped to `max_size_usd`; with dist=$3000 → $500 → 500 ✓ 10-multiple. Zero/blank dist → refusal log, amount untouched.
 
+**SUPERSEDED IN PART 2026-07-19 — `docs/spec-risk-sizing-settings-ui.md`:** the owner runtime-verified the maths and refusals (impl report §acceptance), then ruled that the **placement** is wrong — the button is cramped beside `txtAmount`, and `risk_per_trade_usd`/`max_size_usd` need a UI instead of hand-edited JSON. Both move to the **Tooling** section of `AutoTradeSettings`; `txtAmount` returns to its original 200px width. **The formula, config keys, 10-USD floor, clamp and refusal messages are unchanged** — placement only.
+
+**Config note from the same pass (no code change):** at the shipped defaults the risk-size exceeds `max_size_usd` for any stop tighter than ≈ `risk × price ÷ max_size` (≈ $3,200 at R=25 / cap=500 / BTC $64k), so the button returns the cap for every normal structural stop and the effective risk is far below $25. Working as designed; the owner tunes `max_size_usd` — which §2 of the new spec finally makes practical.
+
 ## Item C — journal enrichment: MAE/MFE, planned R, fees (+ signal columns)
 
 **Problem:** the DB records outcomes, not trade quality. For structural-stop calibration the owner needs: how far price went against/for the position (MAE/MFE), the R-multiple vs the *planned* stop, and net-of-fees P/L.
