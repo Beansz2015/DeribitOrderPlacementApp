@@ -23,7 +23,6 @@ Partial Class AutoTradeSettings
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
         components = New ComponentModel.Container()
-        lblBacktestTitle = New Label()
         GroupBox1 = New GroupBox()
         txtEndTime = New TextBox()
         txtStartTime = New TextBox()
@@ -44,7 +43,6 @@ Partial Class AutoTradeSettings
         lblBridgeLast = New Label()
         lblBridgeTiersCap = New Label()
         txtBridgeTiers = New TextBox()
-        lblBridgeSourceNote = New Label()
         grpTooling = New GroupBox()
         lblAtrLenCap = New Label()
         txtAtrLength = New TextBox()
@@ -53,7 +51,6 @@ Partial Class AutoTradeSettings
         txtAtrFallback = New TextBox()
         lblAtrFallbackUnit = New Label()
         lblAtrNow = New Label()
-        lblToolingNote = New Label()
         AutoTradingToolTip = New ToolTip(components)
         GroupBox1.SuspendLayout()
         grpTradeGates.SuspendLayout()
@@ -61,26 +58,19 @@ Partial Class AutoTradeSettings
         grpTooling.SuspendLayout()
         SuspendLayout()
         '
-        ' lblBacktestTitle
-        '
-        lblBacktestTitle.AutoSize = True
-        lblBacktestTitle.Font = New Font("Calibri", 18F, FontStyle.Bold Or FontStyle.Underline, GraphicsUnit.Point, CByte(0))
-        lblBacktestTitle.ForeColor = SystemColors.ControlLight
-        lblBacktestTitle.Location = New Point(103, 20)
-        lblBacktestTitle.Name = "lblBacktestTitle"
-        lblBacktestTitle.Size = New Size(318, 44)
-        lblBacktestTitle.TabIndex = 0
-        lblBacktestTitle.Text = "AutoTrading Section"
-        '
         ' GroupBox1
         '
+        ' Risk-sizing UI spec §1: the "AutoTrading Section" title label (lblBacktestTitle, a legacy
+        ' name from the retired backtest era) was deleted and all four groups reflowed up into its
+        ' space. ClientSize stays 512x856 - StickToHost top-aligns this form to the host and the
+        ' matching heights are deliberate.
         GroupBox1.Controls.Add(txtEndTime)
         GroupBox1.Controls.Add(txtStartTime)
         GroupBox1.Controls.Add(Label7)
         GroupBox1.Controls.Add(Label8)
         GroupBox1.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         GroupBox1.ForeColor = SystemColors.ButtonFace
-        GroupBox1.Location = New Point(18, 75)
+        GroupBox1.Location = New Point(18, 12)
         GroupBox1.Name = "GroupBox1"
         GroupBox1.Size = New Size(482, 100)
         GroupBox1.TabIndex = 1
@@ -145,7 +135,7 @@ Partial Class AutoTradeSettings
         grpTradeGates.Controls.Add(Label9)
         grpTradeGates.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTradeGates.ForeColor = SystemColors.ButtonFace
-        grpTradeGates.Location = New Point(18, 187)
+        grpTradeGates.Location = New Point(18, 124)
         grpTradeGates.Name = "grpTradeGates"
         grpTradeGates.Size = New Size(482, 130)
         grpTradeGates.TabIndex = 2
@@ -223,16 +213,17 @@ Partial Class AutoTradeSettings
         grpSignalBridge.Controls.Add(lblBridgeLast)
         grpSignalBridge.Controls.Add(lblBridgeTiersCap)
         grpSignalBridge.Controls.Add(txtBridgeTiers)
-        grpSignalBridge.Controls.Add(lblBridgeSourceNote)
         grpSignalBridge.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpSignalBridge.ForeColor = SystemColors.ButtonFace
-        grpSignalBridge.Location = New Point(18, 329)
+        grpSignalBridge.Location = New Point(18, 266)
         grpSignalBridge.Name = "grpSignalBridge"
-        grpSignalBridge.Size = New Size(482, 300)
+        grpSignalBridge.Size = New Size(482, 256)
         grpSignalBridge.TabIndex = 3
         grpSignalBridge.TabStop = False
         grpSignalBridge.Text = "SIGNAL BRIDGE"
-        AutoTradingToolTip.SetToolTip(grpSignalBridge, "VerdictEngine signal-bridge consumer (contract v1)." & vbCrLf & "Mode, ARM and START never persist - they reset to" & vbCrLf & "Off / unarmed / stopped at every app start.")
+        ' §1: the two lblBridgeSourceNote lines moved into this tooltip (APPENDED - the original
+        ' bridge text must survive).
+        AutoTradingToolTip.SetToolTip(grpSignalBridge, "VerdictEngine signal-bridge consumer (contract v1)." & vbCrLf & "Mode, ARM and START never persist - they reset to" & vbCrLf & "Off / unarmed / stopped at every app start." & vbCrLf & "Size = main form's Amount box." & vbCrLf & "Cooloff / max loss / window = sections above.")
         '
         ' lblBridgeModeCap
         '
@@ -328,16 +319,6 @@ Partial Class AutoTradeSettings
         txtBridgeTiers.TabIndex = 4
         txtBridgeTiers.Text = "HIGH,MEDIUM"
         '
-        ' lblBridgeSourceNote
-        '
-        lblBridgeSourceNote.Font = New Font("Calibri", 9F)
-        lblBridgeSourceNote.ForeColor = Color.Gray
-        lblBridgeSourceNote.Location = New Point(11, 246)
-        lblBridgeSourceNote.Name = "lblBridgeSourceNote"
-        lblBridgeSourceNote.Size = New Size(460, 52)
-        lblBridgeSourceNote.TabIndex = 0
-        lblBridgeSourceNote.Text = "Size = main form's Amount box." & vbCrLf & "Cooloff / max loss / window = sections above."
-        '
         ' grpTooling
         '
         grpTooling.Controls.Add(lblAtrLenCap)
@@ -347,12 +328,11 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(txtAtrFallback)
         grpTooling.Controls.Add(lblAtrFallbackUnit)
         grpTooling.Controls.Add(lblAtrNow)
-        grpTooling.Controls.Add(lblToolingNote)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
-        grpTooling.Location = New Point(18, 641)
+        grpTooling.Location = New Point(18, 534)
         grpTooling.Name = "grpTooling"
-        grpTooling.Size = New Size(482, 194)
+        grpTooling.Size = New Size(482, 270)
         grpTooling.TabIndex = 4
         grpTooling.TabStop = False
         grpTooling.Text = "Tooling"
@@ -442,17 +422,9 @@ Partial Class AutoTradeSettings
         lblAtrNow.Size = New Size(460, 30)
         lblAtrNow.TabIndex = 0
         lblAtrNow.Text = "Current ATR: -"
-        AutoTradingToolTip.SetToolTip(lblAtrNow, "The ATR the slippage guard is using right now, its source," & vbCrLf & "and the resulting limit. Updates every second while this" & vbCrLf & "window is open.")
-        '
-        ' lblToolingNote
-        '
-        lblToolingNote.Font = New Font("Calibri", 9F)
-        lblToolingNote.ForeColor = Color.Gray
-        lblToolingNote.Location = New Point(11, 158)
-        lblToolingNote.Name = "lblToolingNote"
-        lblToolingNote.Size = New Size(460, 28)
-        lblToolingNote.TabIndex = 0
-        lblToolingNote.Text = "Priority: payload, then indicator, then fallback."
+        ' §1: lblToolingNote's priority line moved into this tooltip (APPENDED - the original
+        ' readout text must survive).
+        AutoTradingToolTip.SetToolTip(lblAtrNow, "The ATR the slippage guard is using right now, its source," & vbCrLf & "and the resulting limit. Updates every second while this" & vbCrLf & "window is open." & vbCrLf & "Priority: payload, then indicator, then fallback.")
         '
         ' AutoTradeSettings
         '
@@ -464,7 +436,6 @@ Partial Class AutoTradeSettings
         Controls.Add(grpSignalBridge)
         Controls.Add(grpTradeGates)
         Controls.Add(GroupBox1)
-        Controls.Add(lblBacktestTitle)
         Name = "AutoTradeSettings"
         StartPosition = FormStartPosition.Manual
         Text = "AutoTradeSettings"
@@ -480,7 +451,6 @@ Partial Class AutoTradeSettings
         ResumeLayout(False)
         PerformLayout()
     End Sub
-    Friend WithEvents lblBacktestTitle As Label
     Friend WithEvents GroupBox1 As GroupBox
     Friend WithEvents txtEndTime As TextBox
     Friend WithEvents txtStartTime As TextBox
@@ -501,7 +471,6 @@ Partial Class AutoTradeSettings
     Friend WithEvents lblBridgeLast As Label
     Friend WithEvents lblBridgeTiersCap As Label
     Friend WithEvents txtBridgeTiers As TextBox
-    Friend WithEvents lblBridgeSourceNote As Label
     Friend WithEvents grpTooling As GroupBox
     Friend WithEvents lblAtrLenCap As Label
     Friend WithEvents txtAtrLength As TextBox
@@ -510,6 +479,5 @@ Partial Class AutoTradeSettings
     Friend WithEvents txtAtrFallback As TextBox
     Friend WithEvents lblAtrFallbackUnit As Label
     Friend WithEvents lblAtrNow As Label
-    Friend WithEvents lblToolingNote As Label
     Friend WithEvents AutoTradingToolTip As ToolTip
 End Class
