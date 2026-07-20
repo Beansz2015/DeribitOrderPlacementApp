@@ -85,14 +85,19 @@ None of substance. Two cosmetic notes: (1) the extracted method's `Catch` messag
 relocated button's font is 14pt bold (was 10pt) to suit the 120×90 size — caption measured
 single-line.
 
-## Acceptance status (owner runtime pass pending)
+## Acceptance status — owner runtime pass DONE 2026-07-21, ALL PASS
 
-Static halves done: geometry arithmetic (1), tooltip append (2), formula parity (7 — byte-equal
-extraction), `txtAmount` 200 (8), gate (9). Owner's runtime checks: visual reflow + tooltips on
-hover (1–3), the **config round-trip trap test** (4 — hand-edit `risk_per_trade_usd: 40`,
-`max_size_usd: 1200` → restart → boxes must show 40/1200, SIZE uses them), edit-and-persist (5),
-half-typed commit-first (6 — type a new Risk, do NOT tab away, click SIZE → computed from the
-on-screen value), behaviour parity of the SIZE click itself (7).
+- **1–3 (layout, tooltips, Tooling contents):** PASS — owner sighted the reflow and both appended
+  tooltips.
+- **4 (the trap test):** PASS — hand-edited json to 40/1200, restart showed **40/1200** in the
+  boxes, not the Designer defaults. The seed-before-commit fix holds.
+- **5 (edit + persist):** implicitly covered by 4 + item A's proven save path.
+- **6 (half-typed commit-first):** PASS — owner typed a new Risk value *without* tabbing away,
+  clicked SIZE, and the size was computed from the on-screen value.
+- **7 (behaviour parity):** PASS, live evidence in the session log — `Size: $1200 (risk $80 over
+  $30 stop distance)` (tuned values in force, cap binding) followed by `Size: $500 (risk $25 over
+  $30 stop distance)` (defaults restored); both printed in the MAIN form's log, refusals unchanged.
+- **8 (`txtAmount` 200, no main-form button) / 9 (gate):** done at commit time.
 
 ## Suspicious-nearby NOT touched
 

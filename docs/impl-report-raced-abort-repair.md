@@ -80,13 +80,22 @@ Accepted as specced (owner decision recorded in the spec): a price-improved race
 TP-re-anchor (`legAnchorPrice`/`pendingReanchorFill` were zeroed by the teardown). Nothing in this
 change touches that.
 
-## Acceptance status
+## Acceptance status (updated 2026-07-21 after the owner's attempt)
 
-- **1 (force the race):** owner runtime test pending — testnet recipe unchanged (flat, ATRSlip ~0.05,
-  Limit entry; expect the two gray/yellow lines then TP / Entry Buy / Trig. Stop populated within
-  ~1 s, Stop Loss untouched, `Edit T.S.` working again).
-- **2 (normal abort while flat) / 3 (normal fill):** code-identical paths (the repair is unreachable
-  without the id-31 error) — regression risk nil; owner may spot-check.
+- **1 (force the race): NOT REPRODUCED — accepted on the fails-safe argument (owner session
+  2026-07-21).** The owner ran the recipe (ATRSlip 0.05, Limit entry, live config, min size) and
+  the race simply did not recur: the entry filled instantly (65322.33 vs placed 65322.5) before a
+  single chase tick could evaluate the guard, so no slippage cancel fired and the id-31 signature
+  never appeared. A race cannot be staged on demand. Disposition, mirroring the accepted item-G
+  precedent: the repair is gated on the exact id-31 error signature, its inert path is now
+  runtime-observed (below), and the active path will be exercised on the race's next natural
+  occurrence — watch for the gray + yellow lines and the boxes repopulating, then `Edit T.S.`
+  working on that position.
+- **2/3 (normal paths byte-identical): RUNTIME-OBSERVED.** The same session was a full normal
+  cycle with the repair code present — placement, instant fill, SL trigger, chase repositions, a
+  manual Edit T.S. mid-chase (correctly discriminated as `Manual SL edit` and followed — the
+  reconciliation design working as ratified), stop-out, DB record #88 — with **zero** repair
+  lines and zero behavior change.
 - **4 (grep assertions):** all pass, above.
 
 ## Suspicious-nearby NOT touched
