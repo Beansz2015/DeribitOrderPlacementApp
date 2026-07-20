@@ -1403,6 +1403,39 @@ Public Class frmMainPageV2
                AndAlso (errorMessage.IndexOf("not_open_order", StringComparison.OrdinalIgnoreCase) >= 0 _
                         OrElse errorMessage.IndexOf("order_not_found", StringComparison.OrdinalIgnoreCase) >= 0) Then
                 AppendColoredText(txtLogs, "Entry cancel skipped (id 31): order already filled - benign abort race (the fill won)", Color.Gray)
+
+                ' Raced-abort repair (spec-back-execution-ergonomics-runtime.md item 2): this response
+                ' is the exchange's authoritative "the cancel LOST - the entry filled". The scoped
+                ' cancel's optimistic teardown has already zeroed the entry/TP/trigger displays, and
+                ' cancelPending is suppressing the very echoes that would repopulate them - while the
+                ' 'cancelled' echo that normally clears the gate will never arrive (the order filled).
+                ' Repair, in order:
+                '  1. Clear the cancel gate NOW. Safe by socket ordering (coordinator note, 2026-07-20):
+                '     this error is a response on the same WebSocket as the order echoes and Deribit
+                '     delivers in order, so every echo of the raced entry (open -> filled) has already
+                '     been processed - there is no lagging pre-fill echo left to slip through. The
+                '     clear must precede the dispatch below: HandleOpenOrdersSnapshot returns early
+                '     while cancelPending is set.
+                cancelPending = False
+                cancelPendingSince = DateTime.MinValue
+                '  2. Re-arm the restore announce. The raced state IS the restore state (position, no
+                '     working entry, placedPrice = 0): ProcessPositionData's once-per-connection
+                '     announce block is the ONLY writer of txtPlacedPrice/placedPrice in that state
+                '     (the id-778 snapshot deliberately never seeds order-context without an open
+                '     entry), so without this reset the Entry Buy box stays 0 for the position's life.
+                positionRestoreAnnounced = False
+                '  3. Re-sync from the exchange - never hand-write prices here. The id-778 snapshot
+                '     repopulates the TP/trigger displays and the POSITION leg ids only: it assigns
+                '     CurrentOpenOrderId/CurrentTPOrderId/CurrentSLOrderId solely when an entry leg is
+                '     order_state "open", and ours is FILLED - so the working-entry context (and the
+                '     bridge's HasWorkingEntryOrder gate) structurally cannot be re-armed. Fire-and-
+                '     forget off the receive thread (rate-limiter re-init pattern); GetLivePositionData
+                '     self-debounces via isRequestingLiveData (no new limiter).
+                AppendColoredText(txtLogs, "Entry filled before the cancel landed - re-syncing order/position state from exchange", Color.Yellow)
+                Dim _resync = Task.Run(Async Function()
+                                           Await RequestOpenOrdersSnapshot()
+                                           Await GetLivePositionData("BTC-PERPETUAL")
+                                       End Function)
                 Return
             End If
 
