@@ -59,6 +59,29 @@ Public Class frmMainPageV2
         If atrFallback > 0D Then atrFallbackVal = atrFallback
     End Sub
 
+    ' Risk-sizing UI spec §2: the item-B keys, surfaced to the AutoTradeSettings Tooling boxes.
+    ' The values LIVE in userSettings (loaded at frmMainPageV2_Load BEFORE AutoTradeSettings is
+    ' constructed - the settings form's seed-before-commit depends on that ordering) and persist
+    ' via item A's existing save path; there is deliberately no new save path here.
+    Friend ReadOnly Property RiskPerTradeUsd As Decimal
+        Get
+            Return If(userSettings IsNot Nothing, userSettings.RiskPerTradeUsd, 25D)
+        End Get
+    End Property
+
+    Friend ReadOnly Property MaxSizeUsd As Decimal
+        Get
+            Return If(userSettings IsNot Nothing, userSettings.MaxSizeUsd, 500D)
+        End Get
+    End Property
+
+    ' Same convention as SetToolingValues: non-positive (= blank/garbage box) keeps the last good value.
+    Friend Sub SetRiskSizingValues(riskPerTrade As Decimal, maxSize As Decimal)
+        If userSettings Is Nothing Then userSettings = New AppUserSettings()
+        If riskPerTrade > 0D Then userSettings.RiskPerTradeUsd = riskPerTrade
+        If maxSize > 0D Then userSettings.MaxSizeUsd = maxSize
+    End Sub
+
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
 

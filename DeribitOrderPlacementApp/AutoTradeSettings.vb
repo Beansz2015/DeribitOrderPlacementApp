@@ -103,10 +103,17 @@ Public Class AutoTradeSettings
     ' host right after construction, so the bridge has real values before the first payload lands
     ' (Load does not run until the form is first shown, which may be never).
     Friend Sub InitialiseSettings()
+        ' Risk-sizing UI spec §2 - the initialisation-ordering trap: CommitToolingConfig below now
+        ' also pushes risk/max-size to the host, so the boxes MUST be seeded from the host (= the
+        ' values just loaded from orderapp-settings.json) FIRST - otherwise this first commit would
+        ' overwrite the owner's tuned numbers with the Designer defaults (25/500) on every start.
+        ' Depends on the host's Load ordering: userSettings is loaded before this form is constructed.
+        SeedRiskSizingFromHost()
         CommitGateConfig()
         CommitToolingConfig()
         For Each tb As TextBox In {txtCooloff, txtCircuitBreaker, txtStartTime, txtEndTime,
-                                   txtBridgeTiers, txtAtrLength, txtAtrFallback}
+                                   txtBridgeTiers, txtAtrLength, txtAtrFallback,
+                                   txtRiskPerTrade, txtMaxSize}
             AddHandler tb.Enter, AddressOf SelectAllOnEnter
             AddHandler tb.Click, AddressOf SelectAllOnEnter
             AddHandler tb.Leave, AddressOf CommitOnLeave
@@ -209,6 +216,15 @@ Public Class AutoTradeSettings
         ShowGateConfigWarnings()
     End Sub
 
+    ' §2: one-time seed of the risk-sizing boxes from the host's loaded settings. MUST run before
+    ' the first CommitToolingConfig (see InitialiseSettings) so the file's values win over the
+    ' Designer defaults.
+    Private Sub SeedRiskSizingFromHost()
+        If _host Is Nothing Then Return
+        txtRiskPerTrade.Text = _host.RiskPerTradeUsd.ToString()
+        txtMaxSize.Text = _host.MaxSizeUsd.ToString()
+    End Sub
+
     Private Sub CommitToolingConfig()
         If _host Is Nothing Then Return
         Dim len As Integer
@@ -216,6 +232,14 @@ Public Class AutoTradeSettings
         If Not Integer.TryParse(txtAtrLength.Text, len) Then len = 0
         If Not Decimal.TryParse(txtAtrFallback.Text, fallback) Then fallback = 0D
         _host.SetToolingValues(len, fallback)   ' host ignores non-positive values
+
+        ' §2: risk-sizing values - same contract (host ignores non-positive, so blank/garbage
+        ' keeps the last good value; persistence rides item A's save path, no new one here).
+        Dim risk As Decimal
+        Dim maxSize As Decimal
+        If Not Decimal.TryParse(txtRiskPerTrade.Text, risk) Then risk = 0D
+        If Not Decimal.TryParse(txtMaxSize.Text, maxSize) Then maxSize = 0D
+        _host.SetRiskSizingValues(risk, maxSize)
     End Sub
 
     ' Surfaces the cases where what is typed is not what is in force.
@@ -233,6 +257,8 @@ Public Class AutoTradeSettings
         Dim len As Integer
         If Not Integer.TryParse(txtAtrLength.Text, len) OrElse len <= 0 Then problems.Add($"ATR length '{txtAtrLength.Text}'")
         If Not Decimal.TryParse(txtAtrFallback.Text, d) OrElse d <= 0D Then problems.Add($"ATR fallback '{txtAtrFallback.Text}'")
+        If Not Decimal.TryParse(txtRiskPerTrade.Text, d) OrElse d <= 0D Then problems.Add($"risk/trade '{txtRiskPerTrade.Text}'")
+        If Not Decimal.TryParse(txtMaxSize.Text, d) OrElse d <= 0D Then problems.Add($"max size '{txtMaxSize.Text}'")
 
         If problems.Count = 0 Then Return
         lblBridgeStatus.Text = "Ignored (keeping last good): " & String.Join("; ", problems)

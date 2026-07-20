@@ -50,6 +50,12 @@ Partial Class AutoTradeSettings
         lblAtrFallbackCap = New Label()
         txtAtrFallback = New TextBox()
         lblAtrFallbackUnit = New Label()
+        lblRiskPerTradeCap = New Label()
+        txtRiskPerTrade = New TextBox()
+        lblRiskPerTradeUnit = New Label()
+        lblMaxSizeCap = New Label()
+        txtMaxSize = New TextBox()
+        lblMaxSizeUnit = New Label()
         lblAtrNow = New Label()
         AutoTradingToolTip = New ToolTip(components)
         GroupBox1.SuspendLayout()
@@ -327,6 +333,12 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(lblAtrFallbackCap)
         grpTooling.Controls.Add(txtAtrFallback)
         grpTooling.Controls.Add(lblAtrFallbackUnit)
+        grpTooling.Controls.Add(lblRiskPerTradeCap)
+        grpTooling.Controls.Add(txtRiskPerTrade)
+        grpTooling.Controls.Add(lblRiskPerTradeUnit)
+        grpTooling.Controls.Add(lblMaxSizeCap)
+        grpTooling.Controls.Add(txtMaxSize)
+        grpTooling.Controls.Add(lblMaxSizeUnit)
         grpTooling.Controls.Add(lblAtrNow)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
@@ -410,6 +422,82 @@ Partial Class AutoTradeSettings
         lblAtrFallbackUnit.TabIndex = 0
         lblAtrFallbackUnit.Text = "USD"
         '
+        ' lblRiskPerTradeCap
+        '
+        ' Risk-sizing UI spec §2: the item-B keys get a UI (they were file-only). Values live in the
+        ' HOST's userSettings (AppUserSettings) and persist via item A's existing save path; these
+        ' boxes are commit-on-blur mirrors seeded from the host BEFORE the first commit (the §2
+        ' initialisation-ordering trap - see InitialiseSettings).
+        lblRiskPerTradeCap.AutoSize = True
+        lblRiskPerTradeCap.Font = New Font("Calibri", 14F)
+        lblRiskPerTradeCap.ForeColor = SystemColors.ControlLight
+        lblRiskPerTradeCap.Location = New Point(11, 130)
+        lblRiskPerTradeCap.Name = "lblRiskPerTradeCap"
+        lblRiskPerTradeCap.Size = New Size(178, 35)
+        lblRiskPerTradeCap.TabIndex = 0
+        lblRiskPerTradeCap.Text = "Risk / Trade:"
+        AutoTradingToolTip.SetToolTip(lblRiskPerTradeCap, "USD you are willing to lose if the stop is hit. The SIZE button" & vbCrLf & "computes size = risk x best price / stop distance (10-USD steps," & vbCrLf & "clamped to Max Size). Persists as risk_per_trade_usd in" & vbCrLf & "orderapp-settings.json.")
+        '
+        ' txtRiskPerTrade
+        '
+        txtRiskPerTrade.BackColor = Color.Black
+        txtRiskPerTrade.BorderStyle = BorderStyle.FixedSingle
+        txtRiskPerTrade.Font = New Font("Calibri", 14F)
+        txtRiskPerTrade.ForeColor = Color.White
+        txtRiskPerTrade.Location = New Point(330, 126)
+        txtRiskPerTrade.Name = "txtRiskPerTrade"
+        txtRiskPerTrade.Size = New Size(64, 42)
+        txtRiskPerTrade.TabIndex = 3
+        txtRiskPerTrade.Text = "25"
+        txtRiskPerTrade.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblRiskPerTradeUnit
+        '
+        lblRiskPerTradeUnit.AutoSize = True
+        lblRiskPerTradeUnit.Font = New Font("Calibri", 10F)
+        lblRiskPerTradeUnit.ForeColor = SystemColors.ControlLight
+        lblRiskPerTradeUnit.Location = New Point(400, 134)
+        lblRiskPerTradeUnit.Name = "lblRiskPerTradeUnit"
+        lblRiskPerTradeUnit.Size = New Size(50, 24)
+        lblRiskPerTradeUnit.TabIndex = 0
+        lblRiskPerTradeUnit.Text = "USD"
+        '
+        ' lblMaxSizeCap
+        '
+        lblMaxSizeCap.AutoSize = True
+        lblMaxSizeCap.Font = New Font("Calibri", 14F)
+        lblMaxSizeCap.ForeColor = SystemColors.ControlLight
+        lblMaxSizeCap.Location = New Point(11, 178)
+        lblMaxSizeCap.Name = "lblMaxSizeCap"
+        lblMaxSizeCap.Size = New Size(178, 35)
+        lblMaxSizeCap.TabIndex = 0
+        lblMaxSizeCap.Text = "Max Size:"
+        AutoTradingToolTip.SetToolTip(lblMaxSizeCap, "Hard cap on the computed size, in USD (applied after the risk" & vbCrLf & "formula; floored to the 10-USD contract step). While a stop is" & vbCrLf & "tighter than risk x price / max size, this cap is what the SIZE" & vbCrLf & "button returns. Persists as max_size_usd in orderapp-settings.json.")
+        '
+        ' txtMaxSize
+        '
+        txtMaxSize.BackColor = Color.Black
+        txtMaxSize.BorderStyle = BorderStyle.FixedSingle
+        txtMaxSize.Font = New Font("Calibri", 14F)
+        txtMaxSize.ForeColor = Color.White
+        txtMaxSize.Location = New Point(330, 174)
+        txtMaxSize.Name = "txtMaxSize"
+        txtMaxSize.Size = New Size(64, 42)
+        txtMaxSize.TabIndex = 4
+        txtMaxSize.Text = "500"
+        txtMaxSize.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblMaxSizeUnit
+        '
+        lblMaxSizeUnit.AutoSize = True
+        lblMaxSizeUnit.Font = New Font("Calibri", 10F)
+        lblMaxSizeUnit.ForeColor = SystemColors.ControlLight
+        lblMaxSizeUnit.Location = New Point(400, 182)
+        lblMaxSizeUnit.Name = "lblMaxSizeUnit"
+        lblMaxSizeUnit.Size = New Size(50, 24)
+        lblMaxSizeUnit.TabIndex = 0
+        lblMaxSizeUnit.Text = "USD"
+        '
         ' lblAtrNow
         '
         ' Live readout: FrmIndicators is retired, so its ATR display is gone - this is now the only
@@ -417,7 +505,7 @@ Partial Class AutoTradeSettings
         ' actually running. Ticks once a second while this form is open.
         lblAtrNow.Font = New Font("Calibri", 11F, FontStyle.Bold)
         lblAtrNow.ForeColor = SystemColors.ControlLight
-        lblAtrNow.Location = New Point(11, 126)
+        lblAtrNow.Location = New Point(11, 226)
         lblAtrNow.Name = "lblAtrNow"
         lblAtrNow.Size = New Size(460, 30)
         lblAtrNow.TabIndex = 0
@@ -478,6 +566,12 @@ Partial Class AutoTradeSettings
     Friend WithEvents lblAtrFallbackCap As Label
     Friend WithEvents txtAtrFallback As TextBox
     Friend WithEvents lblAtrFallbackUnit As Label
+    Friend WithEvents lblRiskPerTradeCap As Label
+    Friend WithEvents txtRiskPerTrade As TextBox
+    Friend WithEvents lblRiskPerTradeUnit As Label
+    Friend WithEvents lblMaxSizeCap As Label
+    Friend WithEvents txtMaxSize As TextBox
+    Friend WithEvents lblMaxSizeUnit As Label
     Friend WithEvents lblAtrNow As Label
     Friend WithEvents AutoTradingToolTip As ToolTip
 End Class
