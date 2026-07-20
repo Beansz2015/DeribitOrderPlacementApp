@@ -333,7 +333,16 @@ items A and D carry the amendments so the decisions survive this conversation.
 - **E — FIXED** (`f28f811`, above): the reported `10034 trigger_price_too_high` was the exchange
   correctly rejecting a break-even stop placed before price reached break-even; the pre-flight
   guard now refuses cleanly. Re-test pending.
-- **G — NOT YET EXERCISED:** the owner tested via **Cancel All Open** (the nuclear
+- **G — HALF PROVEN (2026-07-18, second attempt):** forcing the abort with ATRSlip 0.05 produced a
+  **raced** abort — the entry filled before the cancel landed. That accidentally exercised the
+  safety-critical half of item G's acceptance: with a live position the guard **correctly refused to
+  clear** (`Stop Loss` kept 64872 = trigger 64892 − S.Loss 20; item G's block clears both SL boxes, so
+  its survival proves the block did not run — `PositionSLOrderId` was non-Nothing). The
+  *clears-when-provably-flat* half remains unobserved and is hard to reach on testnet (thin book fills
+  entries near-instantly). Two PRE-EXISTING defects surfaced by that run are specced in
+  `docs/spec-back-execution-ergonomics-runtime.md` — item 1 (benign id-31 `not_open_order` logged red)
+  **fixed here**; item 2 (TP / Entry / Trig Stop all read 0 while a live position exists) handed off.
+- **G — first attempt, INVALID TEST:** the owner tested via **Cancel All Open** (the nuclear
   `CancelOrderAsync`), not the scoped `CancelWorkingEntryCoreAsync` that item G touches; the
   observed box-clear was pre-existing nuclear-cancel display behavior, and item G's guard would
   have blocked its own clear anyway (position open + SL triggered). Correct test = force an

@@ -1390,6 +1390,22 @@ Public Class frmMainPageV2
                 Return
             End If
 
+            ' Expected ABORT race (owner testnet 2026-07-18, spec-back-execution-ergonomics-runtime.md
+            ' item 1): the SCOPED entry cancel (id 31, a private/cancel by order_id) can reach the
+            ' exchange just after the entry filled - the order is no longer open, so it comes back
+            ' not_open_order / order_not_found. This is benign and EXPECTED whenever the ATR-slippage
+            ' guard races a fast fill: the fill simply won, the position is real and its legs are live.
+            ' Same treatment as the 223344-223350 already_closed chase race above - still logged, just
+            ' not alarming. Deliberately NARROW: only id 31 (the by-id cancel that can produce this),
+            ' never the nuclear id-30 path, and any OTHER id-31 error stays loud below.
+            If messageId.HasValue AndAlso messageId.Value = 31 _
+               AndAlso errorMessage IsNot Nothing _
+               AndAlso (errorMessage.IndexOf("not_open_order", StringComparison.OrdinalIgnoreCase) >= 0 _
+                        OrElse errorMessage.IndexOf("order_not_found", StringComparison.OrdinalIgnoreCase) >= 0) Then
+                AppendColoredText(txtLogs, "Entry cancel skipped (id 31): order already filled - benign abort race (the fill won)", Color.Gray)
+                Return
+            End If
+
             Dim errorData = errorField.SelectToken("data")?.ToString(Newtonsoft.Json.Formatting.None)
 
             AppendColoredText(txtLogs,
@@ -1408,6 +1424,7 @@ Public Class frmMainPageV2
         Select Case messageId.Value
             Case 2 : Return " auth/entry order"
             Case 30 : Return " cancel-all/trailing stop"
+            Case 31 : Return " scoped entry cancel"
             Case 1 : Return " subscribe/reduce order"
             Case 1001 : Return " set_heartbeat"
             Case 223344, 223345, 223346, 223347, 223348, 223349, 223350 : Return " order edit"
