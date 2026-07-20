@@ -10,9 +10,13 @@ button near `txtAmount`"). **The sizing formula, the config keys, the 10-USD flo
 clamp and every refusal message are unchanged and must stay byte-identical** — the owner has already
 runtime-verified them (impl report, 2026-07-18 acceptance).
 
-**Recommended implementer:** Opus at **high** — mostly mechanical, but §2's initialisation ordering is a
-silent-data-loss trap and the cross-form call in §3 must not break the commit-on-blur safety model.
-One conversation.
+**Recommended implementer:** **Fable high while the window lasts (~Aug 2), else Opus high** — mostly
+mechanical, but §2's initialisation ordering is a silent-data-loss trap and the cross-form call in §3
+must not break the commit-on-blur safety model. One conversation; sequenced AFTER the raced-abort repair
+(`spec-back-execution-ergonomics-runtime.md` item 2 — the live-workflow bug goes first).
+**Coordinator-APPROVED 2026-07-20 as written** (geometry arithmetic re-checked: groups bottom at 804 of
+856 ✓; the §2 seed-before-commit fix is the load-bearing piece; §5's SIZE-not-on-deny-list reasoning
+accepted — it places no order).
 **Target:** `AutoTradeSettings.Designer.vb`, `AutoTradeSettings.vb`, `frmMainPageV2.Designer.vb`,
 `frmMainPageV2.vb`. **Base:** current master HEAD (contains ergonomics Phase A). **Anchors by symbol;
 verify against HEAD at implementation time.**

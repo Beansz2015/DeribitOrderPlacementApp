@@ -127,6 +127,16 @@ On that signal (and *only* that signal):
 time. At that instant the positions echo may not have arrived — that *is* the race — so the check is
 unreliable. Repairing on an authoritative response is deterministic.
 
+**Socket-ordering argument (coordinator addition, 2026-07-20 — why clearing `cancelPending` here cannot
+re-arm a dead context):** the id-31 error is a RESPONSE on the same WebSocket as the order echoes, and
+Deribit delivers in order — so by the time the repair runs, every echo of the raced entry (open → filled)
+has already been delivered and processed. There is no "lagging pre-fill open echo" left to slip through
+the cleared gate; the observed evidence shows exactly this ordering (`Position entered` printed BEFORE
+the id-31 error). The transition-race protection was built for the cancel-WINS case, whose lagging
+`cancelled`-adjacent echoes genuinely do trail; in the cancel-LOSES case the error response is
+structurally the LAST message of the sequence. This is why the repair site is safe where a timer-based
+early-clear would not be.
+
 ### Invariants (load-bearing — a reviewer will check each)
 
 - **Never re-seed `CurrentOpenOrderId`.** The entry is FILLED, not working. Restoring working-entry
