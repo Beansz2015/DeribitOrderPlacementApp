@@ -310,6 +310,21 @@ computed exactly as before), and the DB record are byte-identical.
 Both changes gate-green (build ×3, OrderCheck 48/48). Spec `docs/spec-execution-ergonomics.md`
 items A and D carry the amendments so the decisions survive this conversation.
 
+## Acceptance summary (as of 2026-07-19)
+
+**A, B, C, D, E, H, I, J — PASS.** **G — half proven** (the invariant-3 half: with a live position the
+guard correctly refused to clear; the clears-when-provably-flat half is still unobserved).
+
+**Push assessment: Phase A is acceptance-complete.** Item G's unobserved half is display-only and
+**fails safe by construction** — if that branch never fires, the boxes simply keep the pre-item-G stale
+value, i.e. exactly today's shipped behaviour, so there is no regression risk in shipping it unproven.
+The dangerous direction (clearing while a position is live) is the one that has been runtime-proven.
+It will also be exercised naturally the first time a slippage abort wins its race in normal trading.
+
+Two follow-up specs were raised from this pass and are **not** part of this stack:
+`docs/spec-back-execution-ergonomics-runtime.md` item 2 (raced-abort display repair) and
+`docs/spec-risk-sizing-settings-ui.md` (item B's UI relocation).
+
 ## Still open
 
 1. Item C acceptance's live half (plausible MAE/MFE/R/fees on a real test trade) and the
@@ -330,9 +345,19 @@ items A and D carry the amendments so the decisions survive this conversation.
   magnitude); signs correct (long ID 84 MAE −0.01); fees discriminate maker (0.00) vs taker close
   (0.01); old rows read 0 (clean migration). Caveat noted: R is derived from the 2dp-rounded P/L,
   so min-size scratch trades show R = 0.00 — meaningful only at real size.
-- **E — FIXED** (`f28f811`, above): the reported `10034 trigger_price_too_high` was the exchange
-  correctly rejecting a break-even stop placed before price reached break-even; the pre-flight
-  guard now refuses cleanly. Re-test pending.
+- **E — FIXED and RE-TESTED PASS** (`f28f811`): the reported `10034 trigger_price_too_high` was the
+  exchange correctly rejecting a break-even stop placed before price reached break-even; the
+  pre-flight guard now refuses cleanly. Owner re-test 2026-07-19 exercised **both** branches on one
+  long (entry 65352.00, comms 33 → BE 65385.00): clicked early → `B.E.: not there yet - break-even
+  $65385.00 is at/above the bid $65343.00`, no edit sent, **no API error**; clicked after price
+  breached it → `Updated T.S. to: $65385` / `Updated S.L. to: $65365` (= trigger − S.Loss 20, the
+  shared core's long derivation) and **no error line followed**. Item E CLOSED.
+- **H — PASS, proven from the session logs (no separate run needed):** in Log-only the consumed
+  signal IDs jump **#118 → #166** (session 1) and **#184 → #264** (session 2), each gap spanning
+  exactly one working-entry-plus-position lifetime, with zero `[BRIDGE]` lines in the main log and
+  resumption on the first payload after the close. That is the amended predicate's runtime
+  acceptance — chatter suppressed while busy, full stream while flat, the bridge still consuming
+  throughout (IDs advanced; the disposition FILE keeps every row for join integrity).
 - **G — HALF PROVEN (2026-07-18, second attempt):** forcing the abort with ATRSlip 0.05 produced a
   **raced** abort — the entry filled before the cancel landed. That accidentally exercised the
   safety-critical half of item G's acceptance: with a live position the guard **correctly refused to
