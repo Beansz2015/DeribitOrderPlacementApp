@@ -56,6 +56,7 @@ Partial Class AutoTradeSettings
         lblMaxSizeCap = New Label()
         txtMaxSize = New TextBox()
         lblMaxSizeUnit = New Label()
+        btnRiskSize = New Button()
         lblAtrNow = New Label()
         AutoTradingToolTip = New ToolTip(components)
         GroupBox1.SuspendLayout()
@@ -339,6 +340,7 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(lblMaxSizeCap)
         grpTooling.Controls.Add(txtMaxSize)
         grpTooling.Controls.Add(lblMaxSizeUnit)
+        grpTooling.Controls.Add(btnRiskSize)
         grpTooling.Controls.Add(lblAtrNow)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
@@ -498,6 +500,25 @@ Partial Class AutoTradeSettings
         lblMaxSizeUnit.TabIndex = 0
         lblMaxSizeUnit.Text = "USD"
         '
+        ' btnRiskSize
+        '
+        ' Risk-sizing UI spec §3: relocated from the main form's AMOUNT($) group (where it was
+        ' cramped and half-hidden). Spans both risk rows in the caption/textbox gutter - big and
+        ' obvious is the point. Caption "SIZE" measures ~55px at 14pt bold on ONE line, well under
+        ' 120 (the btnAutoSettings wrap-clip lesson). Handler = thin forwarder to the host's
+        ' ApplyRiskBasedSize, committing half-typed risk/max-size edits first.
+        btnRiskSize.BackColor = Color.MediumTurquoise
+        btnRiskSize.Cursor = Cursors.Hand
+        btnRiskSize.Font = New Font("Calibri", 14F, FontStyle.Bold)
+        btnRiskSize.ForeColor = SystemColors.ControlText
+        btnRiskSize.Location = New Point(200, 126)
+        btnRiskSize.Name = "btnRiskSize"
+        btnRiskSize.Size = New Size(120, 90)
+        btnRiskSize.TabIndex = 5
+        btnRiskSize.Text = "SIZE"
+        AutoTradingToolTip.SetToolTip(btnRiskSize, "Risk-based size: risk_per_trade_usd x best price / stop distance" & vbCrLf & "(manual SL if set, else Trig. P.), floored to a 10-USD multiple and" & vbCrLf & "clamped to max_size_usd. Both keys live in orderapp-settings.json.")
+        btnRiskSize.UseVisualStyleBackColor = False
+        '
         ' lblAtrNow
         '
         ' Live readout: FrmIndicators is retired, so its ATR display is gone - this is now the only
@@ -572,6 +593,7 @@ Partial Class AutoTradeSettings
     Friend WithEvents lblMaxSizeCap As Label
     Friend WithEvents txtMaxSize As TextBox
     Friend WithEvents lblMaxSizeUnit As Label
+    Friend WithEvents btnRiskSize As Button
     Friend WithEvents lblAtrNow As Label
     Friend WithEvents AutoTradingToolTip As ToolTip
 End Class

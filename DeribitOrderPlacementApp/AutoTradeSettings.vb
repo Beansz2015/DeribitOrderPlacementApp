@@ -265,6 +265,17 @@ Public Class AutoTradeSettings
         lblBridgeStatus.ForeColor = Color.Orange
     End Sub
 
+    ' Risk-sizing UI spec §3: thin forwarder - the sizing logic stays on the host, where the
+    ' engine mirrors, best prices, txtAmount and the main log live. The explicit commit is
+    ' required, not decorative: clicking the button normally fires Leave on a focused box first,
+    ' but relying on focus order for a value that decides POSITION SIZE is exactly the half-typed
+    ' hazard the commit-on-blur model exists to prevent - commit-first guarantees the click uses
+    ' the number on screen. Both forms are UI-thread, so the direct call is safe.
+    Private Sub btnRiskSize_Click(sender As Object, e As EventArgs) Handles btnRiskSize.Click
+        CommitToolingConfig()
+        If _host IsNot Nothing Then _host.ApplyRiskBasedSize()
+    End Sub
+
     ' ============ SIGNAL BRIDGE panel handlers ============
 
     ' StatusChanged is raised on arbitrary bridge threads (FSW/timer/processing) - marshal, never

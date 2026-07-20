@@ -96,7 +96,6 @@ Partial Class frmMainPageV2
         lblPnL = New CustomLabel()
         CustomLabel2 = New CustomLabel()
         txtAmount = New CustomTextBox()
-        btnRiskSize = New Button()
         OrderAmount = New GroupBox()
         ManualTPSL = New GroupBox()
         CustomLabel5 = New CustomLabel()
@@ -1041,38 +1040,21 @@ Partial Class frmMainPageV2
         '
         ' txtAmount
         '
-        ' Ergonomics item B: width 200 -> 148 to make room for the SIZE button beside it
-        ' (148px still holds a 6-digit USD size at 16pt bold, centred).
+        ' Risk-sizing UI spec §3: back to the original 200px - the SIZE button (whose room the
+        ' brief 148px narrowing made) moved to AutoTradeSettings' Tooling group.
         txtAmount.BackColor = Color.WhiteSmoke
         txtAmount.Font = New Font("Calibri", 16F, FontStyle.Bold)
         txtAmount.ForeColor = SystemColors.WindowText
         txtAmount.Location = New Point(22, 49)
         txtAmount.Name = "txtAmount"
-        txtAmount.Size = New Size(148, 47)
+        txtAmount.Size = New Size(200, 47)
         txtAmount.TabIndex = 112
         txtAmount.Text = "10"
         txtAmount.TextAlign = HorizontalAlignment.Center
         '
-        ' btnRiskSize
-        '
-        ' Ergonomics item B: risk-based sizing. Caption "SIZE" measures well under 62px at 10pt
-        ' bold on one line (the layout lesson from btnAutoSettings: Button silently wraps+clips).
-        btnRiskSize.BackColor = Color.MediumTurquoise
-        btnRiskSize.Cursor = Cursors.Hand
-        btnRiskSize.Font = New Font("Calibri", 10F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
-        btnRiskSize.ForeColor = SystemColors.ControlText
-        btnRiskSize.Location = New Point(176, 49)
-        btnRiskSize.Name = "btnRiskSize"
-        btnRiskSize.Size = New Size(62, 47)
-        btnRiskSize.TabIndex = 113
-        btnRiskSize.Text = "SIZE"
-        ToolTip1.SetToolTip(btnRiskSize, "Risk-based size: risk_per_trade_usd x best price / stop distance" & vbCrLf & "(manual SL if set, else Trig. P.), floored to a 10-USD multiple and" & vbCrLf & "clamped to max_size_usd. Both keys live in orderapp-settings.json.")
-        btnRiskSize.UseVisualStyleBackColor = False
-        '
         ' OrderAmount
         '
         OrderAmount.Controls.Add(txtAmount)
-        OrderAmount.Controls.Add(btnRiskSize)
         OrderAmount.Font = New Font("Calibri", 12F, FontStyle.Bold, GraphicsUnit.Point, CByte(0))
         OrderAmount.ForeColor = SystemColors.ButtonFace
         OrderAmount.Location = New Point(5, 280)
@@ -1320,7 +1302,6 @@ Partial Class frmMainPageV2
     Friend WithEvents txtPlacedTrigStopPrice As CustomTextBox
     Friend WithEvents txtPlacedPrice As CustomTextBox
     Friend WithEvents txtAmount As CustomTextBox
-    Friend WithEvents btnRiskSize As Button
     Friend WithEvents OrderAmount As GroupBox
     Friend WithEvents btnConnect As Button
     Friend WithEvents radHeartBeat As RadioButton

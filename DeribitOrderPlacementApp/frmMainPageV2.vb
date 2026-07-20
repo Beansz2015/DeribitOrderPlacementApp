@@ -210,12 +210,16 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    ' Ergonomics item B (docs/spec-execution-ergonomics.md): risk-based sizing. UI thread (button
-    ' handler); reads the engine mirrors + best-price fields, writes ONLY txtAmount.Text (the
+    ' Ergonomics item B (docs/spec-execution-ergonomics.md): risk-based sizing. UI thread only
+    ' (called from this form's UI thread or the AutoTradeSettings SIZE button - same thread);
+    ' reads the engine mirrors + best-price fields, writes ONLY txtAmount.Text (the
     ' TextChanged sync mirrors it into orderAmountVal - same path as typing).
     ' size = risk x ref / dist (inverse-contract linearization), floored to the 10-USD contract
     ' step (a non-multiple rejects -32602), clamped to max_size_usd. Refusals leave txtAmount alone.
-    Private Sub btnRiskSize_Click(sender As Object, e As EventArgs) Handles btnRiskSize.Click
+    ' Risk-sizing UI spec §3: the button moved to AutoTradeSettings' Tooling group (its handler is
+    ' a thin forwarder that commits half-typed risk/max-size edits first); the LOGIC stays here,
+    ' where the mirrors, prices and log live. Body unchanged from the runtime-verified item B.
+    Friend Sub ApplyRiskBasedSize()
         Try
             Dim refPrice As Decimal = If(TradeMode, BestBidPrice, BestAskPrice)
             If refPrice <= 0D Then
@@ -248,7 +252,7 @@ Public Class frmMainPageV2
             txtAmount.Text = size.ToString("0")
             AppendColoredText(txtLogs, $"Size: ${size:0} (risk ${riskUsd:0.##} over ${dist:0.##} stop distance)", Color.LimeGreen)
         Catch ex As Exception
-            AppendColoredText(txtLogs, $"Error in btnRiskSize_Click: {ex.Message}", Color.Red)
+            AppendColoredText(txtLogs, $"Error in ApplyRiskBasedSize: {ex.Message}", Color.Red)
         End Try
     End Sub
 
