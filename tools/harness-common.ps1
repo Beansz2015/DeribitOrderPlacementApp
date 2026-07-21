@@ -114,6 +114,42 @@ function Test-ElementMatch {
     return $false
 }
 
+# True when two AutomationElements are the SAME control. RuntimeId is the reliable identity -
+# AutomationElement instances are not reference-equal across separate queries, so comparing the
+# objects (or their Names) gives wrong answers.
+function Test-SameElement {
+    param($A, $B)
+    if ($null -eq $A -or $null -eq $B) { return $false }
+    try { $ra = $A.GetRuntimeId(); $rb = $B.GetRuntimeId() } catch { return $false }
+    if ($null -eq $ra -or $null -eq $rb -or $ra.Length -ne $rb.Length) { return $false }
+    for ($i = 0; $i -lt $ra.Length; $i++) { if ($ra[$i] -ne $rb[$i]) { return $false } }
+    return $true
+}
+
+# Picks a control in $Window to hand keyboard focus to when blurring $Exclude.
+#
+# WHY THIS EXISTS: focusing the WINDOW does not blur a child control. A WinForms Form routes
+# activation straight back to its last-active child, so "focus the box, then focus the form"
+# leaves focus exactly where it started and the Leave event never fires - which is precisely how
+# set-textbox used to report a successful commit that never happened (2026-07-21 testnet pass).
+# A real blur has to land on a DIFFERENT focusable control.
+#
+# Edits only, deliberately: focusing a control never activates it (no click, no invoke), but
+# restricting the sink to text boxes keeps focus away from the deny-listed trade buttons entirely
+# rather than relying on that argument. Every window in this app that has a target Edit has
+# others; if none is found the caller must fail loudly rather than fall back to the broken
+# focus-the-window behaviour.
+function Get-FocusSink {
+    param($Window, $Exclude)
+    foreach ($c in (Find-ByControlType -Element $Window -TypeName Edit)) {
+        if (Test-SameElement -A $c -B $Exclude) { continue }
+        if (-not $c.Current.IsKeyboardFocusable) { continue }
+        if ($c.Current.IsOffscreen) { continue }
+        return $c
+    }
+    return $null
+}
+
 # Win11 blocks SetForegroundWindow under foreground-steal restrictions; attaching to the current
 # foreground's input queue lifts the lockout so focus genuinely transfers and SendKeys reaches
 # the app instead of the calling terminal. Copied verbatim from the engine harness.

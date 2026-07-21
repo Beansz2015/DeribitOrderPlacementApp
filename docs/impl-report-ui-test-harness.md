@@ -116,6 +116,47 @@ Owner registered the test.deribit.com key and set `Environment: "testnet"`; this
 
 **Script fixes from this pass (committed after the run):** `read-log` now finds the log by `ControlType.Document` — RichTextBox does NOT honour `AccessibleName` as UIA Name (a neighbouring-label heuristic wins: it read `'$'`) and its AutomationId is a volatile numeric handle; `set-textbox -CommitViaBlur` now foregrounds+restores the owning window first (UIA `SetFocus` silently no-ops when the app is not the foreground application or is minimized ⇒ `Leave` never fires ⇒ the mirror silently keeps the old value while the box shows the new one — the exact failure §9.3 exists to catch, now also witnessed from the script side); `set-textbox` `$Value` is optional-defaulting-to-blank (nested shells DROP an empty-string argument, and a Mandatory parameter then prompts forever in a non-interactive run). Operational lessons: focus-dependent steps are flaky while the desktop is being used (one blur commit needed a retry; foreground-stealing also leaked a user keystroke `ls` into a time box — garbage, so it refused to commit, exactly as designed) — batch them and re-assert; testnet ATR values are drift-only, don't use them as a commit discriminator.
 
+## 8b. Addendum 2026-07-21 — `-CommitViaBlur` was still silently failing; now fixed and verified
+
+The §8 foreground fix was **necessary but not sufficient**. `-CommitViaBlur` kept reporting successful
+commits it had not performed, and it cost real debugging time during the session-policy acceptance
+pass: two results came back as the wrong disposition (`policy(NY/tier)` where `policy(NY/context)`
+was expected) and read exactly like a product bug. The gate was fine — the policy had never been
+committed.
+
+**Root cause — blurring onto the window does not blur the control.** The old sequence was
+`SetValue` → `$e.SetFocus()` → `$w.SetFocus()`. A WinForms `Form` routes activation straight back to
+its last-active child, so focusing the owning window handed focus **back to the very box** we were
+trying to leave. `Leave` never fired, `CommitOnLeave` never ran, and the box displayed the new text
+while the app went on serving the previous mirror. Two further weaknesses compounded it: the box was
+focused *after* the write (so there was often no focus to lose at all), and nothing ever checked the
+outcome — the script printed "Committed via blur" unconditionally.
+
+**Fix (three parts, all in `set-textbox.ps1` + two helpers in `harness-common.ps1`):**
+
+1. **Focus first, then write.** Reproduces the human order (enter box → edit → leave box) and
+   guarantees there is a focus to lose. If focus cannot be established on the target, the script
+   **writes nothing** and exits 3 naming where focus actually is.
+2. **Blur onto a different control**, via `Get-FocusSink` — the first other focusable, on-screen
+   `Edit` in the same window (Edits only, so focus never lands on a deny-listed trade button even
+   though focusing is inert). If no sink exists the script refuses rather than falling back to the
+   broken behaviour.
+3. **Verify, don't assume.** `Test-SameElement` (RuntimeId comparison — AutomationElement instances
+   are not reference-equal across queries) re-reads `AutomationElement::FocusedElement` after the
+   blur; if focus is still on the target, the script exits 3 and says plainly that the value is in
+   the box but **not in force**. Success now names the sink: `Committed via blur (focus -> 'txtAtrLength' … verified off the target)`.
+
+**Verified on testnet 2026-07-21**, isolated payload path, app in Log-only. The regression case
+passes with `-CommitViaBlur` alone and no workaround: policy changed to `NY = MEDIUM | CONFIRMED |
+1.0`, MEDIUM payload with an empty context → `refused: policy(NY/context)` (previously stuck on
+`tier`). Generality confirmed on an unrelated box: `txtCooloff` = `xyz` raised the orange warning and
+`= 5` cleared it, both committing on the first attempt — the same pair that failed silently before.
+
+**The standing lesson survives the fix:** a harness that reports work it did not do sends you hunting
+for product bugs that do not exist. Prefer verifying what is **in force** (app behaviour, status
+label, disposition log) over what a control displays — the fixture-pinned pure seams are trustworthy,
+the UI plumbing is not.
+
 ## 9. What the owner runs next (spec §7 owner tier)
 
 Everything in §8 is done except: **live regression** — set `Environment` back to `"live"` (or delete the line), start the app normally, confirm it looks and behaves exactly as before plus the ` — LIVE` suffix, and **restart the VerdictEngine** (stopped for §9.4/§9.5). The push gate is already installed in this clone (`tools/install-hooks.ps1` re-run only on fresh clones). Decide the tick-size-rounding finding (§8) before/at the next coordinator review.
