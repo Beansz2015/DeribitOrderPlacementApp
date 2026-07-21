@@ -881,8 +881,6 @@ Public Class frmMainPageV2
 
         If errorField IsNot Nothing Then
             Throw New Exception("Authorization failed: " & errorField.ToString())
-            'txtLogs.AppendText("Authorization failed: " & errorField.ToString() + Environment.NewLine)
-            AppendColoredText(txtLogs, "Authorization failed: " & errorField.ToString(), Color.Red)
         Else
             'txtLogs.AppendText("WebSocket authorized successfully" + Environment.NewLine)
             AppendColoredText(txtLogs, "WebSocket authorized successfully", Color.DodgerBlue)
@@ -893,8 +891,6 @@ Public Class frmMainPageV2
                 refreshToken = refreshTokenToken.ToString()
             Else
                 Throw New Exception("Refresh token not found in response")
-                'txtLogs.AppendText("Refresh token not found in response" + Environment.NewLine)
-                AppendColoredText(txtLogs, "Refresh token not found in response", Color.Yellow)
             End If
 
             Dim expiresInToken = json.SelectToken("result.expires_in")
