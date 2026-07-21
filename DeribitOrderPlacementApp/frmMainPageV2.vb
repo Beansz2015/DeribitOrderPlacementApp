@@ -2772,13 +2772,15 @@ Public Class frmMainPageV2
                                                               placedPrice = If(price, 0D)
                                                               txtPlacedPrice.Text = If(price?.ToString("F2"), "0")
                                                           End If
-                                                          If Decimal.Parse(txtManualTP.Text) > 0 Then
+                                                          ' item 12: use mirror fields (manualTPval/tpOffsetVal/commsVal) kept current by SyncTradeInputsFromUi
+                                                          ' instead of parsing textboxes — avoids FormatException on blank field.
+                                                          If manualTPval > 0 Then
                                                               txtPlacedTakeProfitPrice.Text = txtManualTP.Text
                                                           Else
                                                               If TradeMode = True Then
-                                                                  txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) + ((Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text)))
+                                                                  txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) + (tpOffsetVal + commsVal)
                                                               Else
-                                                                  txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) - ((Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text)))
+                                                                  txtPlacedTakeProfitPrice.Text = Decimal.Parse(If(price?.ToString("F2"), "0")) - (tpOffsetVal + commsVal)
                                                               End If
 
                                                           End If
@@ -5707,32 +5709,36 @@ Public Class frmMainPageV2
 
     Private Async Sub btnEditTPPrice_Click(sender As Object, e As EventArgs) Handles btnEditTPPrice.Click
         Try
+            ' item 12: use mirror fields for manualTPval/commsVal/tpOffsetVal/orderAmountVal;
+            ' TryParse for display-only fields (txtPlacedPrice / txtPlacedTakeProfitPrice).
+            Dim d As Decimal
+            Dim displayPlacedPrice As Decimal = If(Decimal.TryParse(txtPlacedPrice.Text, d), d, 0D)
             If (isTrailingStop = True) And (isTrailingPosition = True) And (isTrailingStopLossPlaced = True) Then
-                If Decimal.Parse(txtManualTP.Text) > 0 Then
+                If manualTPval > 0 Then
                     txtPlacedTakeProfitPrice.Text = txtManualTP.Text
                     If TradeMode = True Then
-                        If Decimal.Parse(txtPlacedTakeProfitPrice.Text) < (Decimal.Parse(txtPlacedPrice.Text) + Decimal.Parse(txtComms.Text)) Then
+                        If manualTPval < (displayPlacedPrice + commsVal) Then
                             AppendColoredText(txtLogs, "Manual TP is less than comms paid.", Color.Yellow)
                         End If
                     Else
-                        If Decimal.Parse(txtPlacedTakeProfitPrice.Text) > (Decimal.Parse(txtPlacedPrice.Text) - Decimal.Parse(txtComms.Text)) Then
+                        If manualTPval > (displayPlacedPrice - commsVal) Then
                             AppendColoredText(txtLogs, "Manual TP is less than comms paid.", Color.Yellow)
                         End If
                     End If
 
                 Else
                     If TradeMode = True Then
-                        txtPlacedTakeProfitPrice.Text = Decimal.Parse(txtPlacedPrice.Text) + (Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text))
+                        txtPlacedTakeProfitPrice.Text = displayPlacedPrice + (tpOffsetVal + commsVal)
                     Else
-                        txtPlacedTakeProfitPrice.Text = Decimal.Parse(txtPlacedPrice.Text) - (Decimal.Parse(txtTPOffset.Text) + Decimal.Parse(txtComms.Text))
+                        txtPlacedTakeProfitPrice.Text = displayPlacedPrice - (tpOffsetVal + commsVal)
                     End If
                 End If
                 AppendColoredText(txtLogs, $"Updated Trailing SL target to: ${txtPlacedTakeProfitPrice.Text}", Color.Yellow)
 
             Else
-                If Decimal.Parse(txtPlacedTakeProfitPrice.Text) > 0 Then
-                    Dim newTPprice = Decimal.Parse(txtPlacedTakeProfitPrice.Text)
-                    Dim amount = Decimal.Parse(txtAmount.Text)
+                Dim newTPprice As Decimal = If(Decimal.TryParse(txtPlacedTakeProfitPrice.Text, d), d, 0D)
+                If newTPprice > 0 Then
+                    Dim amount As Decimal = orderAmountVal
                     Dim TPOrderID As String = Nothing
 
                     ' Ensure WebSocket is connected
@@ -5836,10 +5842,12 @@ Public Class frmMainPageV2
 
     Private Async Sub btnEditSLPrice_Click(sender As Object, e As EventArgs) Handles btnEditSLPrice.Click
         Try
-            If Decimal.Parse(txtPlacedTrigStopPrice.Text) > 0 Then
-                Await EditStopLossTo(Decimal.Parse(txtPlacedTrigStopPrice.Text))
-            Else
+            ' item 12: TryParse guard — blank textbox no longer throws FormatException.
+            Dim trigPrice As Decimal
+            If Not Decimal.TryParse(txtPlacedTrigStopPrice.Text, trigPrice) OrElse trigPrice <= 0D Then
                 AppendColoredText(txtLogs, "S.L. textbox is 0", Color.Yellow)
+            Else
+                Await EditStopLossTo(trigPrice)
             End If
 
         Catch ex As Exception
@@ -6232,13 +6240,14 @@ Public Class frmMainPageV2
                                            Handles btnEstimateMargins.Click
         Try
             '---------------------------  input validation  --------------------
-            If String.IsNullOrEmpty(txtAmount.Text) OrElse
-           Not IsNumeric(txtAmount.Text) Then
+            ' item 12+13: TryParse replaces IsNumeric+Parse; local renamed orderValueUSD (was
+            ' positionSizeUSD) to avoid shadowing the engine's position-model field.
+            Dim orderValueUSD As Decimal
+            If Not Decimal.TryParse(txtAmount.Text, orderValueUSD) OrElse orderValueUSD <= 0D Then
                 AppendColoredText(txtLogs, "Please enter a valid amount", Color.Yellow)
                 Return
             End If
 
-            Dim positionSizeUSD As Decimal = Decimal.Parse(txtAmount.Text)
             Dim currentPrice As Decimal = If(TradeMode, BestBidPrice, BestAskPrice)
             If currentPrice <= 0D Then
                 AppendColoredText(txtLogs, "Invalid market price for estimation", Color.Yellow)
@@ -6251,12 +6260,12 @@ Public Class frmMainPageV2
 
             '-----------------------  effective leverage  ----------------------
             Dim effectiveLeverage As Decimal =
-            If(accountBalanceUSD = 0D, 0D, positionSizeUSD / accountBalanceUSD)
+            If(accountBalanceUSD = 0D, 0D, orderValueUSD / accountBalanceUSD)
 
             '----------------  call the corrected margin routine  --------------
             Dim isShort As Boolean = Not TradeMode          ' True = short
             Dim margins = CalculateDeribitInverseLiquidationPrice(
-                           positionSizeUSD,
+                           orderValueUSD,
                            effectiveLeverage,
                            currentPrice,
                            isShort)
@@ -6302,8 +6311,9 @@ Public Class frmMainPageV2
 
     Private Async Sub btnRefreshLiveData_Click(sender As Object, e As EventArgs) Handles btnRefreshLiveData.Click
         Try
-            ' Only refresh if we have a position
-            If Decimal.Parse(txtPlacedPrice.Text) > 0 Then
+            ' item 12: check the engine field (placedPrice) directly — avoids a Decimal.Parse on the
+            ' display textbox which can throw if the box is blank.
+            If placedPrice > 0D Then
                 Await GetLivePositionData("BTC-PERPETUAL")
             Else
                 AppendColoredText(txtLogs, "No active position to refresh", Color.Yellow)
