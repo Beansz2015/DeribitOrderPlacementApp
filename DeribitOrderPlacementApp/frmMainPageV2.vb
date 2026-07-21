@@ -4491,6 +4491,12 @@ Public Class frmMainPageV2
         New JProperty("type", "all")
         ))
     )
+            ' item 14f: set cancelPending before the send so echoes from the cancel_all_by_instrument
+            ' cannot be misread while the trailing placement is in flight. The 4-s self-clear handles
+            ' reset. Do NOT call CancelOrderAsync -- it resets the SL context (emergencyBaseline /
+            ' commanded-SL set / trigger baseline) which would break the trailing transition.
+            cancelPending = True
+            cancelPendingSince = DateTime.UtcNow
             Await SendWebSocketMessageAsync(cancelPayload.ToString())
             AppendColoredText(txtLogs, "Cancelled current stop loss order.", Color.Green)
 
