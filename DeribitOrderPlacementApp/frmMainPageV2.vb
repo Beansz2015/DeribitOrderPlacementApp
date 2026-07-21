@@ -1705,19 +1705,19 @@ Public Class frmMainPageV2
 
                 'Await SendWebSocketMessageAsync("{""jsonrpc"":""2.0"",""id"":4,""method"":""public/ping"",""params"":{}}")
 
-                Me.Invoke(Sub()
-                              '              txtLogs.AppendText("REQ. received." + Environment.NewLine)
-                              radHeartBeat.BackColor = Color.Crimson
-                          End Sub)
+                UiInvoke(Sub()
+                             '              txtLogs.AppendText("REQ. received." + Environment.NewLine)
+                             radHeartBeat.BackColor = Color.Crimson
+                         End Sub)
 
                 Await SendWebSocketMessageAsync("{""jsonrpc"":""2.0"",""id"":4,""method"":""public/test"",""params"":{}}")
 
                 Await Task.Delay(500)
 
-                Me.Invoke(Sub()
-                              'txtLogs.AppendText("ACK. sent." + Environment.NewLine)
-                              radHeartBeat.BackColor = Color.Black
-                          End Sub)
+                UiInvoke(Sub()
+                             'txtLogs.AppendText("ACK. sent." + Environment.NewLine)
+                             radHeartBeat.BackColor = Color.Black
+                         End Sub)
 
                 ' Checks if got error message
                 Dim errorField = json.SelectToken("error")
@@ -1882,16 +1882,16 @@ Public Class frmMainPageV2
                 ' Update public variables and textboxes on the UI thread
                 If bestBid IsNot Nothing Then
                     BestBidPrice = bestBid
-                    Me.Invoke(Sub()
-                                  txtTopBid.Text = BestBidPrice.ToString("F2")
-                              End Sub)
+                    UiInvoke(Sub()
+                                 txtTopBid.Text = BestBidPrice.ToString("F2")
+                             End Sub)
                 End If
 
                 If bestAsk IsNot Nothing Then
                     BestAskPrice = bestAsk
-                    Me.Invoke(Sub()
-                                  txtTopAsk.Text = BestAskPrice.ToString("F2")
-                              End Sub)
+                    UiInvoke(Sub()
+                                 txtTopAsk.Text = BestAskPrice.ToString("F2")
+                             End Sub)
                 End If
 
                 ' Item C (journal enrichment): track the raw price extremes since entry - two guarded
@@ -2364,39 +2364,29 @@ Public Class frmMainPageV2
                 End If
                 If dispBasis > 0D AndAlso dispAmt > 0D Then
                     Dim PnL As Decimal
+                    ' item 15: consolidated colour+text into one UiInvoke per branch (non-blocking).
                     If dispLong Then
                         ' item 14g: [owner-visible] long closes hit the BID, not the ask.
                         PnL = (BestBidPrice - dispBasis) * (dispAmt / dispBasis)
-                        If BestBidPrice < dispBasis Then
-                            Me.Invoke(Sub()
-                                          lblPnL.ForeColor = Color.Red
-                                      End Sub)
-                        Else
-                            Me.Invoke(Sub()
-                                          lblPnL.ForeColor = Color.Chartreuse
-                                      End Sub)
-                        End If
+                        Dim pnlColorLong As Color = If(BestBidPrice < dispBasis, Color.Red, Color.Chartreuse)
+                        UiInvoke(Sub()
+                                     lblPnL.ForeColor = pnlColorLong
+                                     lblPnL.Text = PnL.ToString("F2")
+                                 End Sub)
                     Else
                         ' Short branch (ask) is correct — leave unchanged.
                         PnL = (dispBasis - BestAskPrice) * (dispAmt / dispBasis)
-                        If BestAskPrice > dispBasis Then
-                            Me.Invoke(Sub()
-                                          lblPnL.ForeColor = Color.Red
-                                      End Sub)
-                        Else
-                            Me.Invoke(Sub()
-                                          lblPnL.ForeColor = Color.Chartreuse
-                                      End Sub)
-                        End If
+                        Dim pnlColorShort As Color = If(BestAskPrice > dispBasis, Color.Red, Color.Chartreuse)
+                        UiInvoke(Sub()
+                                     lblPnL.ForeColor = pnlColorShort
+                                     lblPnL.Text = PnL.ToString("F2")
+                                 End Sub)
                     End If
-                    Me.Invoke(Sub()
-                                  lblPnL.Text = PnL.ToString("F2")
-                              End Sub)
                 Else
-                    Me.Invoke(Sub()
-                                  lblPnL.ForeColor = Color.Chartreuse
-                                  lblPnL.Text = "0"
-                              End Sub)
+                    UiInvoke(Sub()
+                                 lblPnL.ForeColor = Color.Chartreuse
+                                 lblPnL.Text = "0"
+                             End Sub)
                 End If
             End If
         Catch ex As Exception
@@ -3622,14 +3612,15 @@ Public Class frmMainPageV2
 
         ' Cross-thread fix: CancelOrderAsync runs on both the UI and receive threads; marshal the status
         ' label with the placed-price resets (it was previously written unguarded off the receive thread).
-        Me.Invoke(Sub()
-                      txtPlacedPrice.Text = "0"
-                      txtPlacedTakeProfitPrice.Text = "0"
-                      txtPlacedTrigStopPrice.Text = "0"
-                      txtPlacedStopLossPrice.Text = "0"
-                      lblOrderStatus.Text = "Awaiting Orders"
-                      lblOrderStatus.ForeColor = Color.DeepSkyBlue
-                  End Sub)
+        ' item 15: non-blocking UiInvoke (display-only writes; ordering preserved via the message queue).
+        UiInvoke(Sub()
+                     txtPlacedPrice.Text = "0"
+                     txtPlacedTakeProfitPrice.Text = "0"
+                     txtPlacedTrigStopPrice.Text = "0"
+                     txtPlacedStopLossPrice.Text = "0"
+                     lblOrderStatus.Text = "Awaiting Orders"
+                     lblOrderStatus.ForeColor = Color.DeepSkyBlue
+                 End Sub)
 
         'Reset all flags
         isTrailingStop = False
@@ -3647,17 +3638,17 @@ Public Class frmMainPageV2
 
         ResetOrderAttempt() ' Reset ATR slippage tracking
 
-        'Clearing margin displays
-        Me.Invoke(Sub()
-                      lblEstimatedLiquidation.Text = "L.Liq: N/A"
-                      lblInitialMargin.Text = "L.IM: N/A"
-                      lblMaintenanceMargin.Text = "L.MM: N/A"
-                      lblEstimatedLeverage.Text = "L.Lev: N/A"
+        'Clearing margin displays (item 15: UiInvoke — display-only)
+        UiInvoke(Sub()
+                     lblEstimatedLiquidation.Text = "L.Liq: N/A"
+                     lblInitialMargin.Text = "L.IM: N/A"
+                     lblMaintenanceMargin.Text = "L.MM: N/A"
+                     lblEstimatedLeverage.Text = "L.Lev: N/A"
 
-                      ' Reset colors
-                      lblEstimatedLiquidation.ForeColor = Color.Gray
-                      lblEstimatedLeverage.ForeColor = Color.Gray
-                  End Sub)
+                     ' Reset colors
+                     lblEstimatedLiquidation.ForeColor = Color.Gray
+                     lblEstimatedLeverage.ForeColor = Color.Gray
+                 End Sub)
 
         If PositionEmpty = False Then
             AppendColoredText(txtLogs, $"Cancelled all open orders", Color.Yellow)
@@ -4713,11 +4704,13 @@ Public Class frmMainPageV2
         ' 2. Normal logging. Handle-race guard: AppendColoredText is called from the receive thread; a raw
         ' Me.Invoke throws "handle not created" if a background log fires before the form handle exists or
         ' during teardown. Drop the line in that window rather than crash (matches the UiInvoke guard).
+        ' item 15: Me.BeginInvoke (non-blocking) — queue ordering keeps log lines in order; UI-thread
+        ' callers now append after the current handler returns (cosmetic, no behaviour change).
         If Not (Me.IsHandleCreated AndAlso Not Me.IsDisposed) Then Return
         Try
             ' Item I: check + append + scroll all inside the ONE marshalled action (atomic per
             ' append, UI thread only, display-only).
-            Me.Invoke(Sub()
+            Me.BeginInvoke(Sub()
                           ' BEFORE the append: were we at (or within ~one line of) the bottom?
                           ' No scrollbar yet (nPage 0) counts as at-bottom - always follow.
                           Dim atBottom As Boolean = True
@@ -4837,17 +4830,17 @@ Public Class frmMainPageV2
 
         Await CancelOrderAsync()
 
-        'Clearing margin displays
-        Me.Invoke(Sub()
-                      lblEstimatedLiquidation.Text = "L.Liq: N/A"
-                      lblInitialMargin.Text = "L.IM: N/A"
-                      lblMaintenanceMargin.Text = "L.MM: N/A"
-                      lblEstimatedLeverage.Text = "L.Lev: N/A"
+        'Clearing margin displays (item 15: UiInvoke — display-only)
+        UiInvoke(Sub()
+                     lblEstimatedLiquidation.Text = "L.Liq: N/A"
+                     lblInitialMargin.Text = "L.IM: N/A"
+                     lblMaintenanceMargin.Text = "L.MM: N/A"
+                     lblEstimatedLeverage.Text = "L.Lev: N/A"
 
-                      ' Reset colors
-                      lblEstimatedLiquidation.ForeColor = Color.Gray
-                      lblEstimatedLeverage.ForeColor = Color.Gray
-                  End Sub)
+                     ' Reset colors
+                     lblEstimatedLiquidation.ForeColor = Color.Gray
+                     lblEstimatedLeverage.ForeColor = Color.Gray
+                 End Sub)
 
         If pendingCloseValid Then
             If (pendingClosePorL = True) And (pendingClosePorLAmt > 0) Then
@@ -5254,37 +5247,38 @@ Public Class frmMainPageV2
 
             End If
 
-            Me.Invoke(Sub()
-                          ' Update UI with LIVE Deribit data
-                          If estimatedLiquidation.HasValue AndAlso estimatedLiquidation.Value > 0 Then
-                              lblEstimatedLiquidation.Text = $"L.Liq: ${estimatedLiquidation.Value:F2}"
-                              lblEstimatedLiquidation.ForeColor = Color.Red
-                          Else
-                              lblEstimatedLiquidation.Text = "L.Liq: N/A"
-                              lblEstimatedLiquidation.ForeColor = Color.Gray
-                          End If
+            ' item 15: UiInvoke — display-only label updates (margin/leverage).
+            UiInvoke(Sub()
+                         ' Update UI with LIVE Deribit data
+                         If estimatedLiquidation.HasValue AndAlso estimatedLiquidation.Value > 0 Then
+                             lblEstimatedLiquidation.Text = $"L.Liq: ${estimatedLiquidation.Value:F2}"
+                             lblEstimatedLiquidation.ForeColor = Color.Red
+                         Else
+                             lblEstimatedLiquidation.Text = "L.Liq: N/A"
+                             lblEstimatedLiquidation.ForeColor = Color.Gray
+                         End If
 
-                          If initialMargin.HasValue Then
-                              lblInitialMargin.Text = $"L.IM: {initialMargin.Value:F8} BTC"
-                          End If
+                         If initialMargin.HasValue Then
+                             lblInitialMargin.Text = $"L.IM: {initialMargin.Value:F8} BTC"
+                         End If
 
-                          If maintenanceMargin.HasValue Then
-                              lblMaintenanceMargin.Text = $"L.MM: {maintenanceMargin.Value:F8} BTC"
-                          End If
+                         If maintenanceMargin.HasValue Then
+                             lblMaintenanceMargin.Text = $"L.MM: {maintenanceMargin.Value:F8} BTC"
+                         End If
 
-                          ' Display proper leverage based on account balance
-                          ' ("pending" until the first equity update arrives - avoids a misleading 0.00x)
-                          lblEstimatedLeverage.Text = If(accountBalanceUSD = 0D, "L.Lev: pending", $"L.Lev: {effectiveLeverage:F2}x")
+                         ' Display proper leverage based on account balance
+                         ' ("pending" until the first equity update arrives - avoids a misleading 0.00x)
+                         lblEstimatedLeverage.Text = If(accountBalanceUSD = 0D, "L.Lev: pending", $"L.Lev: {effectiveLeverage:F2}x")
 
-                          ' Color code leverage risk
-                          If effectiveLeverage > 10 Then
-                              lblEstimatedLeverage.ForeColor = Color.Red
-                          ElseIf effectiveLeverage > 5 Then
-                              lblEstimatedLeverage.ForeColor = Color.Orange
-                          Else
-                              lblEstimatedLeverage.ForeColor = Color.LimeGreen
-                          End If
-                      End Sub)
+                         ' Color code leverage risk
+                         If effectiveLeverage > 10 Then
+                             lblEstimatedLeverage.ForeColor = Color.Red
+                         ElseIf effectiveLeverage > 5 Then
+                             lblEstimatedLeverage.ForeColor = Color.Orange
+                         Else
+                             lblEstimatedLeverage.ForeColor = Color.LimeGreen
+                         End If
+                     End Sub)
 
             ' Improved logging with corrected calculation
             Dim liquidationText As String = If(estimatedLiquidation.HasValue AndAlso estimatedLiquidation.Value > 0,
