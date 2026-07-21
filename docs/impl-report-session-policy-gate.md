@@ -216,23 +216,79 @@ knowing before the number causes a false alarm in a future review.
 | 2 | Disabled parity (soak-safety proof) | **Argued + fixture-backed, owner runtime pass outstanding.** `PolicyRefusalFor` returns `Nothing` when disabled and `EffectiveSizeUsd` is the identity at unity, both pinned; nothing populates a non-default policy unless the owner ticks the box. Needs the live-stream byte-comparison. |
 | 3 | Config round-trip (the §5 trap test) | **Mechanism fixture-pinned** (json → rules → rendered text); the hand-edit + restart run is the owner's. |
 | 4–6 | Tier refusal / context refusal / size_mult | Runtime, engine-stopped write-payload protocol — owner. |
-| 7 | UI not clipped/overlapping | **Verified on paper** (table above); not verified on screen. |
+| 7 | UI not clipped/overlapping | **DONE on testnet** — §6a below. Found and fixed a real clipping defect (`8a31fd6`). |
 | 8 | Persist round-trip | Runtime — owner. |
 | 9 | Greps | **DONE** — §5 above. |
 
-Acceptances 2–8 need a runtime pass; nothing here is "done" until the owner runs it. I did not launch
-the app: the owner trades through it daily and HANDOVER-3 §6 asks that session-disruptive work be
-coordinated. Happy to drive the harness (testnet profile, engine-stopped payload protocol) on request.
+Acceptances 2–6 and 8 still need the owner's runtime pass; nothing is "done" until they run it.
+
+## 6a. Testnet harness pass (acceptance 7 + §8), 2026-07-21
+
+Owner-authorised environment flip: `secrets.json` `Environment` `live` → `testnet` for the run,
+**restored to `live` afterwards and verified** (262 bytes, valid JSON, all three keys intact). App
+launched via `tools/launch-app.ps1` as the harness-owned PID, title confirmed
+`Deribit Order Placement App V2.2 — TESTNET`. App stopped and the screenshot deleted per the
+standing rule. Nothing was driven that could place an order.
+
+**The finding — a whole session line was invisible.** With the WinForms default `WordWrap = True`,
+`LONDON = MEDIUM | CONFIRMED | 0.5` overran the 320px box, wrapped to a second visual row, and
+pushed the entire **ASIA line out of view**. The box showed two sessions and silently hid the third.
+Fixed in `8a31fd6`: `WordWrap = False` (one config line is always one visual row; an over-long line
+now clips at the right, still caret-reachable, and the stored value was never affected), box moved to
+x=110 and widened to 360×80. Re-verified on testnet after the fix — all three lines render, ASIA
+visible, nothing clipped or overlapping.
+
+**Method note, worth keeping.** The numeric `inspect-tree` dump *could not* have caught this: it
+omits GroupBox captions, and it reports control **bounds**, not whether the text inside them fits.
+The app renders the box text larger than a 96-DPI Calibri-10F measurement predicts (system DPI is
+1.00×, so this is WinForms `AutoScaleMode.Font` behaviour, not display scaling), which is exactly why
+`inspect-tree`'s own header warns never to compare UIA numbers against Designer units. **The
+screenshot was the only instrument that showed it.** Geometry sign-off needs both.
+
+**Also verified in the same pass:**
+
+- `"Trade Gates && Inclusion Time Range"` renders single-line with a literal ampersand and no
+  mnemonic underline — the doubled-ampersand escape is correct.
+- Final numbers: `txtSessionPolicy` right edge 1683 vs `lblBridgeStatus` 1684 (1px inside), 2px gap
+  to `chkSessionPolicyOn`, 56px to the Tooling group; merged time row labels/boxes touch without
+  overlapping; `lblAtrNow` bottom 933 inside a client bottom of ~977.
+- **§8 multiline harness write: PASS.** `set-textbox` wrote a 3-line value and `txtSessionPolicy`
+  read back exactly `NY = … \r\n LONDON = … \r\n ASIA = …` — CRLF preserved end to end.
+- **Warning path: PASS**, exact specced wording — an invalid `TOKYO = HIGH | any | 1.0` line produced
+  `Ignored (keeping last good): session policy 'TOKYO = HIGH | any | 1.0'` in orange.
+- `chkSessionPolicyOn` toggles and commits (Off→On→Off) with no error.
+
+**New finding — stale warnings never clear (pre-existing, now easier to hit).**
+`ShowGateConfigWarnings` ends with `If problems.Count = 0 Then Return`, so it *sets* the warning but
+never *clears* it. Demonstrated at runtime: with all boxes valid and a forced `CommitGateConfig` (via
+the checkbox, so no focus dependency), `lblBridgeStatus` still displayed the earlier `TOKYO` warning.
+This is original code and affects every gate box equally — but the policy box is free-text with a
+grammar, so it is by far the most likely to be edited into a temporarily-invalid state, and a user
+who fixes their typo will believe the policy is still rejected. **Recommend** clearing the label (or
+handing it back to `RefreshBridgePanel`) when `problems.Count = 0` — deliberately not done here as
+out-of-scope; owner/coordinator call.
+
+**Harness usage note (my error, not the app's):** passing a value containing `|` and spaces to
+`set-textbox.ps1` through a *nested* `powershell -File` invocation let the inner parser re-split the
+arguments, and a fragment (`an`) landed in `txtCircuitBreaker`. The app correctly refused it
+(keep-last-good + warning). Invoke the harness scripts with `&` in-session instead — the nested-shell
+argument hazard already bit this project once (the empty-string `$Value` case in
+`impl-report-ui-test-harness.md`) and this is the same class.
 
 ---
 
 ## 7. Suspicious nearby, not touched
 
-- **`ShowGateConfigWarnings` is clobbered by `RefreshBridgePanel`.** Both write `lblBridgeStatus`,
-  and `CommitOnEnterKey` calls the commit *then* the refresh — so a warning raised by pressing Enter
-  is overwritten immediately. Pre-existing (not introduced here); the policy's warning inherits it.
-  `OnSessionPolicyToggled` deliberately does *not* call `RefreshBridgePanel`, so the checkbox path is
-  unaffected. Worth a housekeeping item.
+- **`ShowGateConfigWarnings` and `lblBridgeStatus` — two pre-existing faults, one now runtime-proven.**
+  (1) It never clears a warning once shown (`If problems.Count = 0 Then Return`) — demonstrated on
+  testnet, see §6a. (2) It is clobbered by `RefreshBridgePanel`, which also writes `lblBridgeStatus`;
+  `CommitOnEnterKey` calls the commit *then* the refresh, so an Enter-raised warning is overwritten
+  immediately. `OnSessionPolicyToggled` deliberately does *not* call `RefreshBridgePanel`, so the
+  checkbox path avoids (2). Both are original code; the policy box just makes them easy to meet.
+- **`lblBridgeStatus` truncates long text.** It is a fixed 460px single-line Label, and the policy
+  warning (`Ignored (keeping last good): session policy '<line>'`) is longer than the gate warnings
+  it was sized for — the offending line gets cut off mid-string on screen (the full text is intact in
+  the UIA `Name`, which is how §6a read it). Pre-existing width; worth widening or eliding smartly.
 - **`orderapp-settings.json` is written non-atomically** — `File.WriteAllText`
   ([AppUserSettings.vb:161](../DeribitOrderPlacementApp/AppUserSettings.vb)) — where
   `bridge-state.json` writes a `.tmp` then `File.Move(overwrite:=True)` (the F-2 discipline,
