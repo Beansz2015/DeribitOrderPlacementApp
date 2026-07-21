@@ -43,6 +43,9 @@ Public Class AutoTradeSettings
     Private _sessionPolicy As SessionPolicyConfig = SessionPolicyConfig.Defaults()
     ' The offending line from the last parse attempt, or Nothing. Surfaced by ShowGateConfigWarnings.
     Private _sessionPolicyProblem As String = Nothing
+    ' The gate-config warning currently in force, or Nothing when every box parses. Read only by
+    ' ApplyBridgeStatusLine (the single lblBridgeStatus writer); UI thread only.
+    Private _gateConfigWarning As String = Nothing
 
     Friend ReadOnly Property CooloffMin As Decimal
         Get
@@ -327,9 +330,12 @@ Public Class AutoTradeSettings
         If Not Decimal.TryParse(txtMaxSize.Text, d) OrElse d <= 0D Then problems.Add($"max size '{txtMaxSize.Text}'")
         If _sessionPolicyProblem IsNot Nothing Then problems.Add($"session policy '{_sessionPolicyProblem}'")
 
-        If problems.Count = 0 Then Return
-        lblBridgeStatus.Text = "Ignored (keeping last good): " & String.Join("; ", problems)
-        lblBridgeStatus.ForeColor = Color.Orange
+        ' Record the warning (Nothing = none) and hand the label to its single writer, which decides
+        ' whether the warning or the bridge status wins. Setting this to Nothing is what CLEARS a
+        ' warning once the config parses again - the whole point of the 2026-07-21 repair.
+        _gateConfigWarning = If(problems.Count = 0, Nothing,
+                                "Ignored (keeping last good): " & String.Join("; ", problems))
+        RefreshBridgePanel()
     End Sub
 
     ' Risk-sizing UI spec §3: thin forwarder - the sizing logic stays on the host, where the
@@ -359,8 +365,7 @@ Public Class AutoTradeSettings
 
     Private Sub RefreshBridgePanel()
         If _bridge Is Nothing Then
-            lblBridgeStatus.Text = "Bridge not attached"
-            lblBridgeStatus.ForeColor = SystemColors.ControlLight
+            ApplyBridgeStatusLine("Bridge not attached", SystemColors.ControlLight)
             Return
         End If
 
@@ -377,12 +382,34 @@ Public Class AutoTradeSettings
         btnBridgeStartStop.BackColor = If(started, Color.LimeGreen, Color.DarkRed)
 
         Dim fresh As Boolean = _bridge.IsFreshNow
-        lblBridgeStatus.Text = $"{_bridge.Mode} | {If(started, "STARTED", "stopped")} | Engine ARM: {If(_bridge.EngineArmed, "ON", "off")} | Payload: {If(fresh, "FRESH", "stale/none")}"
-        lblBridgeStatus.ForeColor = If(started, Color.LimeGreen, If(fresh, SystemColors.ControlLight, Color.Orange))
+        ApplyBridgeStatusLine($"{_bridge.Mode} | {If(started, "STARTED", "stopped")} | Engine ARM: {If(_bridge.EngineArmed, "ON", "off")} | Payload: {If(fresh, "FRESH", "stale/none")}",
+                              If(started, Color.LimeGreen, If(fresh, SystemColors.ControlLight, Color.Orange)))
 
         Dim summary As String = _bridge.LastSignalSummary
         Dim dispo As String = _bridge.LastDisposition
         lblBridgeLast.Text = "Last: " & If(summary.Length > 0, summary & "  ->  " & If(dispo.Length > 0, dispo, "(pending)"), "-")
+    End Sub
+
+    ' The SINGLE writer of lblBridgeStatus, so the label has one owner instead of two racing ones.
+    '
+    ' A live gate-config warning OUTRANKS the bridge status line and holds it until the config parses
+    ' again. Before this, the label had two independent writers and both directions were broken:
+    ' ShowGateConfigWarnings SET a warning but never CLEARED it (it returns early when there are no
+    ' problems), so a warning stayed on screen long after the typo was fixed; and RefreshBridgePanel
+    ' overwrote warnings blind, so the Enter-key path (commit THEN refresh) discarded them instantly.
+    ' Runtime-caught on testnet 2026-07-21 - with every box valid and a forced commit, the label was
+    ' still showing a stale refusal.
+    '
+    ' "What you typed is NOT what is in force" is the more urgent of the two messages, and unlike the
+    ' status line it is self-clearing: fix the text and the next commit restores the status.
+    Private Sub ApplyBridgeStatusLine(text As String, colour As Color)
+        If _gateConfigWarning IsNot Nothing Then
+            lblBridgeStatus.Text = _gateConfigWarning
+            lblBridgeStatus.ForeColor = Color.Orange
+            Return
+        End If
+        lblBridgeStatus.Text = text
+        lblBridgeStatus.ForeColor = colour
     End Sub
 
     Private Sub cboBridgeMode_SelectedIndexChanged(sender As Object, e As EventArgs) Handles cboBridgeMode.SelectedIndexChanged
