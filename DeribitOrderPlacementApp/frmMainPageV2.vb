@@ -816,6 +816,7 @@ Public Class frmMainPageV2
 
             ' Subscribe to database events
             AddHandler tradeDatabase.DatabaseError, AddressOf OnDatabaseError
+            AddHandler tradeDatabase.DatabaseInfo, AddressOf OnDatabaseInfo   ' item 14a
             AddHandler tradeDatabase.TradeRecorded, AddressOf OnTradeRecorded
             AddHandler tradeDatabase.TradeDeleted, AddressOf OnTradeDeleted
 
@@ -845,6 +846,11 @@ Public Class frmMainPageV2
     ' Event handlers
     Private Sub OnDatabaseError(message As String)
         AppendColoredText(txtLogs, $"Database Error: {message}", Color.Red)
+    End Sub
+
+    ' item 14a: success/info path raised by DatabaseInfo (green, not red).
+    Private Sub OnDatabaseInfo(message As String)
+        AppendColoredText(txtLogs, $"Database: {message}", Color.LimeGreen)
     End Sub
 
     Private Sub OnTradeRecorded(tradeId As Integer, trade As TradeRecord)

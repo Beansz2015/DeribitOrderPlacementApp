@@ -6,6 +6,7 @@ Public Class TradeDatabase
     Private dbPath As String
 
     Public Event DatabaseError(message As String)
+    Public Event DatabaseInfo(message As String)   ' item 14a: success/info path (logged green; separate from error red)
     Public Event TradeRecorded(tradeId As Integer, trade As TradeRecord)
     Public Event TradeDeleted(tradeId As Integer) ' Add this new event
 
@@ -261,7 +262,7 @@ Public Class TradeDatabase
                         Next
 
                         transaction.Commit()
-                        RaiseEvent DatabaseError($"Successfully deleted {deletedCount} trades")
+                        RaiseEvent DatabaseInfo($"Successfully deleted {deletedCount} trades")
                         Return deletedCount
 
                     Catch ex As Exception
