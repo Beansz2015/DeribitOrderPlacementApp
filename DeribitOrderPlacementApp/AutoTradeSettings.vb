@@ -41,6 +41,8 @@ Public Class AutoTradeSettings
     ' field mirrors, extended to a compound value. Defaults = disabled = today's behaviour exactly;
     ' the real config arrives via SeedSessionPolicyFromHost/CommitGateConfig.
     Private _sessionPolicy As SessionPolicyConfig = SessionPolicyConfig.Defaults()
+    ' The offending line from the last parse attempt, or Nothing. Surfaced by ShowGateConfigWarnings.
+    Private _sessionPolicyProblem As String = Nothing
 
     Friend ReadOnly Property CooloffMin As Decimal
         Get
@@ -123,6 +125,10 @@ Public Class AutoTradeSettings
         ' overwrite the owner's tuned numbers with the Designer defaults (25/500) on every start.
         ' Depends on the host's Load ordering: userSettings is loaded before this form is constructed.
         SeedRiskSizingFromHost()
+        ' Session policy spec §5.3: the SAME trap, same position - the box and the checkbox must
+        ' hold the loaded file values before the first CommitGateConfig, or that commit would write
+        ' a blank box (= all defaults) and an unticked checkbox straight over the owner's policy.
+        SeedSessionPolicyFromHost()
         CommitGateConfig()
         CommitToolingConfig()
         For Each tb As TextBox In {txtCooloff, txtCircuitBreaker, txtStartTime, txtEndTime,
@@ -137,7 +143,28 @@ Public Class AutoTradeSettings
             ' Inert metadata (UIA only); deliberately NOT gated by harness.json.
             tb.AccessibleName = tb.Name
         Next
+
+        ' txtSessionPolicy is wired INDIVIDUALLY, not through the loop above (spec §5.2 allows this
+        ' and asks for it to be reported). It is the only MULTILINE box on the form, and two of the
+        ' loop's four handlers are actively wrong for it:
+        '   * CommitOnEnterKey would swallow Enter, which must insert a newline here;
+        '   * SelectAllOnEnter on Click would re-select all three lines on every click, so the next
+        '     keystroke would replace the whole policy - you could never edit one line.
+        ' It keeps commit-on-blur (the standing model) and the harness AccessibleName.
+        AddHandler txtSessionPolicy.Leave, AddressOf CommitOnLeave
+        txtSessionPolicy.AccessibleName = txtSessionPolicy.Name
+
+        ' The checkbox commits like any other gate edit. Wired here rather than via Handles so the
+        ' seed above cannot fire it before the form is initialised.
+        AddHandler chkSessionPolicyOn.CheckedChanged, AddressOf OnSessionPolicyToggled
+        chkSessionPolicyOn.AccessibleName = chkSessionPolicyOn.Name
+
         cboBridgeMode.AccessibleName = "cboBridgeMode"
+    End Sub
+
+    ' Enablement is a commit like any other - it changes what is in force immediately.
+    Private Sub OnSessionPolicyToggled(sender As Object, e As EventArgs)
+        CommitGateConfig()
     End Sub
 
     ' Only burn a timer tick while the window is on screen.
@@ -227,7 +254,32 @@ Public Class AutoTradeSettings
         Dim tiers As String = If(txtBridgeTiers.Text, "").Trim()
         If tiers.Length > 0 Then _tiersCsv = tiers.ToUpperInvariant()
 
+        ' Session policy (spec §5.3). Parse -> reference-SWAP the immutable snapshot -> push to the
+        ' host so item A's save path persists it. A malformed line keeps the last good RULES but
+        ' still honours the checkbox: toggling the policy off must work even while the text is
+        ' mid-edit and temporarily invalid.
+        Dim policyProblem As String = Nothing
+        Dim parsedPolicy As SessionPolicyConfig =
+            SessionPolicyConfig.ParseSessionPolicyText(txtSessionPolicy.Text, policyProblem)
+        _sessionPolicyProblem = policyProblem
+        Dim committed As SessionPolicyConfig =
+            If(parsedPolicy, _sessionPolicy).WithEnabled(chkSessionPolicyOn.Checked)
+        _sessionPolicy = committed
+        If _host IsNot Nothing Then _host.SetSessionPolicy(committed)
+
         ShowGateConfigWarnings()
+    End Sub
+
+    ' §5.3: one-time seed of the policy box + checkbox from the host's loaded settings. MUST run
+    ' before the first CommitGateConfig (see InitialiseSettings) so the file's values win over the
+    ' Designer's blank box - the same Load-ordering dependency as SeedRiskSizingFromHost.
+    Private Sub SeedSessionPolicyFromHost()
+        If _host Is Nothing Then Return
+        Dim cfg As SessionPolicyConfig = _host.SessionPolicy
+        If cfg Is Nothing Then cfg = SessionPolicyConfig.Defaults()
+        _sessionPolicy = cfg
+        txtSessionPolicy.Text = SessionPolicyConfig.RenderSessionPolicyText(cfg)
+        chkSessionPolicyOn.Checked = cfg.Enabled
     End Sub
 
     ' §2: one-time seed of the risk-sizing boxes from the host's loaded settings. MUST run before
@@ -273,6 +325,7 @@ Public Class AutoTradeSettings
         If Not Decimal.TryParse(txtAtrFallback.Text, d) OrElse d <= 0D Then problems.Add($"ATR fallback '{txtAtrFallback.Text}'")
         If Not Decimal.TryParse(txtRiskPerTrade.Text, d) OrElse d <= 0D Then problems.Add($"risk/trade '{txtRiskPerTrade.Text}'")
         If Not Decimal.TryParse(txtMaxSize.Text, d) OrElse d <= 0D Then problems.Add($"max size '{txtMaxSize.Text}'")
+        If _sessionPolicyProblem IsNot Nothing Then problems.Add($"session policy '{_sessionPolicyProblem}'")
 
         If problems.Count = 0 Then Return
         lblBridgeStatus.Text = "Ignored (keeping last good): " & String.Join("; ", problems)

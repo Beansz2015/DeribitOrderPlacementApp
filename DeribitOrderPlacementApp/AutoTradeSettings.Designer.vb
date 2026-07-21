@@ -23,7 +23,6 @@ Partial Class AutoTradeSettings
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
         components = New ComponentModel.Container()
-        GroupBox1 = New GroupBox()
         txtEndTime = New TextBox()
         txtStartTime = New TextBox()
         Label7 = New Label()
@@ -43,6 +42,8 @@ Partial Class AutoTradeSettings
         lblBridgeLast = New Label()
         lblBridgeTiersCap = New Label()
         txtBridgeTiers = New TextBox()
+        chkSessionPolicyOn = New CheckBox()
+        txtSessionPolicy = New TextBox()
         grpTooling = New GroupBox()
         lblAtrLenCap = New Label()
         txtAtrLength = New TextBox()
@@ -59,31 +60,17 @@ Partial Class AutoTradeSettings
         btnRiskSize = New Button()
         lblAtrNow = New Label()
         AutoTradingToolTip = New ToolTip(components)
-        GroupBox1.SuspendLayout()
         grpTradeGates.SuspendLayout()
         grpSignalBridge.SuspendLayout()
         grpTooling.SuspendLayout()
         SuspendLayout()
         '
-        ' GroupBox1
-        '
-        ' Risk-sizing UI spec §1: the "AutoTrading Section" title label (lblBacktestTitle, a legacy
-        ' name from the retired backtest era) was deleted and all four groups reflowed up into its
-        ' space. ClientSize stays 512x856 - StickToHost top-aligns this form to the host and the
-        ' matching heights are deliberate.
-        GroupBox1.Controls.Add(txtEndTime)
-        GroupBox1.Controls.Add(txtStartTime)
-        GroupBox1.Controls.Add(Label7)
-        GroupBox1.Controls.Add(Label8)
-        GroupBox1.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
-        GroupBox1.ForeColor = SystemColors.ButtonFace
-        GroupBox1.Location = New Point(18, 12)
-        GroupBox1.Name = "GroupBox1"
-        GroupBox1.Size = New Size(482, 100)
-        GroupBox1.TabIndex = 1
-        GroupBox1.TabStop = False
-        GroupBox1.Text = "Inclusion Time Range"
-        AutoTradingToolTip.SetToolTip(GroupBox1, "Auto trading is allowed ONLY inside this daily window (UTC+8)." & vbCrLf & "Leave BOTH blank for no time restriction." & vbCrLf & "If start is later than end, the window wraps past midnight.")
+        ' Session policy spec D5/§5: GroupBox1 ("Inclusion Time Range") was DELETED and its four
+        ' controls moved into grpTradeGates below, which frees ~112px for the policy box in SIGNAL
+        ' BRIDGE. The controls keep their names, handlers, mirrors and harness AccessibleNames by
+        ' construction - only their parent and coordinates changed. GroupBox1's window tooltip (the
+        ' UTC+8 / blank-blank / midnight-wrap text) is migrated verbatim onto BOTH time boxes below,
+        ' since they carried none of their own and the group that explained them no longer exists.
         '
         ' txtEndTime
         '
@@ -91,12 +78,13 @@ Partial Class AutoTradeSettings
         txtEndTime.BorderStyle = BorderStyle.FixedSingle
         txtEndTime.Font = New Font("Calibri", 14F)
         txtEndTime.ForeColor = Color.White
-        txtEndTime.Location = New Point(396, 43)
+        txtEndTime.Location = New Point(396, 125)
         txtEndTime.Name = "txtEndTime"
         txtEndTime.Size = New Size(82, 42)
-        txtEndTime.TabIndex = 2
+        txtEndTime.TabIndex = 4
         txtEndTime.Text = ""
         txtEndTime.TextAlign = HorizontalAlignment.Center
+        AutoTradingToolTip.SetToolTip(txtEndTime, "Auto trading is allowed ONLY inside this daily window (UTC+8)." & vbCrLf & "Leave BOTH blank for no time restriction." & vbCrLf & "If start is later than end, the window wraps past midnight.")
         '
         ' txtStartTime
         '
@@ -104,19 +92,20 @@ Partial Class AutoTradeSettings
         txtStartTime.BorderStyle = BorderStyle.FixedSingle
         txtStartTime.Font = New Font("Calibri", 14F)
         txtStartTime.ForeColor = Color.White
-        txtStartTime.Location = New Point(150, 43)
+        txtStartTime.Location = New Point(150, 125)
         txtStartTime.Name = "txtStartTime"
         txtStartTime.Size = New Size(82, 42)
-        txtStartTime.TabIndex = 1
+        txtStartTime.TabIndex = 3
         txtStartTime.Text = ""
         txtStartTime.TextAlign = HorizontalAlignment.Center
+        AutoTradingToolTip.SetToolTip(txtStartTime, "Auto trading is allowed ONLY inside this daily window (UTC+8)." & vbCrLf & "Leave BOTH blank for no time restriction." & vbCrLf & "If start is later than end, the window wraps past midnight.")
         '
         ' Label7
         '
         Label7.AutoSize = True
         Label7.Font = New Font("Calibri", 14F)
         Label7.ForeColor = SystemColors.ControlLight
-        Label7.Location = New Point(264, 45)
+        Label7.Location = New Point(264, 127)
         Label7.Name = "Label7"
         Label7.Size = New Size(129, 35)
         Label7.TabIndex = 0
@@ -127,7 +116,7 @@ Partial Class AutoTradeSettings
         Label8.AutoSize = True
         Label8.Font = New Font("Calibri", 14F)
         Label8.ForeColor = SystemColors.ControlLight
-        Label8.Location = New Point(11, 45)
+        Label8.Location = New Point(11, 127)
         Label8.Name = "Label8"
         Label8.Size = New Size(139, 35)
         Label8.TabIndex = 0
@@ -135,19 +124,31 @@ Partial Class AutoTradeSettings
         '
         ' grpTradeGates
         '
+        ' Risk-sizing UI spec §1: the "AutoTrading Section" title label (lblBacktestTitle, a legacy
+        ' name from the retired backtest era) was deleted and all four groups reflowed up into its
+        ' space. ClientSize stays 512x856 - StickToHost top-aligns this form to the host and the
+        ' matching heights are deliberate.
+        ' Session policy spec D5: the Inclusion Time Range row is now the third row of THIS group
+        ' (breaker y28 / cooloff y74 / time y125, all unchanged in x).
         grpTradeGates.Controls.Add(Label1)
         grpTradeGates.Controls.Add(txtCircuitBreaker)
         grpTradeGates.Controls.Add(Label2)
         grpTradeGates.Controls.Add(txtCooloff)
         grpTradeGates.Controls.Add(Label9)
+        grpTradeGates.Controls.Add(Label8)
+        grpTradeGates.Controls.Add(txtStartTime)
+        grpTradeGates.Controls.Add(Label7)
+        grpTradeGates.Controls.Add(txtEndTime)
         grpTradeGates.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTradeGates.ForeColor = SystemColors.ButtonFace
-        grpTradeGates.Location = New Point(18, 124)
+        grpTradeGates.Location = New Point(18, 12)
         grpTradeGates.Name = "grpTradeGates"
-        grpTradeGates.Size = New Size(482, 130)
+        grpTradeGates.Size = New Size(482, 176)
         grpTradeGates.TabIndex = 2
         grpTradeGates.TabStop = False
-        grpTradeGates.Text = "Trade Gates"
+        ' "&&" renders as a single literal ampersand - a lone "&" is the WinForms mnemonic prefix and
+        ' would be swallowed, underlining the "I" instead of showing the separator.
+        grpTradeGates.Text = "Trade Gates && Inclusion Time Range"
         '
         ' Label1
         '
@@ -220,11 +221,13 @@ Partial Class AutoTradeSettings
         grpSignalBridge.Controls.Add(lblBridgeLast)
         grpSignalBridge.Controls.Add(lblBridgeTiersCap)
         grpSignalBridge.Controls.Add(txtBridgeTiers)
+        grpSignalBridge.Controls.Add(chkSessionPolicyOn)
+        grpSignalBridge.Controls.Add(txtSessionPolicy)
         grpSignalBridge.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpSignalBridge.ForeColor = SystemColors.ButtonFace
-        grpSignalBridge.Location = New Point(18, 266)
+        grpSignalBridge.Location = New Point(18, 200)
         grpSignalBridge.Name = "grpSignalBridge"
-        grpSignalBridge.Size = New Size(482, 256)
+        grpSignalBridge.Size = New Size(482, 344)
         grpSignalBridge.TabIndex = 3
         grpSignalBridge.TabStop = False
         grpSignalBridge.Text = "SIGNAL BRIDGE"
@@ -326,6 +329,39 @@ Partial Class AutoTradeSettings
         txtBridgeTiers.TabIndex = 4
         txtBridgeTiers.Text = "HIGH,MEDIUM"
         '
+        ' chkSessionPolicyOn
+        '
+        ' The caption IS the enable switch (session policy spec §5). Styled like chkBridgeArm (12F)
+        ' because it belongs to the same visual family, but it is CONFIG, not an arm: it turns a
+        ' filter on and cannot place or permit anything by itself.
+        chkSessionPolicyOn.AutoSize = True
+        chkSessionPolicyOn.Font = New Font("Calibri", 12F)
+        chkSessionPolicyOn.ForeColor = SystemColors.ControlLight
+        chkSessionPolicyOn.Location = New Point(11, 262)
+        chkSessionPolicyOn.Name = "chkSessionPolicyOn"
+        chkSessionPolicyOn.Size = New Size(90, 34)
+        chkSessionPolicyOn.TabIndex = 5
+        chkSessionPolicyOn.Text = "Policy"
+        AutoTradingToolTip.SetToolTip(chkSessionPolicyOn, "Per-session trader policy: accept only chosen confidence tiers and" & vbCrLf & "verdict contexts per UTC session, with an optional size multiplier." & vbCrLf & "OFF = today's behaviour exactly." & vbCrLf & "It can only NARROW what the Tiers box above already allows, never widen it." & vbCrLf & "This is config, not an arm - Mode / ARM / START are unchanged.")
+        '
+        ' txtSessionPolicy
+        '
+        txtSessionPolicy.BackColor = Color.Black
+        txtSessionPolicy.BorderStyle = BorderStyle.FixedSingle
+        txtSessionPolicy.Font = New Font("Calibri", 10F)
+        txtSessionPolicy.ForeColor = Color.White
+        txtSessionPolicy.Location = New Point(150, 254)
+        txtSessionPolicy.Multiline = True
+        txtSessionPolicy.Name = "txtSessionPolicy"
+        ' 320 not the spec's 330 (§5 allows fine-tuning): 150+330 = 480 puts the right edge 2px from
+        ' the 482 group width, tighter than anything else on the form. 320 lands at 470, matching
+        ' lblBridgeStatus's proven 471, and 3 lines of "LONDON = MEDIUM | CONFIRMED | 0.5" at 10F
+        ' need barely 270.
+        txtSessionPolicy.Size = New Size(320, 76)
+        txtSessionPolicy.TabIndex = 6
+        txtSessionPolicy.Text = ""
+        AutoTradingToolTip.SetToolTip(txtSessionPolicy, "One line per session:  SESSION = tiers | contexts | size_mult" & vbCrLf & "e.g.  LONDON = MEDIUM | CONFIRMED | 0.5" & vbCrLf & "Sessions (UTC): ASIA 00-07, LONDON 08-12, NY 13-23." & vbCrLf & "Tiers HIGH/MEDIUM/LOW (STRONG and WEAK also accepted)." & vbCrLf & "Contexts: 'any', or a comma-separated list matched exactly." & vbCrLf & "size_mult (0,1]; 1.0 leaves size alone, less floors to the 10-USD step." & vbCrLf & "An omitted session = HIGH,MEDIUM | any | 1.0. Blank box = all defaults." & vbCrLf & "Saved as session_policy in orderapp-settings.json.")
+        '
         ' grpTooling
         '
         grpTooling.Controls.Add(lblAtrLenCap)
@@ -344,7 +380,7 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(lblAtrNow)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
-        grpTooling.Location = New Point(18, 534)
+        grpTooling.Location = New Point(18, 556)
         grpTooling.Name = "grpTooling"
         grpTooling.Size = New Size(482, 270)
         grpTooling.TabIndex = 4
@@ -544,13 +580,10 @@ Partial Class AutoTradeSettings
         Controls.Add(grpTooling)
         Controls.Add(grpSignalBridge)
         Controls.Add(grpTradeGates)
-        Controls.Add(GroupBox1)
         Name = "AutoTradeSettings"
         StartPosition = FormStartPosition.Manual
         Text = "AutoTradeSettings"
         TopMost = True
-        GroupBox1.ResumeLayout(False)
-        GroupBox1.PerformLayout()
         grpTradeGates.ResumeLayout(False)
         grpTradeGates.PerformLayout()
         grpSignalBridge.ResumeLayout(False)
@@ -560,7 +593,6 @@ Partial Class AutoTradeSettings
         ResumeLayout(False)
         PerformLayout()
     End Sub
-    Friend WithEvents GroupBox1 As GroupBox
     Friend WithEvents txtEndTime As TextBox
     Friend WithEvents txtStartTime As TextBox
     Friend WithEvents Label7 As Label
@@ -578,6 +610,8 @@ Partial Class AutoTradeSettings
     Friend WithEvents btnBridgeStartStop As Button
     Friend WithEvents lblBridgeStatus As Label
     Friend WithEvents lblBridgeLast As Label
+    Friend WithEvents chkSessionPolicyOn As CheckBox
+    Friend WithEvents txtSessionPolicy As TextBox
     Friend WithEvents lblBridgeTiersCap As Label
     Friend WithEvents txtBridgeTiers As TextBox
     Friend WithEvents grpTooling As GroupBox

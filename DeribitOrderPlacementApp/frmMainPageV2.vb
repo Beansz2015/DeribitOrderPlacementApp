@@ -82,6 +82,25 @@ Public Class frmMainPageV2
         If maxSize > 0D Then userSettings.MaxSizeUsd = maxSize
     End Sub
 
+    ' Session policy (docs/spec-session-policy-gate.md D2/§5.4) - the same arrangement as the
+    ' risk-sizing keys above: the value LIVES in userSettings, persists on item A's save path, and
+    ' the settings form seeds its box from here at construction. Never returns Nothing, so the
+    ' settings form and the bridge can both read it without a null dance.
+    Friend ReadOnly Property SessionPolicy As SessionPolicyConfig
+        Get
+            If userSettings Is Nothing OrElse userSettings.SessionPolicy Is Nothing Then
+                Return SessionPolicyConfig.Defaults()
+            End If
+            Return userSettings.SessionPolicy
+        End Get
+    End Property
+
+    Friend Sub SetSessionPolicy(config As SessionPolicyConfig)
+        If config Is Nothing Then Return   ' a failed parse keeps the last good config
+        If userSettings Is Nothing Then userSettings = New AppUserSettings()
+        userSettings.SessionPolicy = config
+    End Sub
+
     Private webSocketClient As ClientWebSocket
     Private cancellationTokenSource As CancellationTokenSource
 
