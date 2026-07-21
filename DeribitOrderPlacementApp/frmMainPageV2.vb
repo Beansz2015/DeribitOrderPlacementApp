@@ -3261,7 +3261,7 @@ Public Class frmMainPageV2
 
                     'For initiating ATR Slippage function
                     direction = "LONG"
-                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         Return
                     End If
 
@@ -3301,7 +3301,7 @@ Public Class frmMainPageV2
 
                     'For initiating ATR Slippage function
                     direction = "SHORT"
-                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         Return
                     End If
 
@@ -3340,7 +3340,7 @@ Public Class frmMainPageV2
 
                     'For initiating ATR Slippage function
                     direction = "LONG"
-                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         Return
                     End If
 
@@ -3379,7 +3379,7 @@ Public Class frmMainPageV2
 
                     'For initiating ATR Slippage function
                     direction = "SHORT"
-                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         Return
                     End If
 
@@ -4301,7 +4301,7 @@ Public Class frmMainPageV2
 
                     'For initiating ATR Slippage function
                     direction = "LONG"
-                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         Return
                     End If
 
@@ -4342,7 +4342,7 @@ Public Class frmMainPageV2
 
                     'For initiating ATR Slippage function
                     direction = "SHORT"
-                    If IsATRSlippageExcessive(BestPrice, direction) Then
+                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         Return
                     End If
 
