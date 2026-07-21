@@ -10,6 +10,33 @@ the preceding stack had not happened yet — nothing here is pushed).
 
 ---
 
+## Review index — THREE surfaces, not one
+
+This conversation produced ten commits covering **three separate concerns**. Only the first is
+governed by the session-policy spec; reviewing that spec alone would miss the other two. Start here.
+
+| # | Concern | Commits | Spec | Record |
+|---|---|---|---|---|
+| **A** | **Session policy gate** — the specced work | `300dd01` (spec amendment) · `0afe06d` · `893d3a0` · `d32674e` · `8a31fd6` · docs `7ce4e07`/`d361003`/`1e57f97` | `docs/spec-session-policy-gate.md` | **this report**, §0–§7 |
+| **B** | **Gate-config warning repair** — pre-existing fault, owner-approved out-of-scope | `8be8ea5` | *none — owner ruling, no spec* | this report §6b (verification) + §7 |
+| **C** | **Harness `-CommitViaBlur` repair** — tooling, no product code | `eaa801b` | *none — direct fix* | `docs/impl-report-ui-test-harness.md` **§8b** |
+
+Notes for the reviewer:
+
+- **B has no spec by construction.** It was authorised in conversation after the fault was
+  runtime-proven during this work, so the usual spec→impl→review chain has no first link. Judge it on
+  §6b's evidence and the commit message; it touches `AutoTradeSettings` only and changes no gate
+  semantics.
+- **C touches no product code** — two `tools/*.ps1` files and a doc addendum. It cannot affect the
+  gate, but it *does* affect the trustworthiness of the acceptance evidence in §6a/§6b, which is why
+  it is worth reading before accepting those results. The short version: the harness was reporting
+  commits it had not performed; §6b's results were obtained with a workaround, and the fix was
+  verified independently afterwards.
+- **The gate was executed at every commit** (`GATE PASSED`, OrderCheck 96/96) — but per standing
+  methodology the reviewer should execute `tools/checks/verify-gate.ps1` themselves rather than take
+  this report's word for it, and re-run the §5 greps.
+- **All nine acceptances pass** (§6). Owner ran 2/3/8; the implementer seat drove 4/5/6/7 on testnet.
+
 ## 0. Pre-commit anchor pass (and the one finding that changed the spec)
 
 Every §-anchor was verified against HEAD before any edit. All matched: the §4.4 `ElseIf` chain ended
@@ -311,11 +338,15 @@ failed before the fix.
 text while the app kept enforcing the *old* value: UIA `SetValue` does not focus the control, so the
 `Leave` that drives commit-on-blur never fires. This silently produced two wrong results (a `tier`
 refusal where a `context` refusal was expected) that looked like product bugs until the committed
-value was read back. **Always verify what is in force, not just what the box displays.** The reliable
-workaround used here is a focus-independent commit — toggling `chkSessionPolicyOn` twice, since
-`CheckedChanged` calls `CommitGateConfig` directly. Worth folding into the harness docs; it is the
-same class as the already-recorded "SetValue alone does not raise Leave" lesson, but the existing
-`-CommitViaBlur` mitigation does not always work.
+value was read back. **Always verify what is in force, not just what the box displays.** The
+workaround used *during this pass* was a focus-independent commit — toggling `chkSessionPolicyOn`
+twice, since `CheckedChanged` calls `CommitGateConfig` directly.
+
+**That workaround is no longer needed: the harness itself was fixed afterwards in `eaa801b`** (blur
+onto a real control instead of the window, focus-before-write, and verify focus actually left —
+root cause and evidence in `docs/impl-report-ui-test-harness.md` **§8b**). Re-verified there with
+`-CommitViaBlur` alone. **Reviewers: `eaa801b` is a separate review surface from this spec — see the
+index at the top of this report.**
 
 **Harness usage note (my error, not the app's):** passing a value containing `|` and spaces to
 `set-textbox.ps1` through a *nested* `powershell -File` invocation let the inner parser re-split the
