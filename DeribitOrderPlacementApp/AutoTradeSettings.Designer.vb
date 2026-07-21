@@ -294,6 +294,7 @@ Partial Class AutoTradeSettings
         lblBridgeStatus.Size = New Size(460, 28)
         lblBridgeStatus.TabIndex = 0
         lblBridgeStatus.Text = "Bridge not attached"
+        lblBridgeStatus.AutoEllipsis = True  ' item 19: truncate long status strings gracefully
         '
         ' lblBridgeLast
         '
