@@ -317,6 +317,10 @@ Public Class frmMainPageV2
     Private marketStopThreshold As Decimal = 0D    ' mirrors txtMarketStopLoss
     Private maxSlippageATRmult As Decimal = 0D     ' mirrors txtMaxSlippageATR
 
+    ' Taker fee rate (Deribit BTC-PERPETUAL, 2024 schedule). Used in HandleIndexUpdates to set
+    ' the default comms amount (fee on the full position value).
+    Private Const TakerFeeRate As Decimal = 0.0005D
+
     ' --- Entry-chase v2 (docs/spec-entry-chase-v2.md) ---
     Private Const ChaseTickUSD As Decimal = 0.5D            ' BTC-PERPETUAL tick (matches the NoSpread branches)
 
@@ -1733,7 +1737,7 @@ Public Class frmMainPageV2
                 Dim indexPrice As String = json.SelectToken("params.data.price")
                 Dim comms As Decimal = Nothing
 
-                comms = 0.0005 * indexPrice
+                comms = TakerFeeRate * indexPrice
                 comms = Math.Abs(Math.Round(comms, 0, MidpointRounding.AwayFromZero))
 
                 ' Update engine fields first (cross-thread fix: HandleBalanceUpdates reads indexPriceVal,
