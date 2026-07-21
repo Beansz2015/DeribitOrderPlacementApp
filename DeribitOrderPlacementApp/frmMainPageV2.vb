@@ -5655,9 +5655,11 @@ Public Class frmMainPageV2
 
 
 
-    ' Shared reduce-only MARKET order logic (cross-thread fix). Called by btnReduceMarket_Click (UI thread)
-    ' AND by the emergency stop path in UpdateStopLossForTriggeredStopLossOrder (receive thread), so that
-    ' path no longer needs a cross-thread btnReduceMarket.PerformClick(). Reads orderAmountVal, not txtAmount.
+    ' Shared reduce-only MARKET order logic. Callers: btnReduceMarket_Click (UI thread),
+    ' FlattenPositionAsync (UI thread), and the two emergency sites in
+    ' UpdateStopLossForTriggeredStopLossOrder (receive thread — avoids a cross-thread
+    ' btnReduceMarket.PerformClick()). Reads positionSizeUSD (position model) first;
+    ' falls back to TradeMode/orderAmountVal only when the model is unseeded.
     Private Async Function SendReduceMarketOrderAsync() As Task
         ' Connection guard first (runtime test 4 follow-up): return before the position-model
         ' fallback logs, so a disconnected click logs the skip line alone - not fallback noise
