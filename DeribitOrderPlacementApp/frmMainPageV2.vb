@@ -3245,8 +3245,7 @@ Public Class frmMainPageV2
                     Else
                         takeprofitprice = BestPrice + Decimal.Parse(txtTakeProfit.Text)
                     End If
-
-                    takeprofitprice = If(Decimal.Parse(txtManualTP.Text) > 0, Decimal.Parse(txtManualTP.Text), BestPrice + Decimal.Parse(txtTakeProfit.Text))
+                    ' item 14e: deleted the duplicate ternary that immediately overwrote takeprofitprice
 
                     'If manual stop loss textbox is not empty, use that
                     If Decimal.Parse(txtManualSL.Text) > 0 Then
