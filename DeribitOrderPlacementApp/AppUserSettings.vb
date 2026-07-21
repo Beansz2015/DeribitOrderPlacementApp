@@ -158,7 +158,11 @@ Public NotInheritable Class AppUserSettings
                 }},
                 {"session_policy", If(SessionPolicy, SessionPolicyConfig.Defaults()).ToJson()}
             }
-            File.WriteAllText(SavePath, json.ToString())
+            ' item 18: atomic write (F-2 discipline) — write to .tmp then rename so a mid-write
+            ' crash never leaves a half-written settings file (same pattern as SignalBridge.PersistState).
+            Dim tmp As String = SavePath & ".tmp"
+            File.WriteAllText(tmp, json.ToString())
+            File.Move(tmp, SavePath, overwrite:=True)
             Return Nothing
         Catch ex As Exception
             Return $"orderapp-settings.json save failed: {ex.Message}"
