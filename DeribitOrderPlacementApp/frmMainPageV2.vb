@@ -2365,8 +2365,9 @@ Public Class frmMainPageV2
                 If dispBasis > 0D AndAlso dispAmt > 0D Then
                     Dim PnL As Decimal
                     If dispLong Then
-                        PnL = (BestAskPrice - dispBasis) * (dispAmt / dispBasis)
-                        If BestAskPrice < dispBasis Then
+                        ' item 14g: [owner-visible] long closes hit the BID, not the ask.
+                        PnL = (BestBidPrice - dispBasis) * (dispAmt / dispBasis)
+                        If BestBidPrice < dispBasis Then
                             Me.Invoke(Sub()
                                           lblPnL.ForeColor = Color.Red
                                       End Sub)
@@ -2376,6 +2377,7 @@ Public Class frmMainPageV2
                                       End Sub)
                         End If
                     Else
+                        ' Short branch (ask) is correct — leave unchanged.
                         PnL = (dispBasis - BestAskPrice) * (dispAmt / dispBasis)
                         If BestAskPrice > dispBasis Then
                             Me.Invoke(Sub()
