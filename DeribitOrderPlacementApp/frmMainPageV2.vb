@@ -1502,7 +1502,7 @@ Public Class frmMainPageV2
     Private Function RequestNameForId(messageId As Integer?) As String
         If Not messageId.HasValue Then Return ""
         Select Case messageId.Value
-            Case 2 : Return " auth/entry order"
+            Case 2 : Return " auth"
             Case 30 : Return " cancel-all/trailing stop"
             Case 31 : Return " scoped entry cancel"
             Case 1 : Return " subscribe/reduce order"
