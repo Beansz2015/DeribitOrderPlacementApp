@@ -173,7 +173,6 @@ Public Class frmMainPageV2
 
     'Database class calls
     Private tradeDatabase As TradeDatabase
-    Private tradeAnalytics As TradeAnalytics
 
     ' Ergonomics item A (docs/spec-execution-ergonomics.md): persisted standing inputs + the
     ' item-B/item-D config keys. Loaded at frmMainPageV2_Load (before the mirror sync), saved at
@@ -810,7 +809,6 @@ Public Class frmMainPageV2
         Try
             ' Initialize trade database
             tradeDatabase = New TradeDatabase()
-            tradeAnalytics = New TradeAnalytics(tradeDatabase.DatabasePath)
 
             ' Subscribe to database events
             AddHandler tradeDatabase.DatabaseError, AddressOf OnDatabaseError
@@ -3101,16 +3099,6 @@ Public Class frmMainPageV2
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in HandleOrderPositionUpdates: {ex.Message}", Color.Red)
         End Try
-    End Sub
-
-    Private Sub HandleOrderUpdates(message As String)
-        ' Log every received WebSocket message for debugging
-        'AppendColoredText(txtLogs, "WebSocket Update Received: " & message, Color.LimeGreen)
-
-        ' Check if the message contains any trigger price updates
-        If message.Contains("trigger_price") Then
-            AppendColoredText(txtLogs, "Detected Trigger Price Update: " & message, Color.LimeGreen)
-        End If
     End Sub
 
     ' Add these variables to your order placement logic
@@ -6295,39 +6283,6 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-
-    Private Sub ExportTradesToCSV(trades As List(Of TradeRecord))
-        Try
-            Dim saveDialog As New SaveFileDialog()
-            saveDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
-            saveDialog.FileName = $"TradingHistory_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
-            saveDialog.Title = "Export Trade History"
-
-            If saveDialog.ShowDialog() = DialogResult.OK Then
-                Using writer As New StreamWriter(saveDialog.FileName)
-                    ' Write headers
-                    writer.WriteLine("TradeId,DateTime,OrderType,Direction,EntryPrice,ExitPrice,OrderSizeUSD,ProfitLossUSD,Result")
-
-                    ' Write data
-                    For Each trade In trades
-                        Dim result = If(trade.IsProfit, "WIN", "LOSS")
-                        writer.WriteLine($"{trade.TradeId},{trade.Timestamp:yyyy-MM-dd HH:mm:ss},{trade.OrderType},{trade.Direction},{trade.EntryPrice:F2},{trade.ExitPrice:F2},{trade.OrderSizeUSD:F2},{trade.ProfitLossUSD:F2},{result}")
-                    Next
-                End Using
-
-                AppendColoredText(txtLogs, $"Trade data exported to: {saveDialog.FileName}", Color.LimeGreen)
-
-                ' Optionally open the file
-                If MessageBox.Show("Export complete. Open file now?", "Export Success", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
-                    Process.Start(saveDialog.FileName)
-                End If
-            End If
-
-        Catch ex As Exception
-            AppendColoredText(txtLogs, $"Error exporting trades: {ex.Message}", Color.Red)
-            MessageBox.Show($"Error exporting data: {ex.Message}", "Export Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        End Try
-    End Sub
 
     Private Sub btnEstimateMargins_Click(sender As Object,
                                            e As EventArgs) _
