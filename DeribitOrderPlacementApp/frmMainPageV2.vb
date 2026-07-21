@@ -1397,7 +1397,7 @@ Public Class frmMainPageV2
     End Sub
 
     ' Audit2 F2 (logger half): surface JSON-RPC error responses that no dedicated handler owns.
-    ' Ids 3/999/777/890 already log their own errors in their handlers; code 10028 is owned by
+    ' Ids 3/999/777 already log their own errors in their handlers; code 10028 is owned by
     ' HandleRateLimitError. Everything else (entry orders id 2, cancels id 30, edits 223344-223350,
     ' reduce orders id 1, subscribes) was previously dropped silently - a rejected order looked
     ' identical to a working one. LOGGING ONLY: no engine state is touched here (rollback is #10's job).
@@ -1414,7 +1414,7 @@ Public Class frmMainPageV2
             ' Skip errors that already have dedicated logging (null-safe: HasValue AndAlso, never <>)
             If messageId.HasValue AndAlso
                (messageId.Value = 3 OrElse messageId.Value = 999 OrElse
-                messageId.Value = 777 OrElse messageId.Value = 890) Then Return
+                messageId.Value = 777) Then Return
             If messageId.HasValue AndAlso messageId.Value >= PlacementIdBase Then Return ' HandlePlacementResponse owns placements
 
             Dim errorCode = errorField.SelectToken("code")?.ToObject(Of Integer)()
@@ -5054,28 +5054,22 @@ Public Class frmMainPageV2
         Try
             Dim json = JObject.Parse(response)
 
-            ' Check if this is a margin estimation response (ID 890) OR live position data (ID 777)
+            ' Handle live position data (ID 777).
+            ' ID 890 (margin estimation) was removed - nothing sends it; ProcessEstimationData was
+            ' an empty stub. Reference search confirmed zero 890-sending sites (2026-07-22).
             Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
 
-            If messageId = 890 OrElse messageId = 777 Then
+            If messageId = 777 Then
 
                 Dim errorField = json.SelectToken("error")
                 If errorField IsNot Nothing Then
-                    Dim errorType = If(messageId = 777, "Live position", "Margin estimation")
-                    AppendColoredText(txtLogs, $"{errorType} error: {errorField.ToString()}", Color.Yellow)
+                    AppendColoredText(txtLogs, $"Live position error: {errorField.ToString()}", Color.Yellow)
                     Return
                 End If
 
                 Dim result = json.SelectToken("result")
                 If result IsNot Nothing Then
-
-                    If messageId = 777 Then
-                        ' Handle live position data (single position object)
-                        ProcessPositionData(result)
-                    Else
-                        ' Handle margin estimation data (your existing logic)
-                        ProcessEstimationData(result)
-                    End If
+                    ProcessPositionData(result)
                 End If
             End If
 
@@ -5382,12 +5376,6 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "Text file IO error", Color.Red) ' Handle file write errors
         End Try
 
-    End Sub
-
-
-    Private Sub ProcessEstimationData(estimationData As JToken)
-        ' Your existing estimation logic remains the same...
-        ' (Keep your current estimation processing code here)
     End Sub
 
 
