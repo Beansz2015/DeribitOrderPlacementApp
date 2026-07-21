@@ -139,8 +139,16 @@ End If
 
 - Effective size, computed at the act/would-act site only (gates before it, including `refused: size`,
   keep reading the raw `SizeUsd`): `mult = rule.SizeMult` (1.0 when disabled/absent);
-  `effective = Math.Max(10D, Math.Floor(SizeUsd * mult / 10D) * 10D)` — floored to the 10-USD
-  contract step, clamped per D3 (clamp logs one yellow line, once per placement).
+  **unity passes through untouched** — `If mult = 1.0D Then effective = SizeUsd Else
+  effective = Math.Max(10D, Math.Floor(SizeUsd * mult / 10D) * 10D)` — i.e. the step-floor and the
+  D3 clamp apply only when an actual reduction is in play (a reduced non-step result like 12.5 is
+  unplaceable and MUST floor; an untouched size must stay untouched, whatever it is — if it is
+  non-step, that is today's behaviour and today's -32602, not the policy's business). The clamp
+  logs one yellow line, once per placement.
+  *(Corrected 2026-07-21 — implementer finding, pre-commit: the original unconditional formula
+  floored non-step amounts even at mult 1.0, e.g. 25 → 20, contradicting acceptance 2's
+  byte-identical claim and §1's "absent config = today's behaviour exactly". Unity-passthrough is
+  the ruling; not a deviation.)*
 - **Live:** `PlaceAutomatedOrder` gains `Optional sizeUsdOverride As Decimal = 0D` — `0` ⇒ existing
   behaviour (reads the Amount box), so **every existing call site is byte-identical**; only the
   bridge act path passes `effective` (and only when `effective <> SizeUsd`, keeping the common path
@@ -236,10 +244,9 @@ selection grown up), never verdict re-gating.
 4. Evaluation: LONDON `MEDIUM|CONFIRMED|0.5` refuses (HIGH, CONFIRMED) as `policy(LONDON/tier)`;
    refuses (MEDIUM, "") as `policy(LONDON/context)`; passes (MEDIUM, CONFIRMED); disabled passes
    everything; absent-session key passes HIGH/MEDIUM.
-5. Effective size: 20×0.5→10 · 10×0.75→10 (clamp) · 30×0.5→10 (floor) · 25×1.0→25 — wait, 25 is not
-   a step multiple: the fixture asserts the FLOOR (25×1.0→20) **only if** the raw Amount can be
-   non-step; if placement already enforces the step upstream, pin passthrough instead — implementer
-   verifies which and documents it.
+5. Effective size: 20×0.5→10 · 10×0.75→10 (clamp) · 30×0.5→10 (floor) · **25×1.0→25 (unity
+   passthrough — pinned per the §4 correction; non-step amounts are reachable and unity must be
+   size-neutral)** · 25×0.5→10 (reduction of a non-step amount floors).
 6. `IsSignificantDisposition("refused: policy(NY/tier)")` = False.
 
 ## §10 — Acceptance
