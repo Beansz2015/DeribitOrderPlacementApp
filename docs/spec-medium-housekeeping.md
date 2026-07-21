@@ -113,3 +113,38 @@ Implement directly; one local commit per item; **do NOT push**; 0-error build pe
 - **[owner-visible] items for the runtime pass:** 8, 9, 14g, and the item-8 bid/ask-drift flag (decision, not code).
 - **Do NOT touch** (hot invariants, `spec-back-session-2026-07-04.md` §10): the **7** SL-context reset sites *(2026-07-13 correction: was written as "8 incl. entry-chase v2's `ReanchorLegsAsync`" — the TP-only fill-reanchor fix (`66b00cf`) deleted that function and reverted the count to 7; do not go looking for it)*, the `HandleQuoteUpdates` chase blocks (entry-chase v2 + SL-chase v2 own them now) and the emergency block, the `StopLossOrder`-echo commanded-price discriminator + `emergencyBaseline`/`emergencyBaselineSettled` (the frozen loss-cap anchor + latch, `spec-emergency-baseline-fix.md`), `pendingPlacements`/`HandlePlacementResponse` (the tie-in spec owns its `TimedOut` hardening).
 - Model/effort: Sonnet medium for 6–14 and 16 (mechanical, sites enumerated). Item 15 is mechanical **given the exclusion list**, but its diff sits on the receive hot path — keep it a separate commit and have the coordinator review that diff specifically.
+
+---
+
+# Addendum 2026-07-22 — coordinator adds (items 18–19; source: `review-session-policy-gate.md` §Backlog, owner-approved for this bundle)
+
+> Drift warning is now SEVERE: every line hint above is from `fc7bb6c` (2026-07-06) and the code has
+> since gained the tie-in, ergonomics Phase A, the raced-abort repair, the risk-sizing UI and the
+> session-policy gate (~1500+ lines in `frmMainPageV2.vb` alone, `AutoTradeSettings` re-coded).
+> Symbols are canonical; re-grep EVERY site; a site that no longer exists or is superseded = SKIP
+> with evidence in the report, never a guess. Known consequence: **item 14b's skip condition is now
+> TRUE** (the tie-in re-code replaced `AutoTradeSettings`) — verify its `Load` carries no `Me.Hide()`
+> and record the SKIP.
+
+18. **Atomic settings save (F-2 discipline):** `AppUserSettings.Save` writes with `File.WriteAllText`
+    — a crash mid-save can truncate `orderapp-settings.json`, which now carries the eight standing
+    inputs, the risk-sizing keys, the alerts block AND the session policy. Apply the exact pattern
+    `SignalBridge.PersistState` uses (temp file beside the target, then `File.Move(tmp, path,
+    overwriteExisting)`): same content, same path, no format change, no new key. Acceptance: gate
+    green; a save produces valid json and leaves no `.tmp` behind.
+
+19. **`lblBridgeStatus` truncation made visible:** the label is a fixed single-line 460px and the
+    session-policy warning (`Ignored (keeping last good): session policy '<line>'`) can exceed it —
+    today the text clips invisibly mid-string. Minimal fix, Designer-only: `AutoEllipsis = True` on
+    `lblBridgeStatus`, so truncation shows as `…`. Do NOT resize or move the label; the full text
+    remains in the UIA `Name`, which is how the harness reads it.
+
+**Additional do-NOT-touch for this bundle (post-2026-07-06 code the base list predates):** the
+`SignalBridge` §4 gate chain + disposition line format (SOAK-FROZEN), the session-policy code
+(`SessionPolicy.vb`, the 4.4b block, `EffectiveSizeUsd`), the id-31 raced-abort repair block in
+`HandleUnhandledJsonRpcError`, the seed-before-commit ordering in `InitialiseSettings`, and
+`ApplyBridgeStatusLine` single-writer semantics (item 19 is Designer-only precisely so it cannot).
+
+**Runtime scope for this bundle: NONE.** The owner's app and the log-only soak are live; the
+implementer must not launch the app, drive the harness, or touch payload/log/secrets files. The
+spec's smoke tests become a listed owner-runtime checklist in the impl report instead.
