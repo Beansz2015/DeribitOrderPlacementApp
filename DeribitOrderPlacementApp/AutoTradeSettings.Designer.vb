@@ -350,14 +350,20 @@ Partial Class AutoTradeSettings
         txtSessionPolicy.BorderStyle = BorderStyle.FixedSingle
         txtSessionPolicy.Font = New Font("Calibri", 10F)
         txtSessionPolicy.ForeColor = Color.White
-        txtSessionPolicy.Location = New Point(150, 254)
+        ' Moved left to x=110 (the "Policy" caption only needs ~100px) and widened to 360 - right
+        ' edge still 470, matching lblBridgeStatus's proven edge, but 40px more room for the text.
+        txtSessionPolicy.Location = New Point(110, 254)
         txtSessionPolicy.Multiline = True
         txtSessionPolicy.Name = "txtSessionPolicy"
-        ' 320 not the spec's 330 (§5 allows fine-tuning): 150+330 = 480 puts the right edge 2px from
-        ' the 482 group width, tighter than anything else on the form. 320 lands at 470, matching
-        ' lblBridgeStatus's proven 471, and 3 lines of "LONDON = MEDIUM | CONFIRMED | 0.5" at 10F
-        ' need barely 270.
-        txtSessionPolicy.Size = New Size(320, 76)
+        ' WordWrap OFF is LOAD-BEARING, not cosmetic. With the WinForms default (True) a line that
+        ' overruns the box wraps onto a second visual row and pushes the LAST session line out of
+        ' view entirely - caught on testnet 2026-07-21, where "LONDON = MEDIUM | CONFIRMED | 0.5"
+        ' wrapped and the whole ASIA line silently disappeared. A policy line you cannot see is one
+        ' you cannot check, which is exactly the failure this box exists to prevent. With wrap off,
+        ' one config line is always one visual row: an over-long line clips at the right (still
+        ' scrollable by caret, and the value itself is never affected) instead of hiding a session.
+        txtSessionPolicy.WordWrap = False
+        txtSessionPolicy.Size = New Size(360, 80)
         txtSessionPolicy.TabIndex = 6
         txtSessionPolicy.Text = ""
         AutoTradingToolTip.SetToolTip(txtSessionPolicy, "One line per session:  SESSION = tiers | contexts | size_mult" & vbCrLf & "e.g.  LONDON = MEDIUM | CONFIRMED | 0.5" & vbCrLf & "Sessions (UTC): ASIA 00-07, LONDON 08-12, NY 13-23." & vbCrLf & "Tiers HIGH/MEDIUM/LOW (STRONG and WEAK also accepted)." & vbCrLf & "Contexts: 'any', or a comma-separated list matched exactly." & vbCrLf & "size_mult (0,1]; 1.0 leaves size alone, less floors to the 10-USD step." & vbCrLf & "An omitted session = HIGH,MEDIUM | any | 1.0. Blank box = all defaults." & vbCrLf & "Saved as session_policy in orderapp-settings.json.")
