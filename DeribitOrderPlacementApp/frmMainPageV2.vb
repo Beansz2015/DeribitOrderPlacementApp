@@ -884,7 +884,6 @@ Public Class frmMainPageV2
         Else
             'txtLogs.AppendText("WebSocket authorized successfully" + Environment.NewLine)
             AppendColoredText(txtLogs, "WebSocket authorized successfully", Color.DodgerBlue)
-            Await EnableDeribitHeartbeatEnhanced()
 
             Dim refreshTokenToken = json.SelectToken("result.refresh_token")
             If refreshTokenToken IsNot Nothing Then
