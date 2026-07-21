@@ -2072,7 +2072,14 @@ Public Class frmMainPageV2
                 If IsWebSocketConnected AndAlso (Not IsCancelPending()) AndAlso SLTriggered AndAlso PositionSLOrderId IsNot Nothing Then
                     Dim currentTime As DateTime = DateTime.UtcNow
 
-                    ' Rate limiting: Only update if minimum time has passed
+                    ' Rate limiting: Only update if minimum time has passed.
+                    ' Trade-off (spec item 16): a persistently failing SL edit pushes lastStopLossUpdate
+                    ' forward via BackoffStopLossRetry, delaying emergency market-stop detection by up to
+                    ' SLUpdateMaxBackoffMs (5 s). Accepted trade-off vs. the edit-storm fix. The emergency
+                    ' threshold check sits inside this gate, so it shares the same 5 s worst-case delay;
+                    ' however, the emergency comparison is measured from the FROZEN emergencyBaseline anchor
+                    ' (set at the moment the SL first triggers), not from the reposition attempt time, so
+                    ' brief throttle delays do not shrink the actual emergency window.
                     If (currentTime - lastStopLossUpdate).TotalMilliseconds >= MinStopLossUpdateInterval Then
 
                         ' Cross-thread fix: read the engine field, not txtPlacedStopLossPrice. placedStopLossPrice
