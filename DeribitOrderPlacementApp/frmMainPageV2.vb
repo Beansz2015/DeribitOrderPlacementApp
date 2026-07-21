@@ -5583,9 +5583,6 @@ Public Class frmMainPageV2
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
 
-            ' Wait a moment for UI update
-            Await Task.Delay(500)
-
             ' Then execute the order
             If TradeMode = True Then
                 Await ExecuteOrderAsync("BuyLimit")
@@ -5604,9 +5601,6 @@ Public Class frmMainPageV2
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
-
-            ' Wait a moment for UI update
-            Await Task.Delay(500)
 
             ' Then execute the order
             If TradeMode = True Then
@@ -5639,8 +5633,6 @@ Public Class frmMainPageV2
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
 
-            ' Wait a moment for UI update
-            Await Task.Delay(500)
             ' Then execute the order
             If TradeMode = True Then
                 Await ExecuteOrderAsync("BuyMarket")
@@ -5916,9 +5908,6 @@ Public Class frmMainPageV2
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
-
-            ' Wait a moment for UI update
-            Await Task.Delay(500)
 
             ' Then execute the order
             If TradeMode = True Then
