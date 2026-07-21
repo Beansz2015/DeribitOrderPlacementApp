@@ -343,6 +343,70 @@ Module Program
               SessionPolicyConfig.FromJson(Nothing).RuleFor("NY").SizeMult = 1D AndAlso
               SessionPolicyConfig.FromJson(Nothing).RuleFor("NY").AllowsTier("MEDIUM"))
 
+        ' ---- The 4.4b evaluation (§3 / §9.4) ----
+        ' LONDON = MEDIUM | CONFIRMED | 0.5, everything else on defaults.
+        Dim gateProblem As String = Nothing
+        Dim gatePolicy As SessionPolicyConfig = SessionPolicyConfig.ParseSessionPolicyText(
+            "LONDON = MEDIUM | CONFIRMED | 0.5", gateProblem).WithEnabled(True)
+
+        Check("policy gate: LONDON refuses HIGH as policy(LONDON/tier)",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "HIGH", "CONFIRMED") = "refused: policy(LONDON/tier)",
+              $"got '{SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "HIGH", "CONFIRMED")}'")
+        Check("policy gate: LONDON refuses an empty context as policy(LONDON/context) (fail-closed)",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "MEDIUM", "") = "refused: policy(LONDON/context)",
+              $"got '{SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "MEDIUM", "")}'")
+        Check("policy gate: LONDON refuses a non-listed context",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "MEDIUM", "MOMENTUM_FADING") = "refused: policy(LONDON/context)")
+        Check("policy gate: LONDON passes MEDIUM + CONFIRMED",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "MEDIUM", "CONFIRMED") Is Nothing)
+        Check("policy gate: an absent session key passes HIGH and MEDIUM on the defaults",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "NY", "HIGH", "") Is Nothing AndAlso
+              SignalBridge.PolicyRefusalFor(gatePolicy, "NY", "MEDIUM", "ANYTHING") Is Nothing)
+        Check("policy gate: an absent session key still refuses LOW (the defaults are HIGH,MEDIUM)",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "NY", "LOW", "") = "refused: policy(NY/tier)")
+        Check("policy gate: tier is reported before context when BOTH fail",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "HIGH", "NOPE") = "refused: policy(LONDON/tier)")
+
+        ' The soak-safety property, asserted rather than assumed: disabled says nothing, ever.
+        Check("policy gate: DISABLED refuses nothing (the disabled-parity property)",
+              SignalBridge.PolicyRefusalFor(gatePolicy.WithEnabled(False), "LONDON", "HIGH", "") Is Nothing AndAlso
+              SignalBridge.PolicyRefusalFor(gatePolicy.WithEnabled(False), "LONDON", "LOW", "NOPE") Is Nothing)
+        Check("policy gate: a Nothing policy refuses nothing",
+              SignalBridge.PolicyRefusalFor(Nothing, "LONDON", "LOW", "") Is Nothing)
+        Check("policy gate: contexts are matched case-insensitively via canonical upper-case",
+              SignalBridge.PolicyRefusalFor(gatePolicy, "LONDON", "medium", "confirmed") Is Nothing)
+
+        ' ---- Effective size (§4 / §9.5) ----
+        ' §9.5 asked the implementer to establish whether placement enforces the 10-USD step
+        ' upstream. It does NOT: ExecuteOrderAsync only requires amount > 0, and the step floor lives
+        ' solely in ApplyRiskBasedSize (the SIZE button). So a non-step Amount is reachable by typing,
+        ' which is exactly why unity must pass through instead of flooring.
+        Check("effective size: 20 x 0.5 = 10", SignalBridge.EffectiveSizeUsd(20D, 0.5D) = 10D)
+        Check("effective size: 10 x 0.75 clamps up to the contract min 10",
+              SignalBridge.EffectiveSizeUsd(10D, 0.75D) = 10D)
+        Check("effective size: 30 x 0.5 floors to 10", SignalBridge.EffectiveSizeUsd(30D, 0.5D) = 10D)
+        Check("effective size: 100 x 0.75 = 70 (floored from 75)",
+              SignalBridge.EffectiveSizeUsd(100D, 0.75D) = 70D)
+        Check("effective size: 25 x 1.0 PASSES THROUGH as 25 (unity is size-neutral)",
+              SignalBridge.EffectiveSizeUsd(25D, 1D) = 25D,
+              $"got {SignalBridge.EffectiveSizeUsd(25D, 1D)}")
+        Check("effective size: 25 x 0.5 = 10 (a reduction of a non-step amount still floors)",
+              SignalBridge.EffectiveSizeUsd(25D, 0.5D) = 10D)
+        Check("effective size: clamp is reported for 10 x 0.75, not for 20 x 0.5",
+              SignalBridge.EffectiveSizeWasClamped(10D, 0.75D) AndAlso
+              Not SignalBridge.EffectiveSizeWasClamped(20D, 0.5D))
+        Check("effective size: unity never reports a clamp, even on a sub-step amount",
+              Not SignalBridge.EffectiveSizeWasClamped(5D, 1D) AndAlso
+              SignalBridge.EffectiveSizeUsd(5D, 1D) = 5D)
+
+        ' ---- Token classification (§9.6) ----
+        ' item H's host-log filter: full stream while flat, quiet in-position. A policy refusal is a
+        ' refusal like any other, so it must NOT be significant.
+        Check("not significant: refused: policy(NY/tier)",
+              Not SignalBridge.IsSignificantDisposition("refused: policy(NY/tier)"))
+        Check("not significant: refused: policy(LONDON/context)",
+              Not SignalBridge.IsSignificantDisposition("refused: policy(LONDON/context)"))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

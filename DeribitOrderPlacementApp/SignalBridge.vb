@@ -81,6 +81,26 @@ Public Class SignalBridge
         End Get
     End Property
 
+    ' The committed session policy (docs/spec-session-policy-gate.md section 3), live-read off the
+    ' settings form exactly like TiersCsv above. The form only ever REFERENCE-SWAPS an immutable
+    ' snapshot, so this single reference read is safe from the FSW/timer/processing threads and can
+    ' never observe a half-committed config. Never Nothing in practice; callers guard anyway.
+    Private ReadOnly Property SessionPolicy As SessionPolicyConfig
+        Get
+            Dim s As AutoTradeSettings = Settings
+            If s Is Nothing Then Return Nothing
+            Return s.SessionPolicy
+        End Get
+    End Property
+
+    ' The size multiplier in force for a payload's session. 1.0 (the identity) whenever the policy is
+    ' absent or disabled, so the act path's arithmetic is unchanged until the owner opts in.
+    Private Function PolicySizeMultFor(p As PayloadSnapshot) As Decimal
+        Dim pol As SessionPolicyConfig = SessionPolicy
+        If pol Is Nothing OrElse Not pol.Enabled Then Return 1D
+        Return pol.RuleFor(SessionBucketForPayload(p.GeneratedUtc)).SizeMult
+    End Function
+
     ' Order size = the main form's Amount box (already mirrored into an engine field there, so this
     ' is a plain field read). One size for manual and automated entries - no second place to set it.
     Private ReadOnly Property SizeUsd As Decimal
@@ -628,6 +648,25 @@ Public Class SignalBridge
             End If
         End If
 
+        ' 4.4b session policy (docs/spec-session-policy-gate.md; consumer-side, contract addendum
+        ' 2026-07-21). The trader's own per-session subset filter, deliberately placed AFTER the whole
+        ' contract-4.4 chain - including the GLOBAL tier gate - so:
+        '   * every payload the contract itself would refuse keeps its exact contract token, and the
+        '     soak's gate-for-gate join semantics stay intact even once this is enabled;
+        '   * only signals the ENGINE considers actionable can be policy-refused, so these rows
+        '     measure precisely "engine-actionable, declined by my policy" - the counterfactual the
+        '     whole feature exists to produce, joinable on the session named in the token.
+        ' It can only ever NARROW what the global Tiers box allows (D1: both gates, intersection).
+        ' Runs in Log-only too: post-enable, the soak stream shows exactly what the policy declines.
+        If disposition Is Nothing Then
+            Dim pol As SessionPolicyConfig = SessionPolicy   ' one reference read - immutable snapshot
+            If pol IsNot Nothing AndAlso pol.Enabled Then
+                ' GeneratedUtc = MinValue cannot reach here: gate 4.2 freshness refused it already.
+                disposition = PolicyRefusalFor(pol, SessionBucketForPayload(p.GeneratedUtc),
+                                               p.Confidence, p.VerdictContext)
+            End If
+        End If
+
         ' 4.5 dual-arm interlock - LIVE MODE ONLY (log-only places nothing and may run un-armed)
         If disposition Is Nothing AndAlso _mode = BridgeMode.Live Then
             If Not (_localArmed AndAlso _started AndAlso p.EngineArmed) Then
@@ -670,6 +709,21 @@ Public Class SignalBridge
         If disposition Is Nothing Then
             Dim isLong As Boolean = p.Direction = "LONG"
             Dim inv As CultureInfo = CultureInfo.InvariantCulture
+
+            ' Session policy size_mult (spec section 4), applied EXACTLY ONCE and only here, at the
+            ' act / would-act site: every gate above - including refused: size - reads the raw
+            ' SizeUsd. Unity passes through untouched, so with the policy off (or any session at
+            ' mult 1.0) this is the identity and the size below is byte-for-byte what it was before.
+            ' When the stop-distance formula later becomes the bridge's size source, this folds in as
+            ' that formula's sessionFactor term - ONE formula, never stacked hidden multipliers.
+            Dim rawSize As Decimal = SizeUsd
+            Dim sizeMult As Decimal = PolicySizeMultFor(p)
+            Dim effectiveSize As Decimal = EffectiveSizeUsd(rawSize, sizeMult)
+            If EffectiveSizeWasClamped(rawSize, sizeMult) Then
+                _log($"size_mult {sizeMult.ToString(inv)} clamped to contract min 10 " &
+                     $"(raw size {rawSize.ToString(inv)})", Color.Yellow)
+            End If
+
             If _mode = BridgeMode.Live Then
                 ' Levels per contract section 5 + section 3 semantics: target = TP limit as-is (R2,
                 ' satisfied to the exchange tick grid - docs/spec-tick-rounding.md: engine levels are
@@ -682,7 +736,11 @@ Public Class SignalBridge
                 ' where SetTradeTargets would write it. Writing it back would be a no-op at best.
                 Dim manualSl As Decimal = DeriveManualSl(isLong, p.StopLevel, _host.StopLimitOffset)
                 _host.SetTradeTargets(manualTP:=frmMainPageV2.RoundToTick(p.Target), manualSL:=manualSl)
-                Dim result As frmMainPageV2.PlacementResult = Await _host.PlaceAutomatedOrder(If(isLong, "long", "short"), "limit")
+                ' The size override is passed ONLY when the policy actually changes the size, so the
+                ' common path reaches PlaceAutomatedOrder exactly as it did before this feature.
+                Dim result As frmMainPageV2.PlacementResult =
+                    Await _host.PlaceAutomatedOrder(If(isLong, "long", "short"), "limit",
+                                                    sizeUsdOverride:=If(effectiveSize <> rawSize, effectiveSize, 0D))
                 If result.Accepted Then
                     disposition = $"acted (id {result.OrderId})"
                     RecordActed(p)
@@ -695,7 +753,7 @@ Public Class SignalBridge
                 ' engine-raw (NOT tick-rounded - that is placement mechanics, spec-tick-rounding.md
                 ' section 2), and the token prefix/format stays soak-stable.
                 disposition = $"would-act: {p.Direction} @ {p.Entry.ToString("F2", inv)}, stop {p.StopLevel.ToString("F2", inv)}, " &
-                              $"target {p.Target.ToString("F2", inv)}, size {SizeUsd.ToString(inv)}"
+                              $"target {p.Target.ToString("F2", inv)}, size {effectiveSize.ToString(inv)}"
                 ' Advance the de-dupe watermark in log-only too, so the soak's disposition stream is
                 ' gate-for-gate identical to what live mode would have produced. (The cooloff anchor
                 ' is NOT advanced here - it starts at the position close, and log-only opens none.)
@@ -856,6 +914,42 @@ Public Class SignalBridge
     Friend Shared Function SessionBucketForPayload(generatedUtc As DateTime) As String
         Dim utc As DateTime = If(generatedUtc.Kind = DateTimeKind.Utc, generatedUtc, generatedUtc.ToUniversalTime())
         Return SessionBucketFor(utc.Hour)
+    End Function
+
+    ' The whole 4.4b decision as one pure seam (spec section 3), so the policy's semantics are
+    ' fixture-pinned rather than buried in the gate chain. Returns the disposition token, or Nothing
+    ' when the policy has nothing to say - which is ALWAYS the case while it is disabled, and is what
+    ' makes "disabled = byte-identical disposition stream" true by construction rather than by care.
+    ' Tier is checked before context so the token names the FIRST reason, matching the chain's
+    ' first-failing-gate convention.
+    Friend Shared Function PolicyRefusalFor(policy As SessionPolicyConfig, session As String,
+                                            confidence As String, verdictContext As String) As String
+        If policy Is Nothing OrElse Not policy.Enabled Then Return Nothing
+        Dim rule As SessionPolicyRule = policy.RuleFor(session)
+        If Not rule.AllowsTier(confidence) Then Return $"refused: policy({session}/tier)"
+        If Not rule.AllowsContext(verdictContext) Then Return $"refused: policy({session}/context)"
+        Return Nothing
+    End Function
+
+    ' size_mult applied to the raw Amount-box size (spec section 4), as a pure seam.
+    '
+    ' UNITY PASSES THROUGH UNTOUCHED. The step-floor and the 10-USD clamp apply ONLY to an actual
+    ' reduction: a reduced non-step result (25 x 0.5 = 12.5) is unplaceable and must floor, but an
+    ' un-reduced size must stay exactly what the trader typed, whatever it is. Flooring at mult 1.0
+    ' would silently resize a non-step Amount (25 -> 20) the moment the policy was switched on, which
+    ' would break the "enabled with a blank box is byte-identical to today" acceptance and turn a
+    ' pure FILTER into a sizing change. (Spec section 4, corrected 2026-07-21.)
+    Friend Shared Function EffectiveSizeUsd(rawSizeUsd As Decimal, mult As Decimal) As Decimal
+        If mult = 1D Then Return rawSizeUsd
+        Return Math.Max(10D, Math.Floor(rawSizeUsd * mult / 10D) * 10D)
+    End Function
+
+    ' True when EffectiveSizeUsd had to clamp UP to the 10-USD contract minimum (D3: clamp and log,
+    ' never refuse - at live-at-min-size the Amount box IS 10, and refusing would silently kill every
+    ' signal in a reduced-size session).
+    Friend Shared Function EffectiveSizeWasClamped(rawSizeUsd As Decimal, mult As Decimal) As Boolean
+        If mult = 1D Then Return False
+        Return Math.Floor(rawSizeUsd * mult / 10D) * 10D < 10D
     End Function
 
     ' Records the acted/would-acted signal as the de-dupe watermark. Note it does NOT start the

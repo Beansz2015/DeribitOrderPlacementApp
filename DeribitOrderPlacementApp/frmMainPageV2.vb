@@ -591,8 +591,12 @@ Public Class frmMainPageV2
     ' rate-limit OK, flat, no working entry, and no cancel pending (the engine flattens first if
     ' it wants to flip). side: "long"/"short". kind: "limit"|"market"|"nospread". Returns the
     ' exchange ack (or a gate refusal / 5s timeout). Callable from any thread.
+    ' sizeUsdOverride (docs/spec-session-policy-gate.md section 4): 0 = read the Amount box exactly as
+    ' before, so every existing call site is byte-identical. Only the bridge act path passes a value,
+    ' and only when the session policy's size_mult actually changes the size.
     Public Async Function PlaceAutomatedOrder(side As String, Optional kind As String = "limit",
-                                              Optional ackTimeoutMs As Integer = 5000) As Task(Of PlacementResult)
+                                              Optional ackTimeoutMs As Integer = 5000,
+                                              Optional sizeUsdOverride As Decimal = 0D) As Task(Of PlacementResult)
         ' Gates (fields only - safe on any thread)
         If Not IsWebSocketConnected Then Return New PlacementResult With {.Accepted = False, .Reason = "not connected"}
         If rateLimiter Is Nothing Then Return New PlacementResult With {.Accepted = False, .Reason = "rate limiter not initialized"}
@@ -625,7 +629,7 @@ Public Class frmMainPageV2
         ' from this thread. Control.Invoke of a Function(Of Task) returns the Task to await.
         Dim placeCall As Func(Of Task) = Function()
                                              SetTradeMode(isLong)
-                                             Return ExecuteOrderAsync(typeOfOrder, reqId)
+                                             Return ExecuteOrderAsync(typeOfOrder, reqId, sizeUsdOverride)
                                          End Function
         If Me.IsHandleCreated AndAlso Me.InvokeRequired Then
             Await CType(Me.Invoke(placeCall), Task)
@@ -3170,7 +3174,8 @@ Public Class frmMainPageV2
 
     'All order execution code below
     '-----------------------------------------------------------------------
-    Private Async Function ExecuteOrderAsync(TypeOfOrder As String, Optional requestId As Integer = 0) As Task
+    Private Async Function ExecuteOrderAsync(TypeOfOrder As String, Optional requestId As Integer = 0,
+                                             Optional sizeUsdOverride As Decimal = 0D) As Task
         Try
             Dim takeprofitprice As Decimal
             Dim stoplossTriggerPrice As Decimal
@@ -3196,6 +3201,13 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, "Please enter a valid positive amount.", Color.Yellow)
                 Return
             End If
+
+            ' Session policy size_mult (docs/spec-session-policy-gate.md section 4). 0 = "use the box",
+            ' so every manual path reaches here unchanged; only the bridge act path can pass a value.
+            ' The box is still validated FIRST - an override must not paper over an empty Amount box.
+            ' txtAmount is deliberately NOT written: the multiplier must never mutate the trader's
+            ' standing input, so what is on screen after an automated entry is still what they typed.
+            If sizeUsdOverride > 0D Then amount = sizeUsdOverride
 
             Select Case TypeOfOrder
                 Case "BuyLimit"

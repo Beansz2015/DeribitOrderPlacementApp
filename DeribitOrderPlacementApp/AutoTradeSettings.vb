@@ -35,6 +35,13 @@ Public Class AutoTradeSettings
     Private _windowEnd As String = ""
     Private _tiersCsv As String = "HIGH,MEDIUM"
 
+    ' Session policy (docs/spec-session-policy-gate.md section 3). Unlike the mirrors above this is
+    ' ONE IMMUTABLE SNAPSHOT, reference-SWAPPED on commit and never mutated in place, so the bridge's
+    ' FSW/timer threads can read it with a single reference read - the same discipline as the plain-
+    ' field mirrors, extended to a compound value. Defaults = disabled = today's behaviour exactly;
+    ' the real config arrives via SeedSessionPolicyFromHost/CommitGateConfig.
+    Private _sessionPolicy As SessionPolicyConfig = SessionPolicyConfig.Defaults()
+
     Friend ReadOnly Property CooloffMin As Decimal
         Get
             Return _cooloffMin
@@ -58,6 +65,13 @@ Public Class AutoTradeSettings
     Friend ReadOnly Property TiersCsv As String
         Get
             Return _tiersCsv
+        End Get
+    End Property
+    ''' <summary>The committed session policy. Never Nothing; safe to read from any thread (the
+    ''' instance is immutable - see the field comment).</summary>
+    Friend ReadOnly Property SessionPolicy As SessionPolicyConfig
+        Get
+            Return _sessionPolicy
         End Get
     End Property
 
