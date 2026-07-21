@@ -233,6 +233,116 @@ Module Program
             End Try
         End Try
 
+        ' ================== session policy gate (docs/spec-session-policy-gate.md) ==================
+
+        ' ---- Session buckets (spec §2 / §9.1): pinned engine-identical UTC boundaries ----
+        ' All four edges, plus both ends of the day. These are UTC ANALYSIS sessions - not the
+        ' owner's UTC+8 Inclusion Time Range, which is a different clock doing a different job.
+        Check("session bucket 00:00 UTC = ASIA", SignalBridge.SessionBucketFor(0) = "ASIA")
+        Check("session bucket 07:59 UTC = ASIA", SignalBridge.SessionBucketFor(7) = "ASIA")
+        Check("session bucket 08:00 UTC = LONDON", SignalBridge.SessionBucketFor(8) = "LONDON")
+        Check("session bucket 12:59 UTC = LONDON", SignalBridge.SessionBucketFor(12) = "LONDON")
+        Check("session bucket 13:00 UTC = NY", SignalBridge.SessionBucketFor(13) = "NY")
+        Check("session bucket 23:59 UTC = NY", SignalBridge.SessionBucketFor(23) = "NY")
+
+        ' ---- The bucket derived THROUGH ParsePayload (§9.2 - the DateTimeKind trap) ----
+        ' 23:30Z is NY. Read as a LOCAL time on this UTC+8 machine it becomes 07:30 the NEXT DAY =
+        ' ASIA, so the hour is asserted alongside the bucket: a Kind slip and a boundary slip are
+        ' different bugs and should not look alike in the output.
+        Dim lateUtc As SignalBridge.PayloadSnapshot = Parse("late-utc-hour.json")
+        Check("bucket via ParsePayload: 23:30Z parses as hour 23, Kind=Utc",
+              lateUtc.TimestampOk AndAlso lateUtc.GeneratedUtc.Kind = DateTimeKind.Utc AndAlso
+              lateUtc.GeneratedUtc.Hour = 23,
+              $"got {lateUtc.GeneratedUtc:o} (Kind={lateUtc.GeneratedUtc.Kind})")
+        Check("bucket via ParsePayload: 23:30Z = NY (a local misread would say ASIA)",
+              SignalBridge.SessionBucketForPayload(lateUtc.GeneratedUtc) = "NY",
+              $"got {SignalBridge.SessionBucketForPayload(lateUtc.GeneratedUtc)}")
+        Check("bucket via ParsePayload: contract §3 example (14:31Z) = NY",
+              SignalBridge.SessionBucketForPayload(Parse("contract-s3.json").GeneratedUtc) = "NY")
+
+        ' ---- The settings-box text grammar (§1 / §9.3) ----
+        Dim policyProblem As String = Nothing
+        Dim exampleText As String = String.Join(vbCrLf, {
+            "NY = HIGH,MEDIUM | any | 1.0",
+            "LONDON = MEDIUM | CONFIRMED | 0.5",
+            "ASIA = HIGH,MEDIUM | any | 0.75"})
+        Dim parsedExample As SessionPolicyConfig =
+            SessionPolicyConfig.ParseSessionPolicyText(exampleText, policyProblem)
+        Check("policy parse: the §1 three-line example parses clean",
+              parsedExample IsNot Nothing AndAlso policyProblem Is Nothing, $"problem='{policyProblem}'")
+        Check("policy parse: render(parse(x)) round-trips canonically",
+              SessionPolicyConfig.RenderSessionPolicyText(parsedExample) = exampleText,
+              $"got '{SessionPolicyConfig.RenderSessionPolicyText(parsedExample)}'")
+
+        If parsedExample IsNot Nothing Then
+            Dim london As SessionPolicyRule = parsedExample.RuleFor("LONDON")
+            Check("policy parse: LONDON = MEDIUM | CONFIRMED | 0.5",
+                  london.Tiers.Count = 1 AndAlso london.Tiers(0) = "MEDIUM" AndAlso
+                  london.Contexts.Count = 1 AndAlso london.Contexts(0) = "CONFIRMED" AndAlso
+                  london.SizeMult = 0.5D)
+            Check("policy parse: contexts 'any' = the empty set (unrestricted)",
+                  parsedExample.RuleFor("NY").Contexts.Count = 0)
+            Check("policy parse: session names are case-insensitive",
+                  parsedExample.RuleFor("london").SizeMult = 0.5D)
+        End If
+
+        Dim aliased As SessionPolicyConfig =
+            SessionPolicyConfig.ParseSessionPolicyText("NY = STRONG,WEAK | any | 1.0", policyProblem)
+        Check("policy parse: STRONG/WEAK canonicalize to HIGH/LOW",
+              SessionPolicyConfig.RenderSessionPolicyText(aliased) = "NY = HIGH,LOW | any | 1.0",
+              $"got '{SessionPolicyConfig.RenderSessionPolicyText(aliased)}'")
+
+        Dim londonOnly As SessionPolicyConfig =
+            SessionPolicyConfig.ParseSessionPolicyText("LONDON = MEDIUM | CONFIRMED | 0.5", policyProblem)
+        Check("policy parse: an omitted session falls back to the §1 defaults",
+              londonOnly IsNot Nothing AndAlso
+              londonOnly.RuleFor("NY").AllowsTier("HIGH") AndAlso londonOnly.RuleFor("NY").AllowsTier("MEDIUM") AndAlso
+              Not londonOnly.RuleFor("NY").AllowsTier("LOW") AndAlso
+              londonOnly.RuleFor("NY").Contexts.Count = 0 AndAlso londonOnly.RuleFor("NY").SizeMult = 1D)
+
+        Dim blankPolicy As SessionPolicyConfig =
+            SessionPolicyConfig.ParseSessionPolicyText("   " & vbCrLf & vbCrLf, policyProblem)
+        Check("policy parse: a blank box is all-defaults, not an error",
+              blankPolicy IsNot Nothing AndAlso policyProblem Is Nothing AndAlso
+              SessionPolicyConfig.RenderSessionPolicyText(blankPolicy) = "" AndAlso
+              blankPolicy.RuleFor("ASIA").SizeMult = 1D)
+
+        ' Every malformed line keeps the last good config and names the offending line (§1).
+        For Each bad As String In {"NY = HIGH,MEDIUM | any | 1.5",
+                                   "NY = HIGH,MEDIUM | any | 0",
+                                   "TOKYO = HIGH | any | 1.0",
+                                   "NY = NONSENSE | any | 1.0",
+                                   "NY = HIGH | any",
+                                   "NY = HIGH |  | 1.0",
+                                   "just some text"}
+            Dim badProblem As String = Nothing
+            Dim rejected As SessionPolicyConfig = SessionPolicyConfig.ParseSessionPolicyText(bad, badProblem)
+            Check($"policy parse rejects '{bad}' and reports the line",
+                  rejected Is Nothing AndAlso badProblem = bad, $"problem='{badProblem}'")
+        Next
+
+        Dim dupProblem As String = Nothing
+        Dim duplicated As SessionPolicyConfig = SessionPolicyConfig.ParseSessionPolicyText(
+            "NY = HIGH | any | 1.0" & vbCrLf & "NY = MEDIUM | any | 0.5", dupProblem)
+        Check("policy parse rejects a duplicate session line (naming the second one)",
+              duplicated Is Nothing AndAlso dupProblem = "NY = MEDIUM | any | 0.5", $"problem='{dupProblem}'")
+
+        ' ---- Persistence round-trip (D2; the mechanism behind §10 acceptance 3) ----
+        If parsedExample IsNot Nothing Then
+            Dim reloaded As SessionPolicyConfig =
+                SessionPolicyConfig.FromJson(parsedExample.WithEnabled(True).ToJson())
+            Check("policy json: enabled + rules survive the settings-block round-trip",
+                  reloaded.Enabled AndAlso
+                  SessionPolicyConfig.RenderSessionPolicyText(reloaded) = exampleText,
+                  $"enabled={reloaded.Enabled} text='{SessionPolicyConfig.RenderSessionPolicyText(reloaded)}'")
+            Check("policy json: WithEnabled does not disturb the rules",
+                  SessionPolicyConfig.RenderSessionPolicyText(parsedExample.WithEnabled(True)) = exampleText)
+        End If
+        Check("policy json: an absent block = defaults + disabled",
+              Not SessionPolicyConfig.FromJson(Nothing).Enabled AndAlso
+              SessionPolicyConfig.FromJson(Nothing).RuleFor("NY").SizeMult = 1D AndAlso
+              SessionPolicyConfig.FromJson(Nothing).RuleFor("NY").AllowsTier("MEDIUM"))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

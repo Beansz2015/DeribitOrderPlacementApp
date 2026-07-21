@@ -11,8 +11,9 @@ Imports Newtonsoft.Json.Linq
 '''
 ''' Persisted: the eight standing inputs (amount / take_profit / trigger / stop_loss /
 ''' trigger_offset / tp_offset / comms / market_stop_loss), the two guard checkboxes + the
-''' ATR-slippage multiplier, the item-B risk-sizing keys (risk_per_trade_usd / max_size_usd) and
-''' the item-D alerts block. (comms was added by owner ruling 2026-07-18 - it is a standing
+''' ATR-slippage multiplier, the item-B risk-sizing keys (risk_per_trade_usd / max_size_usd), the
+''' item-D alerts block and the session_policy block (spec-session-policy-gate.md D2 - the one
+''' bridge gate setting that persists, because it is a weeks-cadence standing policy). (comms was added by owner ruling 2026-07-18 - it is a standing
 ''' session value like the rest, and the item-E break-even trigger derives from it, so a reset
 ''' to the Designer default silently changes where B.E. puts the stop.)
 ''' Per-trade values (txtManualTP/txtManualSL) and anything credential-like are deliberately
@@ -52,6 +53,13 @@ Public NotInheritable Class AppUserSettings
     Public AlertEmergencyStop As Boolean = True
     Public AlertOrderRejected As Boolean = True
     Public AlertConnection As Boolean = True
+
+    ' Session policy gate (docs/spec-session-policy-gate.md, D2). A weeks-cadence standing policy
+    ' that had to be retyped every start would guarantee drift, so unlike the rest of the bridge
+    ' gate boxes this one persists. It is gate CONFIG, not an arm: `enabled` turns a FILTER on, and
+    ' Mode/ARM/Started remain non-persisted exactly as before - this block contains none of them.
+    ' Never Nothing: Load always leaves a usable instance here.
+    Friend SessionPolicy As SessionPolicyConfig = SessionPolicyConfig.Defaults()
 
     ''' <summary>Where Save writes (beside the exe - the first Load candidate).</summary>
     Public Shared ReadOnly Property SavePath As String
@@ -110,6 +118,9 @@ Public NotInheritable Class AppUserSettings
                 result.AlertOrderRejected = If(alerts.SelectToken("order_rejected")?.ToObject(Of Boolean?)(), True)
                 result.AlertConnection = If(alerts.SelectToken("connection")?.ToObject(Of Boolean?)(), True)
             End If
+
+            ' Tolerant by contract: missing/garbage block => defaults + disabled (spec §1).
+            result.SessionPolicy = SessionPolicyConfig.FromJson(json.SelectToken("session_policy"))
         Catch ex As Exception
             message = $"orderapp-settings.json unreadable ({ex.Message}) - starting on Designer defaults"
             result = New AppUserSettings() ' a half-parsed file must not half-apply
@@ -144,7 +155,8 @@ Public NotInheritable Class AppUserSettings
                     {"emergency_stop", AlertEmergencyStop},
                     {"order_rejected", AlertOrderRejected},
                     {"connection", AlertConnection}
-                }}
+                }},
+                {"session_policy", If(SessionPolicy, SessionPolicyConfig.Defaults()).ToJson()}
             }
             File.WriteAllText(SavePath, json.ToString())
             Return Nothing

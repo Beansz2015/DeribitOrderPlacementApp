@@ -833,6 +833,31 @@ Public Class SignalBridge
         Return frmMainPageV2.RoundToTick(If(isLong, stopLevel - offset, stopLevel + offset))
     End Function
 
+    ' Session policy gate (docs/spec-session-policy-gate.md section 2): the pinned, engine-identical
+    ' UTC analysis-session buckets - ASIA 00:00-07:59, LONDON 08:00-12:59, NY 13:00-23:59.
+    '
+    ' WARNING - two different clocks live in this file, deliberately:
+    '   * these buckets are UTC, and describe which market session ANALYSED the signal;
+    '   * the Inclusion Time Range (IsInsideWindowCore above) is the owner's UTC+8 LOCAL hard
+    '     window, gate 4.6, fail-closed.
+    ' Different clocks, different jobs. Do not "unify" them.
+    Friend Shared Function SessionBucketFor(utcHour As Integer) As String
+        If utcHour >= 13 Then Return "NY"
+        If utcHour >= 8 Then Return "LONDON"
+        Return "ASIA"
+    End Function
+
+    ' The UTC hour a payload was generated in. GeneratedUtc already comes back from ParsePayload as
+    ' Kind=Utc (AdjustToUniversal), but the conversion is defensive: reading .Hour off a Local or
+    ' Unspecified DateTime would silently bucket signals into the wrong session for anyone east or
+    ' west of UTC, and the symptom - a policy that refuses the wrong things at the wrong times -
+    ' looks nothing like a timezone bug. Pinned through ParsePayload by an OrderCheck fixture.
+    ' (GeneratedUtc = MinValue cannot reach here: gate 4.2 freshness refuses first.)
+    Friend Shared Function SessionBucketForPayload(generatedUtc As DateTime) As String
+        Dim utc As DateTime = If(generatedUtc.Kind = DateTimeKind.Utc, generatedUtc, generatedUtc.ToUniversalTime())
+        Return SessionBucketFor(utc.Hour)
+    End Function
+
     ' Records the acted/would-acted signal as the de-dupe watermark. Note it does NOT start the
     ' cooloff: the cooloff anchors on the position CLOSE (NotifyPositionClosed), because the flat
     ' gate already blocks entries for the whole life of the trade - a placement-anchored cooloff
