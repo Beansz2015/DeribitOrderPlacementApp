@@ -4568,56 +4568,6 @@ Public Class frmMainPageV2
     '------------------------------------------------
     ' Define a function to add colored text
 
-    Private Async Function GetAccountSummaryLimits() As Task(Of RateLimitInfo)
-        Try
-            ' Create a task completion source to wait for the response
-            accountSummaryTaskCompletionSource = New TaskCompletionSource(Of RateLimitInfo)()
-
-            ' Create the account summary request
-            Dim accountSummaryPayload = New JObject(
-            New JProperty("jsonrpc", "2.0"),
-            New JProperty("id", 999), ' Unique ID to identify this request
-            New JProperty("method", "private/get_account_summary"),
-            New JProperty("params", New JObject(
-                New JProperty("currency", "BTC"),
-                New JProperty("extended", True)
-            ))
-        )
-
-            ' Send the request via WebSocket
-            Await SendWebSocketMessageAsync(accountSummaryPayload.ToString())
-
-            ' Wait for the response (with timeout)
-            Dim timeoutTask = Task.Delay(5000) ' 5 second timeout
-            Dim completedTask = Await Task.WhenAny(accountSummaryTaskCompletionSource.Task, timeoutTask)
-
-            ' Use 'Is' operator instead of '=' for task comparison
-            If completedTask Is timeoutTask Then
-                ' Timeout occurred
-                AppendColoredText(txtLogs, "Account summary request timed out - using conservative defaults", Color.Yellow)
-                Return New RateLimitInfo With {
-                .MaxCredits = 2000,
-                .RefillRate = 20,
-                .BurstLimit = 20,
-                .CurrentEstimatedCredits = 2000
-            }
-            Else
-                ' Response received
-                Return Await accountSummaryTaskCompletionSource.Task
-            End If
-
-        Catch ex As Exception
-            AppendColoredText(txtLogs, $"Error getting account limits: {ex.Message}", Color.Yellow)
-            ' Return very conservative defaults on error
-            Return New RateLimitInfo With {
-            .MaxCredits = 500,
-            .RefillRate = 10,
-            .BurstLimit = 5,
-            .CurrentEstimatedCredits = 500
-        }
-        End Try
-    End Function
-
     ' ===== Ergonomics item D (docs/spec-execution-ergonomics.md): alerts =====
     ' One line per call site; config-gated via item A's alerts block (all default ON; reposition
     ' noise is not alertable at all - no such kind exists). Sound = SystemSounds (Exclamation for
@@ -5423,8 +5373,8 @@ Public Class frmMainPageV2
         Try
             AppendColoredText(txtLogs, "Initializing rate limits from account summary...", Color.DodgerBlue)
 
-            ' Get actual account limits
-            accountLimits = Await GetAccountSummaryLimits()
+            ' Get actual account limits (timeout version - same as InitializeRateLimitsAfterAuth)
+            accountLimits = Await GetAccountSummaryLimitsWithTimeout(5000)
 
             ' Initialize rate limiter with actual limits
             rateLimiter = New DeribitRateLimiter(accountLimits.MaxCredits, 50) 'Conservative = 200 | Reasonable = 50
