@@ -1308,9 +1308,10 @@ Public Class frmMainPageV2
                 If errorField IsNot Nothing Then
                     AppendColoredText(txtLogs, $"Account summary error: {errorField.ToString()}", Color.Yellow)
 
-                    ' Complete the task with conservative defaults on error
+                    ' Complete the task with conservative defaults on error.
+                    ' item 14c: TrySetResult — a late response after timeout no longer throws.
                     If accountSummaryTaskCompletionSource IsNot Nothing Then
-                        accountSummaryTaskCompletionSource.SetResult(New RateLimitInfo With {
+                        accountSummaryTaskCompletionSource.TrySetResult(New RateLimitInfo With {
                         .MaxCredits = 1000,
                         .RefillRate = 10,
                         .BurstLimit = 10,
@@ -1326,9 +1327,9 @@ Public Class frmMainPageV2
                     Dim rateLimitInfo = ExtractRateLimitsFromAccountSummary(result)
                     AppendColoredText(txtLogs, $"Account summary received - Max Credits: {rateLimitInfo.MaxCredits}", Color.LimeGreen)
 
-                    ' Complete the waiting task
+                    ' Complete the waiting task. item 14c: TrySetResult — late response safe.
                     If accountSummaryTaskCompletionSource IsNot Nothing Then
-                        accountSummaryTaskCompletionSource.SetResult(rateLimitInfo)
+                        accountSummaryTaskCompletionSource.TrySetResult(rateLimitInfo)
                     End If
                 End If
             End If
