@@ -212,15 +212,17 @@ knowing before the number causes a false alarm in a future review.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Gate per commit, new fixtures counted | **DONE** — 3/3 GATE PASSED, 96/96 |
-| 2 | Disabled parity (soak-safety proof) | **Argued + fixture-backed, owner runtime pass outstanding.** `PolicyRefusalFor` returns `Nothing` when disabled and `EffectiveSizeUsd` is the identity at unity, both pinned; nothing populates a non-default policy unless the owner ticks the box. Needs the live-stream byte-comparison. |
-| 3 | Config round-trip (the §5 trap test) | **Mechanism fixture-pinned** (json → rules → rendered text); the hand-edit + restart run is the owner's. |
-| 4–6 | Tier refusal / context refusal / size_mult | Runtime, engine-stopped write-payload protocol — owner. |
-| 7 | UI not clipped/overlapping | **DONE on testnet** — §6a below. Found and fixed a real clipping defect (`8a31fd6`). |
-| 8 | Persist round-trip | Runtime — owner. |
+| 1 | Gate per commit, new fixtures counted | **DONE** — GATE PASSED every commit, 96/96 |
+| 2 | Disabled parity (soak-safety proof) | **DONE — owner, 2026-07-21.** Disabled, and separately enabled-with-blank-box, against the live engine stream in Log-only: no `refused: policy` token anywhere, sizes unchanged. |
+| 3 | Config round-trip (the §5 trap test) | **DONE — owner, 2026-07-21.** Hand-edited json block survived a restart. |
+| 4 | Tier refusal | **DONE on testnet** — §6b below. |
+| 5 | Context refusal | **DONE on testnet** — §6b below. |
+| 6 | size_mult + clamp | **DONE on testnet** — §6b below. |
+| 7 | UI not clipped/overlapping | **DONE on testnet** — §6a. Found and fixed a real clipping defect (`8a31fd6`). |
+| 8 | Persist round-trip | **DONE — owner, 2026-07-21.** |
 | 9 | Greps | **DONE** — §5 above. |
 
-Acceptances 2–6 and 8 still need the owner's runtime pass; nothing is "done" until they run it.
+**All nine acceptances now pass.** Remaining: coordinator review (fresh seat — I authored this).
 
 ## 6a. Testnet harness pass (acceptance 7 + §8), 2026-07-21
 
@@ -268,6 +270,53 @@ who fixes their typo will believe the policy is still rejected. **Recommend** cl
 handing it back to `RefreshBridgePanel`) when `problems.Count = 0` — deliberately not done here as
 out-of-scope; owner/coordinator call.
 
+## 6b. Testnet harness pass — acceptances 4, 5, 6 (2026-07-21, UTC hour 16 = NY)
+
+**The soak was never interrupted.** Rather than stopping the engine and swapping the real payload
+(as the acceptance text assumes), the harness bin was given its **own `bridge.json` pointing at a
+scratch payload file**. All bridge files live at `AppContext.BaseDirectory`, so the harness AnyCPU
+bin is fully isolated from the owner's x64 session. The engine kept running throughout and
+`C:\Dev\DeribitBridge\verdict_signal.json` was never touched — verified after the run. **This is the
+better protocol for any future payload test and should replace the engine-stopped one where the
+test only needs the consumer side.** Harness `bridge.json` removed and `secrets.json` restored to
+`live` (262 bytes, valid) afterwards.
+
+Test payloads were stamped `generated_at_utc = now` (so the freshness gate passes and the bucket is
+the current UTC one) with an increasing `signal_id` (the watermark suppresses replays).
+
+| Test | Setup | Result |
+|---|---|---|
+| **4 tier refuse** | `NY = HIGH \| any \| 1.0`, send MEDIUM | `refused: policy(NY/tier)` ✓ |
+| **4 tier admit** | `NY = HIGH,MEDIUM \| any \| 1.0`, same payload | `would-act … size 10` ✓ |
+| **5 context** | `NY = MEDIUM \| CONFIRMED \| 1.0`, context `""` | `refused: policy(NY/context)` ✓ |
+| **6a size** | Amount 20, `\| 0.5` | `would-act … size 10`, **no clamp line** ✓ |
+| **6b clamp** | Amount 10, `\| 0.75` | `would-act … size 10` + `size_mult 0.75 clamped to contract min 10 (raw size 10)` ✓ |
+
+The refuse→admit pair on the *same* payload is the real proof: the only variable was the policy line.
+
+**Disambiguation that mattered.** 6a and 6b both print `size 10`, so the size alone proves nothing —
+had Amount not actually committed to 20, 6a would have reached 10 via the clamp instead of via a
+genuine 0.5× reduction. The discriminator is the clamp line: the log contains **exactly one**, from
+6b. 6a producing none proves Amount really was 20 and the multiplier did the work.
+
+Unity passthrough also confirmed in passing: the 4-admit case ran at mult 1.0 with Amount 10 and
+reported `size 10` — unchanged, no floor applied.
+
+**Warning-fix verification (`8be8ea5`), three steps:** valid policy → `LogOnly | stopped | Engine
+ARM: ON | Payload: FRESH`; invalid line → `Ignored (keeping last good): session policy 'TOKYO = HIGH
+| any | 1.0'`; typo fixed → **warning clears and the status line returns**. Step 3 is precisely what
+failed before the fix.
+
+**Harness finding — `set-textbox -CommitViaBlur` is unreliable here.** Twice, the box held the new
+text while the app kept enforcing the *old* value: UIA `SetValue` does not focus the control, so the
+`Leave` that drives commit-on-blur never fires. This silently produced two wrong results (a `tier`
+refusal where a `context` refusal was expected) that looked like product bugs until the committed
+value was read back. **Always verify what is in force, not just what the box displays.** The reliable
+workaround used here is a focus-independent commit — toggling `chkSessionPolicyOn` twice, since
+`CheckedChanged` calls `CommitGateConfig` directly. Worth folding into the harness docs; it is the
+same class as the already-recorded "SetValue alone does not raise Leave" lesson, but the existing
+`-CommitViaBlur` mitigation does not always work.
+
 **Harness usage note (my error, not the app's):** passing a value containing `|` and spaces to
 `set-textbox.ps1` through a *nested* `powershell -File` invocation let the inner parser re-split the
 arguments, and a fragment (`an`) landed in `txtCircuitBreaker`. The app correctly refused it
@@ -279,12 +328,12 @@ argument hazard already bit this project once (the empty-string `$Value` case in
 
 ## 7. Suspicious nearby, not touched
 
-- **`ShowGateConfigWarnings` and `lblBridgeStatus` — two pre-existing faults, one now runtime-proven.**
-  (1) It never clears a warning once shown (`If problems.Count = 0 Then Return`) — demonstrated on
-  testnet, see §6a. (2) It is clobbered by `RefreshBridgePanel`, which also writes `lblBridgeStatus`;
-  `CommitOnEnterKey` calls the commit *then* the refresh, so an Enter-raised warning is overwritten
-  immediately. `OnSessionPolicyToggled` deliberately does *not* call `RefreshBridgePanel`, so the
-  checkbox path avoids (2). Both are original code; the policy box just makes them easy to meet.
+- ~~**`ShowGateConfigWarnings` and `lblBridgeStatus` — two pre-existing faults.**~~ **FIXED in
+  `8be8ea5`** at the owner's request (out-of-scope but small). The label had two independent writers
+  and both directions were broken: warnings were never cleared (`If problems.Count = 0 Then Return`)
+  and were clobbered blind by `RefreshBridgePanel`. `ApplyBridgeStatusLine` is now the single writer,
+  with a live warning outranking the status line and clearing itself once the config parses.
+  Runtime-verified — §6b.
 - **`lblBridgeStatus` truncates long text.** It is a fixed 460px single-line Label, and the policy
   warning (`Ignored (keeping last good): session policy '<line>'`) is longer than the gate warnings
   it was sized for — the offending line gets cut off mid-string on screen (the full text is intact in
