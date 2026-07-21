@@ -4722,6 +4722,14 @@ Public Class frmMainPageV2
                               atBottom = (si.nPos + CInt(si.nPage)) >= (si.nMax - rtb.Font.Height)
                           End If
 
+                          ' item 14d: log cap — trim the front when the log grows large to prevent
+                          ' long unattended sessions from degrading the UI thread. The trim is inside
+                          ' the marshalled lambda (UI thread only) and is occasional (>400 000 chars).
+                          If rtb.TextLength > 400000 Then
+                              rtb.Select(0, 100000)
+                              rtb.SelectedText = ""
+                          End If
+
                           ' The coloring below moves the caret, so a user's in-progress selection
                           ' (copying mid-stream) is saved and restored around the append - required
                           ' by the item's acceptance; rtb.Select does not scroll.
