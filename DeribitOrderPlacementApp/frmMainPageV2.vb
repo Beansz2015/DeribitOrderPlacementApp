@@ -2703,9 +2703,6 @@ Public Class frmMainPageV2
                                                       ' Capture the pre-echo triggered state BEFORE flipping it, so the block can tell the one-time
                                                       ' trigger flip (adopt silently) from a later manual edit (discriminate + log). A TRIGGER-only
                                                       ' move makes the flip price differ from the last untriggered mirror - that must NOT log "manual".
-                                                      ' Capture the pre-echo triggered state BEFORE flipping it, so the block can tell the one-time
-                                                      ' trigger flip (adopt silently) from a later manual edit (discriminate + log). A TRIGGER-only
-                                                      ' move makes the flip price differ from the last untriggered mirror - that must NOT log "manual".
                                                       Dim wasTriggered As Boolean = SLTriggered
                                                       SLTriggered = True
 
