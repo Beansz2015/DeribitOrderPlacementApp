@@ -122,6 +122,8 @@ Live auto-trading requires, in order: **engine ARM toggle** (default OFF every s
 
 **Addendum 2026-07-06 (cross-project rollout gate):** the step to **live at minimum size** is additionally gated on the engine-side "placed-geometry structural-first" pass being live (it changes the origin of `levels.*` from ATR-derived to structural-first; schema and placement semantics untouched — prices stay prices; `cap_reason` may gain new label values, informational as ever). **The trader confirms that pass is live before stepping up. Log-only does NOT wait for it.**
 
+**2026-07-22 — log-only soak COMPLETED and CALLED** at the §7 one-week lower bound (soak live 2026-07-16 → 07-22). Exit evidence: the full column-level join, CLEAN — 1398/1398 matched rows zero mismatches, 69/69 would-act ≡ engine `Placed*` (the fourth parity check), all unmatched rows SKIPPED-class per the by-design partial payload→CSV join (`review-soak-join-2026-07-22.md`; engine-seat §5.7 mapping in `soak-review-reply-orderapp.md`). The 2026-07-06 geometry gate is satisfied (engine seat: v51 live since 07-07, v56 defaults byte-identical; trader-relayed = the trader confirmation this addendum requires). **The ladder may proceed: §6 interlock + §6.2/6.3 live tests at minimum size, trader-supervised.**
+
 ## 8. v2 (agreed direction, not yet specified)
 
 One **feedback file** (order app → engine, same atomic-write pattern): position state (size, avg entry, flat/holding), last-processed signal disposition, and executor armed/started state (for engine-side interlock display). Unlocks the engine's `hold_status`/exit-guard as actionable exit signals and slippage-aware signal pricing. Gated on the v1 soak.
