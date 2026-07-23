@@ -57,6 +57,25 @@ are untouched; the box stays a live UI knob (owner re-syncs it if the engine's p
   gates own-side; the 6 pre-placement gates use `BestPrice` by construction — untouched).
 - No new SL/commanded sites; `SignalBridge.vb` untouched except nothing (bridge reads mirrors).
 
-## Implementation record (appended at completion)
+## Implementation record (2026-07-24, coordinator seat — spec+impl+record in one file, the tick-rounding precedent)
 
-*(pending)*
+**Commits:** `fba7976` (R2 + this spec) · `77cf229` (R3) · `86a0a98` (R1). **GATE PASSED after each
+(96/96 at the final run; all three verified).**
+
+- **R2:** the one argument swap + the ruling comment replacing the "flagged" note. Grep confirms
+  own-side across all four reposition gates: `:1942`/`:2240` LONG→`bestBid`, `:1993`/`:2277`
+  SHORT→`bestAsk`. Nothing else in the hunk.
+- **R3:** Designer `txtAtrLength` `"14"`→`"7"`; `atrLengthVal` default and the `AtrLength` floor
+  →7; comment records the ruling + that payload-first is untouched. `$70` fallback untouched.
+- **R1:** `AppUserSettings.CircuitBreakerUsd = 10D` + `circuit_breaker_usd` Load (absent ⇒ 10) /
+  Save (atomic path); host `CircuitBreakerUsd`/`SetCircuitBreakerUsd` beside the risk accessors
+  (accepts ≤ 0 — documented); `SeedCircuitBreakerFromHost()` invariant-culture, seeded before the
+  first `CommitGateConfig` beside the other seeds; the commit's `TryParse`-success branch pushes to
+  the host; Designer `-1`→`10`, mirror default aligned; `orderapp-settings.example.json` gains the
+  key + comment line. No bridge/SignalBridge changes (it live-reads the mirror as before).
+- **Deviation:** none. **Author = review seat** (owner-directed); mitigations as specced —
+  gate ×3, greps above, and the owner's runtime acceptance 2 (the breaker round-trip) still open.
+
+**Owner runtime acceptance (open):** hand-edit `circuit_breaker_usd: 25` → restart → box 25 &
+in force; box `-1` → save-close → restart → −1 persists (disable survives); key deleted → 10.
+Observation items: `ATR now:` shows the indicator at period 7 when the payload is stale.
