@@ -2234,9 +2234,10 @@ Public Class frmMainPageV2
                                AndAlso (DateTime.UtcNow - lastEntryChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
                                 ' Add null check for rateLimiter; HasHeadroom(4) per §6.
                                 If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
-                                    ' NOTE: bestAsk as the LONG slippage-guard input predates v2 (entry block
-                                    ' passes bestBid) - left as-is deliberately, flagged for an owner decision.
-                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestAsk, "LONG") Then
+                                    ' Owner ruling 2026-07-24 (audit F18 flag closed, spec-breaker-persist-atr7-item8.md
+                                    ' R2): own-side convention like the other three reposition gates - LONG measures
+                                    ' drift on the BID (was bestAsk, copy/paste drift; guard now trips ~1 tick later).
+                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestBid, "LONG") Then
                                         Await CancelWorkingEntryCoreAsync("ATR slippage")
                                         'Return
                                     Else
