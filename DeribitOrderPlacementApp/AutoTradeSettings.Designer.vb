@@ -417,7 +417,7 @@ Partial Class AutoTradeSettings
         txtAtrLength.Name = "txtAtrLength"
         txtAtrLength.Size = New Size(64, 42)
         txtAtrLength.TabIndex = 1
-        txtAtrLength.Text = "14"
+        txtAtrLength.Text = "7"
         txtAtrLength.TextAlign = HorizontalAlignment.Center
         '
         ' lblAtrLenUnit

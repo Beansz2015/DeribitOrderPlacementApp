@@ -29,13 +29,15 @@ Public Class frmMainPageV2
 
     ' Tooling mirrors, owned here so the receive thread reads plain fields (never a cross-form control).
     ' AutoTradeSettings pushes these on commit (focus-loss/Enter, not per keystroke - a half-typed value
-    ' must never reach the engine). Defaults match the pre-retirement constants.
-    Private atrLengthVal As Integer = 14           ' ATR period for FrmIndicators' headless ATR calc
+    ' must never reach the engine). ATR period default 7 mirrors the ENGINE's settings.json ATR.period
+    ' (owner ruling 2026-07-24, spec-breaker-persist-atr7-item8.md R3 - the old 14 followed the retired
+    ' FrmIndicators autotrading; this is only the FALLBACK, the payload ATR stays first).
+    Private atrLengthVal As Integer = 7            ' ATR period for FrmIndicators' headless ATR calc
     Private atrFallbackVal As Decimal = 70D        ' slippage-limit fallback when no ATR is available
 
     Friend ReadOnly Property AtrLength As Integer
         Get
-            Return If(atrLengthVal > 0, atrLengthVal, 14)
+            Return If(atrLengthVal > 0, atrLengthVal, 7)
         End Get
     End Property
 
