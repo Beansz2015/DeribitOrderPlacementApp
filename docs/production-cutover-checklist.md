@@ -90,14 +90,52 @@ The bridge gate config deliberately does NOT persist (restart = Designer default
   exe; if you ever clean bin folders, know that standing inputs + the session policy live there.
 - [ ] Push cadence: the repo is the system of record — keep pushing after each reviewed batch.
 
-## §8 — Decisions this checklist surfaces (owner rulings, before/at size-up)
+## §8 — Decisions this checklist surfaced — ALL RULED AND IMPLEMENTED 2026-07-24
 
-1. **Persist the circuit breaker (and cooloff/window)?** Today's non-persistence is deliberate
-   (restart = clean defaults), but at production size a forgotten `-1` breaker is the biggest
-   operational hole in this list. Options: (a) keep the ritual (§2) and accept it; (b) small spec:
-   persist gate config like the risk keys; (c) smallest spec: change the Designer default from
-   `-1` to a conservative positive value. Coordinator recommends **(b) or (c)** before normal size.
-2. **Item-8 drift** (trailing-LONG slippage gate reads `bestAsk` where entry-LONG reads `bestBid`)
-   — standing flag from housekeeping; decision, one-line change if ruled.
-3. **ATR period 7 vs 14** (payload vs app indicator on source flips) — standing cross-app decision;
-   affects only the slippage limit's step on fallback transitions.
+All three closed same-day (`spec-breaker-persist-atr7-item8.md`, commits `fba7976`/`77cf229`/`86a0a98`,
+gate green ×3, owner-verified): **R1** the circuit breaker now PERSISTS (`circuit_breaker_usd`,
+default 10, a ≤0 disable persists too) — §2's "type the breaker first" ritual line is obsolete,
+the box opens on your last saved value; **R2** the trailing-LONG guard measures on the bid (F18
+closed); **R3** the ATR fallback period mirrors the engine at 7 (payload-first unchanged).
+
+## §9 — AWS London co-location migration (owner plan, recorded 2026-07-24)
+
+**Production topology:** BOTH apps on the owner's AWS London Windows instance (same DC as
+Deribit's London servers — genuine latency advantage for the chase/guard/placement paths). The
+engine already runs there 24/7. **Contract impact: NONE** — same-machine co-location preserves the
+payload-file transport exactly (local atomic replace + FSW); no transport amendment, no schema
+change. The engine seat should be told the book of record (`analysis_log.csv`) now lives on AWS
+permanently (matrix reviews source from there; any local engine runs are dev-only and their
+distinct instance ids keep every join clean by design).
+
+**Staged cutover (the two-executor window is THE risk — sequence kills it):**
+
+1. [ ] Install the order app on the instance; **testnet profile first** (`Environment: "testnet"`,
+   testnet key) + a harness smoke there — proves the box before any live key exists on it.
+2. [ ] **Set the instance's Windows timezone to Malaysia (UTC+8, no DST)** before any gate config:
+   the Inclusion Time Range is LOCAL-time semantics (tooltip: UTC+8) and your window values, log
+   timestamps and trade-DB times all assume it. Matching the TZ makes behaviour byte-identical and
+   dodges London DST entirely. (Session-policy buckets are UTC — unaffected either way.)
+3. [ ] **Log-only against the AWS engine for a session or two** — a short environment-parity check,
+   NOT a new contract soak (the system is proven; the environment is what's new). The join script
+   pattern (`review-soak-join-2026-07-22.md`) re-runs in minutes if wanted.
+4. [ ] **Key choreography = §1's rotation, done AT cutover:** mint the NEW trade+read key on the
+   AWS instance only. The local box keeps the OLD key while AWS proves out; the moment AWS goes
+   live-at-min-size cleanly, **delete the old key** — the local install is then structurally unable
+   to trade, killing the two-executor hazard for good (never rely on remembering not to arm two
+   boxes).
+5. [ ] One supervised live-at-min-size session on AWS (the ladder ritual, §2), then normal.
+
+**Operational notes for a remote WinForms app:**
+
+- RDP **disconnect** keeps the session and app alive; **log-off kills them**. Disconnect, never
+  log off. After any instance reboot (AWS maintenance): the app starts disarmed by construction
+  (restart = disarmed) — automation stays OFF until you RDP in and run the arm ritual. **That is a
+  safety feature; do not build auto-arm-on-boot** (the interlock is a fixed trader constraint).
+- Lock down the box: no public RDP (security group to your IP / VPN), OS updates, disk encryption,
+  a dedicated Windows user for the apps; `secrets.json` stays file-ACL'd to that user.
+- Backups: `orderapp-settings.json`, the trade DB, `bridge-state.json` and the disposition log
+  live beside the exe on that instance — add a periodic copy (S3 or pull-down) to the routine.
+- Supervision model is unchanged (contract §6): you supervise via RDP; uncheck ARM when you
+  disconnect for the day, same as leaving the desk.
+
