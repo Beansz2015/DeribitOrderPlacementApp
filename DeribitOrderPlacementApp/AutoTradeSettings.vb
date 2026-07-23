@@ -30,7 +30,7 @@ Public Class AutoTradeSettings
     ' Nothing here persists across restarts - the boxes come back at their designer defaults. That
     ' matches the old autotrader; the ergonomics Phase A config-save is what will change it.
     Private _cooloffMin As Decimal = 5D
-    Private _circuitBreakerUsd As Decimal = -1D      ' <= 0 disables (designer default is -1)
+    Private _circuitBreakerUsd As Decimal = 10D      ' <= 0 disables; default 10 + persisted (R1, 2026-07-24)
     Private _windowStart As String = ""              ' blank = unrestricted
     Private _windowEnd As String = ""
     Private _tiersCsv As String = "HIGH,MEDIUM"
@@ -132,6 +132,8 @@ Public Class AutoTradeSettings
         ' hold the loaded file values before the first CommitGateConfig, or that commit would write
         ' a blank box (= all defaults) and an unticked checkbox straight over the owner's policy.
         SeedSessionPolicyFromHost()
+        ' R1 breaker persistence: the trap's FOURTH application - seed before the first commit.
+        SeedCircuitBreakerFromHost()
         CommitGateConfig()
         CommitToolingConfig()
         For Each tb As TextBox In {txtCooloff, txtCircuitBreaker, txtStartTime, txtEndTime,
@@ -245,7 +247,13 @@ Public Class AutoTradeSettings
     Private Sub CommitGateConfig()
         Dim d As Decimal
         If Decimal.TryParse(txtCooloff.Text, d) AndAlso d >= 0D Then _cooloffMin = d
-        If Decimal.TryParse(txtCircuitBreaker.Text, d) Then _circuitBreakerUsd = d
+        If Decimal.TryParse(txtCircuitBreaker.Text, d) Then
+            _circuitBreakerUsd = d
+            ' R1 (spec-breaker-persist-atr7-item8.md): the breaker persists via item A's save path.
+            ' ANY parsed value is pushed - <= 0 is a deliberate, persistable disable; only a parse
+            ' failure keeps last good (this TryParse + the orange warning).
+            If _host IsNot Nothing Then _host.SetCircuitBreakerUsd(d)
+        End If
 
         ' Window: blank is a legitimate value (unrestricted), so it commits; garbage does not.
         Dim ws As String = If(txtStartTime.Text, "").Trim()
@@ -271,6 +279,13 @@ Public Class AutoTradeSettings
         If _host IsNot Nothing Then _host.SetSessionPolicy(committed)
 
         ShowGateConfigWarnings()
+    End Sub
+
+    ' R1: one-time seed of the breaker box from the host's loaded settings. MUST run before the
+    ' first CommitGateConfig so the persisted value wins over the Designer default (10).
+    Private Sub SeedCircuitBreakerFromHost()
+        If _host Is Nothing Then Return
+        txtCircuitBreaker.Text = _host.CircuitBreakerUsd.ToString(Globalization.CultureInfo.InvariantCulture)
     End Sub
 
     ' §5.3: one-time seed of the policy box + checkbox from the host's loaded settings. MUST run

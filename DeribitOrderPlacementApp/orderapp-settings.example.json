@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to orderapp-settings.json beside the exe (git-ignored). Standing trade inputs restored at startup; saved automatically on close and via right-click 'Save Trade Defaults' on the MARGINS / AMOUNT($) groups. Missing keys fall back to the Designer defaults. risk_per_trade_usd / max_size_usd drive the SIZE button; the alerts block gates the sound/taskbar alerts (all default on).",
+  "_comment": "Copy to orderapp-settings.json beside the exe (git-ignored). Standing trade inputs restored at startup; saved automatically on close and via right-click 'Save Trade Defaults' on the MARGINS / AMOUNT($) groups. Missing keys fall back to the Designer defaults. risk_per_trade_usd / max_size_usd drive the SIZE button; circuit_breaker_usd is the persisted max session loss (<= 0 disables; default 10); the alerts block gates the sound/taskbar alerts (all default on).",
   "_comment_session_policy": "Per-session trader policy (docs/spec-session-policy-gate.md). A SECOND filter after the contract gate chain - it can only ever NARROW what the global Tiers box already allows, never widen it. enabled=false is today's behaviour exactly, and it arms nothing (bridge Mode/ARM/START are still never persisted). tiers: HIGH/MEDIUM/LOW (STRONG and WEAK are accepted as aliases for HIGH and LOW). contexts: the string 'any', or a list of verdict_context identifiers matched exactly - a payload whose context is empty FAILS a non-'any' list, by design. size_mult: (0,1]; 1.0 leaves size untouched, anything less floors the order to the 10-USD contract step and never below 10. An omitted session key means that session runs on the defaults (HIGH,MEDIUM | any | 1.0).",
   "amount": 10,
   "take_profit": 60,
@@ -14,6 +14,7 @@
   "max_slippage_atr_mult": 0.6,
   "risk_per_trade_usd": 25,
   "max_size_usd": 500,
+  "circuit_breaker_usd": 10,
   "alerts": {
     "entry_fill": true,
     "close_fill": true,

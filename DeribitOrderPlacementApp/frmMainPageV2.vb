@@ -84,6 +84,21 @@ Public Class frmMainPageV2
         If maxSize > 0D Then userSettings.MaxSizeUsd = maxSize
     End Sub
 
+    ' Circuit breaker (spec-breaker-persist-atr7-item8.md R1) - same arrangement as the risk keys:
+    ' lives in userSettings, persists on item A's save path, settings form seeds from here before
+    ' its first commit. UNLIKE the risk keys, any parsed value is accepted (<= 0 = a deliberate,
+    ' persistable disable); only a PARSE failure keeps last good (the settings form's TryParse).
+    Friend ReadOnly Property CircuitBreakerUsd As Decimal
+        Get
+            Return If(userSettings IsNot Nothing, userSettings.CircuitBreakerUsd, 10D)
+        End Get
+    End Property
+
+    Friend Sub SetCircuitBreakerUsd(value As Decimal)
+        If userSettings Is Nothing Then userSettings = New AppUserSettings()
+        userSettings.CircuitBreakerUsd = value
+    End Sub
+
     ' Session policy (docs/spec-session-policy-gate.md D2/§5.4) - the same arrangement as the
     ' risk-sizing keys above: the value LIVES in userSettings, persists on item A's save path, and
     ' the settings form seeds its box from here at construction. Never returns Nothing, so the

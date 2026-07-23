@@ -54,6 +54,12 @@ Public NotInheritable Class AppUserSettings
     Public AlertOrderRejected As Boolean = True
     Public AlertConnection As Boolean = True
 
+    ' Circuit breaker (owner ruling 2026-07-24, spec-breaker-persist-atr7-item8.md R1): the max
+    ' session loss persists - a forgotten "-1 = off every start" was the cutover checklist's
+    ' biggest operational hole. Default 10 (min-size era). <= 0 still disables, and a persisted
+    ' disable is a legitimate owner choice (unlike the risk keys, negatives are ACCEPTED).
+    Public CircuitBreakerUsd As Decimal = 10D
+
     ' Session policy gate (docs/spec-session-policy-gate.md, D2). A weeks-cadence standing policy
     ' that had to be retyped every start would guarantee drift, so unlike the rest of the bridge
     ' gate boxes this one persists. It is gate CONFIG, not an arm: `enabled` turns a FILTER on, and
@@ -108,6 +114,7 @@ Public NotInheritable Class AppUserSettings
 
             result.RiskPerTradeUsd = If(json.SelectToken("risk_per_trade_usd")?.ToObject(Of Decimal?)(), 25D)
             result.MaxSizeUsd = If(json.SelectToken("max_size_usd")?.ToObject(Of Decimal?)(), 500D)
+            result.CircuitBreakerUsd = If(json.SelectToken("circuit_breaker_usd")?.ToObject(Of Decimal?)(), 10D)
 
             Dim alerts As JToken = json.SelectToken("alerts")
             If alerts IsNot Nothing Then
@@ -148,6 +155,7 @@ Public NotInheritable Class AppUserSettings
                 {"max_slippage_atr_mult", MaxSlippageAtrMult},
                 {"risk_per_trade_usd", RiskPerTradeUsd},
                 {"max_size_usd", MaxSizeUsd},
+                {"circuit_breaker_usd", CircuitBreakerUsd},
                 {"alerts", New JObject From {
                     {"entry_fill", AlertEntryFill},
                     {"close_fill", AlertCloseFill},

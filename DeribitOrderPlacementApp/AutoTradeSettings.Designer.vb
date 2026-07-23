@@ -172,7 +172,7 @@ Partial Class AutoTradeSettings
         txtCircuitBreaker.Name = "txtCircuitBreaker"
         txtCircuitBreaker.Size = New Size(64, 42)
         txtCircuitBreaker.TabIndex = 1
-        txtCircuitBreaker.Text = "-1"
+        txtCircuitBreaker.Text = "10"
         txtCircuitBreaker.TextAlign = HorizontalAlignment.Center
         '
         ' Label2
