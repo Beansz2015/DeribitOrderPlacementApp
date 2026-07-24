@@ -5547,7 +5547,9 @@ Public Class frmMainPageV2
         If _autotradesettings.Visible Then
             _autotradesettings.Hide()
         Else
-            _autotradesettings.Show()
+            ' Show OWNED by the main form so it hides on minimize and reappears on restore
+            ' (re-parenting off FrmIndicators at retirement B cdc7ce4 left it unowned/independent).
+            _autotradesettings.Show(Me)
             _autotradesettings.BringToFront()
         End If
     End Sub
