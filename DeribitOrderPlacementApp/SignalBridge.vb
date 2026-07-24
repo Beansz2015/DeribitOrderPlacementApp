@@ -473,6 +473,7 @@ Public Class SignalBridge
         End SyncLock
         If wasStarted Then
             _log($"auto-STOP: {cause}", Color.Red)
+            RemoteNotifier.Post("OrderApp bridge", $"auto-STOP: {cause}", priority:="urgent") ' Q1
             RaiseEvent StatusChanged()
         End If
     End Sub
@@ -1013,6 +1014,12 @@ Public Class SignalBridge
         ' (same as the gate chain - safe from this thread). Everything above this line (the
         ' disposition FILE append, _lastDisposition, and the caller's StatusChanged) is
         ' unconditional - join integrity and the panel label see every disposition.
+        ' Q1: significant dispositions (acted / rejected: - the item-H predicate) also go to the
+        ' remote notifier. Post is internally fire-and-forget + fail-silent, so this thread (FSW/
+        ' timer/processing) is never blocked; the message is the host-log line text, computed once.
+        Dim hostLine As String = $"signal #{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction}) -> {disposition}"
+        If IsSignificantDisposition(disposition) Then RemoteNotifier.Post("OrderApp bridge", hostLine)
+
         If IsSignificantDisposition(disposition) OrElse
            (_mode <> BridgeMode.Live AndAlso _host.IsFlat AndAlso Not _host.HasWorkingEntryOrder) Then
             Dim c As Color
@@ -1027,7 +1034,7 @@ Public Class SignalBridge
             Else
                 c = Color.Gray ' refused: <gate> / duplicate
             End If
-            _log($"signal #{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction}) -> {disposition}", c)
+            _log(hostLine, c)
         End If
     End Sub
 

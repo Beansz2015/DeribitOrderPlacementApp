@@ -716,6 +716,12 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "API credentials loaded", Color.LimeGreen)
         End If
 
+        ' Q1 (docs/spec-quickwins-notifier-signalcols.md): exactly one startup line; the topic URL
+        ' is a credential and is never logged.
+        AppendColoredText(txtLogs, If(RemoteNotifier.IsConfigured,
+                                      "Remote notifier: configured",
+                                      "Remote notifier: disabled (no ntfy_url)"), Color.Gray)
+
         ' Window title environment convention (harness spec section 1) - LOAD-BEARING:
         ' the prefix "Deribit Order Placement App" is frozen forever (every harness script matches
         ' on it) and the environment suffix is what the script safety tier gates on. The version
@@ -771,6 +777,11 @@ Public Class frmMainPageV2
         txtLogs.AccessibleName = "txtLogs"
         txtAmount.AccessibleName = "txtAmount"
         InitialiseHarnessHooks()
+
+        ' Q1: startup ping - doubles as the ntfy connectivity test AND marks every host restart
+        ' (the AWS box rebooting shows up as this line on the phone). Post is internally
+        ' fire-and-forget and inert without ntfy_url.
+        RemoteNotifier.Post("OrderApp", $"OrderApp started — {If(AppSecrets.IsTestnet, "TESTNET", "LIVE")}, breaker ${CircuitBreakerUsd.ToString(Globalization.CultureInfo.InvariantCulture)}")
     End Sub
 
     ' ============ UI-test-harness hooks (docs/spec-ui-test-harness.md section 2) ============
@@ -4055,6 +4066,7 @@ Public Class frmMainPageV2
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
                 Alert("emergency_stop") ' item D
+                RemoteNotifier.Post("OrderApp", "Emergency Sell Market Order Executed.", priority:="urgent") ' Q1
                 Return ' Exit early after emergency execution
             ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = False) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
                 Await CancelOrderAsync()
@@ -4062,6 +4074,7 @@ Public Class frmMainPageV2
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
                 AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
                 Alert("emergency_stop") ' item D
+                RemoteNotifier.Post("OrderApp", "Emergency Buy Market Order Executed.", priority:="urgent") ' Q1
                 Return ' Exit early after emergency execution
             End If
 
@@ -4865,6 +4878,7 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.LimeGreen)
                 AppendColoredText(txtLogs, $"Profit made: ${pendingClosePorLAmt}.", Color.LimeGreen)
                 Alert("close_profit") ' item D
+                RemoteNotifier.Post("OrderApp", $"Position closed at {pendingCloseExecPrice}: profit ${pendingClosePorLAmt}", priority:="high") ' Q1
 
                 If signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted Then
                     LogTradeDecision("Exit Position - Profit", pendingClosePorLAmt, pendingCloseExecPrice)
@@ -4874,6 +4888,7 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.Crimson)
                 AppendColoredText(txtLogs, $"Loss of: ${pendingClosePorLAmt}.", Color.Crimson)
                 Alert("close_loss") ' item D
+                RemoteNotifier.Post("OrderApp", $"Position closed at {pendingCloseExecPrice}: loss ${pendingClosePorLAmt}", priority:="high") ' Q1
 
                 If signalBridge IsNot Nothing AndAlso signalBridge.IsLiveStarted Then
                     LogTradeDecision("Exit Position - Loss", pendingClosePorLAmt, pendingCloseExecPrice)
@@ -4885,6 +4900,7 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Position executed at {pendingCloseExecPrice}.", Color.Yellow)
                 AppendColoredText(txtLogs, "Scratch close: P/L ≈ $0.00.", Color.Yellow)
                 Alert("close_scratch") ' item D
+                RemoteNotifier.Post("OrderApp", $"Position closed at {pendingCloseExecPrice}: scratch (P/L ~ $0.00)", priority:="high") ' Q1
             End If
 
             ' Item C (journal enrichment): trade-quality metrics, computed HERE next to the record
@@ -4937,6 +4953,7 @@ Public Class frmMainPageV2
             ' No tracked fill (external/liquidation close): complete the cleanup, nothing to record.
             AppendColoredText(txtLogs, "Position closed.", Color.Yellow)
             Alert("external_close") ' item D, owner ruling 2026-07-18 - the highest-surprise close
+            RemoteNotifier.Post("OrderApp", "Position closed with NO tracked fill (external / liquidation?)", priority:="urgent") ' Q1
         End If
 
         ' Item C: clear the trackers after the close is accounted (both branches - the next

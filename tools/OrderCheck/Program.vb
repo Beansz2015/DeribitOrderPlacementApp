@@ -407,6 +407,25 @@ Module Program
         Check("not significant: refused: policy(LONDON/context)",
               Not SignalBridge.IsSignificantDisposition("refused: policy(LONDON/context)"))
 
+        ' ================== quick wins (docs/spec-quickwins-notifier-signalcols.md) ==================
+
+        ' ---- Q1: the RemoteNotifier rate-limit seam ----
+        ' Non-urgent: 5 s min interval AND max 12 per window, drop silently beyond; urgent bypasses
+        ' both. Deterministic inputs only (the seam takes nowUtc - no clock reads here).
+        Dim n0 As New DateTime(2026, 7, 24, 12, 0, 0, DateTimeKind.Utc)
+        Check("notifier: first-ever post sends (lastSent = MinValue)",
+              RemoteNotifier.ShouldSend(n0, DateTime.MinValue, 0, False))
+        Check("notifier: 4 s since last = dropped (5 s min interval)",
+              Not RemoteNotifier.ShouldSend(n0.AddSeconds(4), n0, 1, False))
+        Check("notifier: exactly 5 s since last sends",
+              RemoteNotifier.ShouldSend(n0.AddSeconds(5), n0, 1, False))
+        Check("notifier: window full (12 sent) = dropped even at a clean 6 s gap",
+              Not RemoteNotifier.ShouldSend(n0.AddSeconds(6), n0, 12, False))
+        Check("notifier: 11 in window still sends",
+              RemoteNotifier.ShouldSend(n0.AddSeconds(6), n0, 11, False))
+        Check("notifier: urgent bypasses BOTH limits (4 s gap AND a full window)",
+              RemoteNotifier.ShouldSend(n0.AddSeconds(4), n0, 12, True))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

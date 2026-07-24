@@ -27,6 +27,12 @@ Public NotInheritable Class AppSecrets
     Public Shared Property ClientId As String = ""
     Public Shared Property ClientSecret As String = ""
 
+    ''' <summary>
+    ''' Optional ntfy topic URL for the remote notifier (quick-wins Q1). Blank = notifier inert.
+    ''' The URL is a CREDENTIAL (anyone holding it can read/post the topic) - never log it.
+    ''' </summary>
+    Public Shared Property NtfyUrl As String = ""
+
     Private Shared _isTestnet As Boolean = False
 
     ''' <summary>True when secrets.json selected the testnet environment.</summary>
@@ -62,6 +68,10 @@ Public NotInheritable Class AppSecrets
             End If
 
             Dim json As JObject = JObject.Parse(File.ReadAllText(path))
+
+            ' Remote-notifier topic (quick-wins Q1): read BEFORE credential validation so a bad
+            ' credential block still configures the alert channel. Absent/blank = notifier inert.
+            NtfyUrl = If(json.SelectToken("ntfy_url")?.ToString(), "").Trim()
 
             ' Environment selection: absent or anything other than "testnet" = live.
             ' The flag is set BEFORE credential validation so the window title / WsUrl
