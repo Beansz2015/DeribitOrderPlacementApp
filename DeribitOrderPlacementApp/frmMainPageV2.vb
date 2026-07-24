@@ -626,6 +626,20 @@ Public Class frmMainPageV2
         If Me.IsHandleCreated AndAlso Me.InvokeRequired Then Me.Invoke(apply) Else apply()
     End Sub
 
+    ' Q2: the bridge act path stages the signal tag here, beside its SetTradeTargets call and
+    ' BEFORE PlaceAutomatedOrder (see the pendingSignal* field block for the full lifecycle).
+    Friend Sub SetPendingSignalTag(signalId As Long, confidence As String)
+        pendingSignalId = signalId
+        pendingSignalConfidence = If(confidence, "")
+    End Sub
+
+    ' Q2: a DEFINITIVE placement refusal (gate refusal / exchange rejection - NOT "timeout") means
+    ' no order can ever fill from this act: unstage, so the tag can never attach to a later trade.
+    Friend Sub ClearPendingSignalTag()
+        pendingSignalId = -1
+        pendingSignalConfidence = ""
+    End Sub
+
     ' Places an entry with the current targets. v1 policy: STRICT - refuses unless connected,
     ' rate-limit OK, flat, no working entry, and no cancel pending (the engine flattens first if
     ' it wants to flip). side: "long"/"short". kind: "limit"|"market"|"nospread". Returns the
@@ -2522,6 +2536,20 @@ Public Class frmMainPageV2
     Private plannedStopAtEntry As Decimal = 0D
     Private cumFeesBTC As Decimal = 0D
 
+    ' Q2 (docs/spec-quickwins-notifier-signalcols.md): the signal-tag lifecycle. pending* is STAGED
+    ' by the bridge act path (SetPendingSignalTag, beside its SetTradeTargets call) BEFORE the
+    ' placement is sent - the entry-fill echo can beat the placement ack, so the tag must already
+    ' be staged when the fill lands. Promoted to current* at the flat->nonzero transition (ANY
+    ' entry consumes the stage - a manual entry promotes the empty stage and so records NULL),
+    ' cleared in both cancel teardowns and on a definitive placement refusal (never on "timeout" -
+    ' the order may exist, echoes are the source of truth), and current* is written into the DB row
+    ' at CompletePositionClose then cleared with the item-C trackers. Plain engine fields, written
+    ' only on the receive/bridge paths that already own the surrounding state.
+    Private pendingSignalId As Long = -1
+    Private pendingSignalConfidence As String = ""
+    Private currentTradeSignalId As Long = -1
+    Private currentTradeSignalConfidence As String = ""
+
     ' Reliable close (docs/spec-close-completion-fix.md + review): the closing fill's P/L is captured
     ' in these fields so it survives across echoes - the fill and the flat-position update can arrive
     ' in SEPARATE user.changes messages. ApplyCloseFill writes them; CompletePositionClose (invoked on
@@ -2620,6 +2648,13 @@ Public Class frmMainPageV2
                                         mfePrice = positionAvgEntry
                                         plannedStopAtEntry = StopLossTriggerOriginal
                                         cumFeesBTC = 0D
+                                        ' Q2: promote the staged signal tag to the live position and
+                                        ' clear the stage - one entry consumes one tag. A manual
+                                        ' entry promotes the EMPTY stage (-1/"") and records NULL.
+                                        currentTradeSignalId = pendingSignalId
+                                        currentTradeSignalConfidence = pendingSignalConfidence
+                                        pendingSignalId = -1
+                                        pendingSignalConfidence = ""
                                     End If
                                 ElseIf wasOpen Then
                                     positionJustClosed = True
@@ -3638,6 +3673,10 @@ Public Class frmMainPageV2
         ReduceOrderId = Nothing
         reduceOrderPrice = 0D
         reduceOrderAmount = 0D
+        ' Q2: an aborted bridge entry must never tag a later trade (currentTrade* untouched -
+        ' a live position's tag survives a nuclear cancel and dies at its close).
+        pendingSignalId = -1
+        pendingSignalConfidence = ""
 
         ' Cross-thread fix: CancelOrderAsync runs on both the UI and receive threads; marshal the status
         ' label with the placed-price resets (it was previously written unguarded off the receive thread).
@@ -3715,6 +3754,9 @@ Public Class frmMainPageV2
         placedPrice = 0D
         legAnchorPrice = 0D          ' entry-chase v2: order context dies with placedPrice
         pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
+        ' Q2: an aborted bridge entry (ATR-slippage abort routes here) must never tag a later trade.
+        pendingSignalId = -1
+        pendingSignalConfidence = ""
         ResetOrderAttempt() ' reset ATR slippage tracking for the next attempt
 
         UiInvoke(Sub()
@@ -4962,6 +5004,10 @@ Public Class frmMainPageV2
         mfePrice = 0D
         plannedStopAtEntry = 0D
         cumFeesBTC = 0D
+        ' Q2: the closed position's signal tag dies with it (both branches - an external close of
+        ' a bridge trade must not leave a tag behind; the next promotion would overwrite it anyway).
+        currentTradeSignalId = -1
+        currentTradeSignalConfidence = ""
 
         ' Cooloff anchor: the position is now closed. The old autotrader stamped
         ' _indicators.lastAutoTradeTime here; the bridge's cooloff anchors on the same event, so
@@ -5003,6 +5049,13 @@ Public Class frmMainPageV2
             completedTrade.PlannedStop = plannedStop
             completedTrade.RMultiple = rMultiple
             completedTrade.FeesUSD = feesUsd
+
+            ' Q2: a bridge-tagged position records its signal pair; a manual trade's current* is
+            ' empty (-1/"") and keeps the item-C ''-defaults = the spec's NULL semantics.
+            If currentTradeSignalId >= 0 Then
+                completedTrade.SignalId = currentTradeSignalId.ToString(Globalization.CultureInfo.InvariantCulture)
+                completedTrade.SignalConfidence = currentTradeSignalConfidence
+            End If
 
             ' Record the completed trade (synchronous)
             Dim tradeId As Integer = tradeDatabase.RecordCompletedTrade(completedTrade)

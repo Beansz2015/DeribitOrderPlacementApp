@@ -207,7 +207,8 @@ Module Program
 
             Dim db As New TradeDatabase(dbPath)   ' ctor runs InitializeDatabase -> MigrateSchema
             Dim enriched As New TradeRecord("Limit", "Short", 61000D, 60900D, 20D, 0.33D, True) With {
-                .MaeUSD = -1.23D, .MfeUSD = 4.56D, .PlannedStop = 61060D, .RMultiple = 1.67D, .FeesUSD = 0.12D}
+                .MaeUSD = -1.23D, .MfeUSD = 4.56D, .PlannedStop = 61060D, .RMultiple = 1.67D, .FeesUSD = 0.12D,
+                .SignalId = "9001", .SignalConfidence = "HIGH"}
             db.RecordCompletedTrade(enriched)
 
             Dim all = db.GetAllTrades()
@@ -220,6 +221,13 @@ Module Program
             Check("migration: enriched row round-trips MAE/MFE/PlannedStop/R/Fees",
                   round IsNot Nothing AndAlso round.MaeUSD = -1.23D AndAlso round.MfeUSD = 4.56D AndAlso
                   round.PlannedStop = 61060D AndAlso round.RMultiple = 1.67D AndAlso round.FeesUSD = 0.12D)
+            ' Q2 (quick wins): the signal pair round-trips too, and the legacy row's stays '' -
+            ' the legacy check above already asserts legacy.SignalId = "".
+            Check("migration: enriched row round-trips SignalId/SignalConfidence",
+                  round IsNot Nothing AndAlso round.SignalId = "9001" AndAlso round.SignalConfidence = "HIGH",
+                  $"got '{round?.SignalId}'/'{round?.SignalConfidence}'")
+            Check("migration: legacy row reads SignalConfidence '' (NULL-safe)",
+                  legacy IsNot Nothing AndAlso legacy.SignalConfidence = "")
 
             Dim db2 As New TradeDatabase(dbPath)  ' second open: ALTERs all throw duplicate-column
             Check("migration idempotent: re-open clean, rows intact", db2.GetAllTrades().Count = 2)

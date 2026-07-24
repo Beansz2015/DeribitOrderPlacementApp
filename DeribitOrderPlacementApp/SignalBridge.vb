@@ -737,6 +737,10 @@ Public Class SignalBridge
                 ' where SetTradeTargets would write it. Writing it back would be a no-op at best.
                 Dim manualSl As Decimal = DeriveManualSl(isLong, p.StopLevel, _host.StopLimitOffset)
                 _host.SetTradeTargets(manualTP:=frmMainPageV2.RoundToTick(p.Target), manualSL:=manualSl)
+                ' Q2 (docs/spec-quickwins-notifier-signalcols.md): stage the signal tag BEFORE the
+                ' placement is sent - the entry-fill echo can beat the placement ack, and the fill
+                ' is what promotes the tag onto the position.
+                _host.SetPendingSignalTag(p.SignalId, p.Confidence)
                 ' The size override is passed ONLY when the policy actually changes the size, so the
                 ' common path reaches PlaceAutomatedOrder exactly as it did before this feature.
                 Dim result As frmMainPageV2.PlacementResult =
@@ -747,6 +751,12 @@ Public Class SignalBridge
                     RecordActed(p)
                 Else
                     disposition = $"rejected: {result.Reason}"
+                    ' Q2: a definitive refusal means no order can ever fill from this act - unstage
+                    ' the tag so it cannot attach to a later manual trade. "timeout" is deliberately
+                    ' NOT definitive (the order may exist; echoes are the source of truth - the fill,
+                    ' if it comes, still promotes this stage; a dead stage dies at the next teardown
+                    ' or is overwritten by the next act).
+                    If result.Reason <> "timeout" Then _host.ClearPendingSignalTag()
                 End If
             Else
                 ' Levels display at 2dp (owner request 2026-07-17) - engine emits full-precision
