@@ -1,5 +1,18 @@
 # Spec — pre-ladder quick wins: ntfy remote notifier (Q1) + trade-DB signal columns (Q2) (+ Q4 optional, Q3 tools)
 
+> **Coordinator rulings 2026-07-24 (post-implementation, pre-review — the two open Q2 questions
+> from `impl-report-quickwins.md`):**
+> **(a) RATIFIED — keep the item-C TEXT columns.** The spec's `SignalId INTEGER NULL` migration
+> bullet was STALE (this coordinator's error — ergonomics item C had already shipped the columns
+> as TEXT `''`); literal compliance would have meant a destructive rebuild of soak-era DBs. The
+> implementer's call (keep TEXT, populate via the tag lifecycle) is correct; the spec-defect-
+> escalation rule was satisfied in spirit — treat TEXT as the contract going forward.
+> **(b) RATIFIED — definitive placement refusals clear the pending tag; the TIMEOUT carve-out
+> stands.** A definitively-refused placement can never fill, so clearing prevents mislabeling; a
+> TimedOut ack is log-only-lateness (the order may exist), so the tag surviving until fill-or-
+> cancel is exactly right. Both rulings bind the Opus review seat — verify implementation matches
+> them, not the stale bullets.
+
 **Origin:** `ROADMAP-2026-08.md` §2, owner-approved 2026-07-24; transport ruling: **ntfy.sh**.
 **Recommended implementer:** fresh **Fable high** while the window lasts (Q2 touches the acted/
 close-recording paths; Q1's call sites sit beside hot paths and must stay fire-and-forget).
