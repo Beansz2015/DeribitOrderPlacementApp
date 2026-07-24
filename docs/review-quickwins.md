@@ -176,7 +176,35 @@ measurements.
 
 ## Bottom line
 
-Approve `f24c383..95dd83a` as implemented. No code changes requested. The spec should carry the two
-header rulings forward as the contract (the impl already treats them as such); the owner runtime
-acceptances above are the only remaining gate before Q1/Q2 are "done" per the §5 "reviewed ≠ done
-until the owner runs it" rule.
+Approve `f24c383..95dd83a` as implemented. No code changes requested in the range itself. The spec
+should carry the two header rulings forward as the contract (the impl already treats them as such);
+the owner runtime acceptances above are the only remaining gate before Q1/Q2 are "done" per the §5
+"reviewed ≠ done until the owner runs it" rule.
+
+---
+
+## Addendum 2026-07-24 — grid surfacing of the signal tag (owner-directed follow-up)
+
+**Context.** Preparing the Q2 runtime-acceptance steps surfaced a usability gap: the **View Trades**
+grid (`btnViewTrades_Click`) shows the item-C metric columns (MAE/MFE/R/Fees) but **not**
+`SignalId`/`SignalConfidence` — Q2 writes the tag to `trades.db` only. With no `sqlite3`/`pwsh` on
+the box, verifying Q2 (and using the per-signal attribution the feature exists for) meant an external
+SQLite viewer. Owner directed: surface the two columns in the grid so acceptance is one click.
+
+**Change (display-only, `frmMainPageV2.vb` `btnViewTrades_Click`).** Two `DataGridViewTextBoxColumn`s
+— **"Signal ID"** → `SignalId` (70 px), **"Confidence"** → `SignalConfidence` (90 px) — added before
+the Result column, bound to the existing `TradeRecord` properties; grid form widened `1180 → 1340`
+to seat them (the same move item C made `1000 → 1180`). Empty string renders for manual trades.
+
+**Verification.**
+- `TradeRecord.SignalId` / `SignalConfidence` are `Public Property` (TradeRecord.vb:31–32) — bindable
+  by `DataGridView` exactly like `MaeUSD`/`FeesUSD`; the grid is `AutoGenerateColumns = False` so only
+  the explicit columns show. `RefreshTradeGrid` (post-delete) resets `DataSource` on the same grid, so
+  the columns persist across a refresh — no second edit needed.
+- **No change to the DB, the tag lifecycle, the insert, or any fixture** — this reads existing data
+  the record path already writes. OrderCheck is UI-agnostic, so the count stays 104.
+- **Gate EXECUTED after the change → `GATE PASSED`, 104/104**, both builds green.
+
+**Scope note.** This completes the spec's own "records its SignalId/Confidence in the **Results
+grid**/DB" wording (previously only the DB half was satisfied) and makes the Q2 acceptance check a
+one-click read of the grid. No behavioural or safety surface touched.

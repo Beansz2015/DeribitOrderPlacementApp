@@ -6018,7 +6018,9 @@ Public Class frmMainPageV2
                 viewForm.Text = "Trade History - Right-click to Delete"
                 ' Item C: 1000 -> 1180 to seat the four new metric columns (Entry/Exit/Size/PL
                 ' shrank 100 -> 90 each to help; nothing was dropped).
-                viewForm.Size = New Size(1180, 700)
+                ' Q2 grid follow-up: 1180 -> 1340 to seat the two signal-tag columns (Signal ID 70
+                ' + Confidence 90); the grid is DockStyle.Fill and scrolls if a display is narrower.
+                viewForm.Size = New Size(1340, 700)
                 viewForm.StartPosition = FormStartPosition.CenterScreen
 
                 Dim dataGrid As New DataGridView
@@ -6139,6 +6141,23 @@ Public Class frmMainPageV2
                     .Format = "F2",
                     .Alignment = DataGridViewContentAlignment.MiddleRight
                 }
+            })
+
+                ' Q2 grid follow-up (docs/review-quickwins.md): surface the bridge signal tag -
+                ' which engine signal drove this trade (empty for manual trades). Bound to the same
+                ' TradeRecord properties the tag lifecycle already writes; the DB is unchanged.
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Signal ID",
+                .DataPropertyName = "SignalId",
+                .Width = 70,
+                .DefaultCellStyle = New DataGridViewCellStyle With {.Alignment = DataGridViewContentAlignment.MiddleCenter}
+            })
+
+                dataGrid.Columns.Add(New DataGridViewTextBoxColumn With {
+                .HeaderText = "Confidence",
+                .DataPropertyName = "SignalConfidence",
+                .Width = 90,
+                .DefaultCellStyle = New DataGridViewCellStyle With {.Alignment = DataGridViewContentAlignment.MiddleCenter}
             })
 
                 ' Add result column
