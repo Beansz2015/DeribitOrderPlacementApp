@@ -38,8 +38,20 @@ those first, this second.
 | Q1 auto-STOP | **urgent** | ✅ phone `auto-STOP: STOP pressed` (owner arm→STOP) |
 | Q1 tracked close ×2 (#90, #91 scratch) | high | ✅ phone `Position closed at … : scratch` |
 | Q2 manual = NULL (#90, #91) | — | ✅ grid: both **empty** Signal/Confidence (incl. #90 armed-but-mode-Off) |
+| **Q1 disabled-parity** (Opus 5 seat, 2026-07-25) | — | ✅ **A-B-A, server-verified — see §12** |
 
-## 4. Runtime acceptance — REMAINING (blocked only on a healthy testnet — see §5)
+**Q1 disabled-parity — PASSED 2026-07-25 09:08–09:15 UTC** (this seat; no owner time, no trade).
+`ntfy_url` removed from the x64 `secrets.json` (JSON round-trip, byte-identical restore after) and the
+app relaunched:
+- log line was exactly `Remote notifier: disabled (no ntfy_url)` — the other **five** startup lines
+  were identical to the configured run, in the same order (behaviour otherwise byte-identical ✓);
+- **zero posts proven server-side**, not merely assumed: the ntfy topic held 1 message before the
+  disabled launch and still 1 after it (poll recipe in §12);
+- restored → `Remote notifier: configured` and a fresh ping landed 09:15:26 UTC. A-B-A closed.
+
+So Q1 acceptance §2 now has only **one** item left: the **`acted` notification** (= Trade 2, owner).
+
+## 4. Runtime acceptance — REMAINING (testnet RECOVERED — see §5; app is UP and ready)
 All owner-driven; this seat reads back the log/grid. Exact steps in §7.
 - **Trade 2 — bridge `acted` + Q2 bridge-tag.** Expect phone `signal #1 HARNESS LONG (HIGH/LONG) ->
   acted` (default); on fill+close, grid row shows **Signal ID=1, Confidence=HIGH**.
@@ -80,11 +92,21 @@ All owner-driven; this seat reads back the log/grid. Exact steps in §7.
   not run this session.
 - **Circuit breaker persisted = `$1`** — a losing testnet trade trips it fast → a bonus way to see
   the breaker-trip urgent auto-STOP.
-- **Current app state: DOWN.** It was PID 5584 when **Deribit testnet returned `code 11094 =
-  internal_server_error`** (their server-side 500 on the startup snapshot queries — position/orders/
-  account). **This is a testnet-side transient, NOT the app or our code** (Deribit's own docs:
-  "unhandled error on server"; testnet is taken offline without notice). **Testing is PAUSED.** When
-  testnet is healthy again, **restart the app** (fresh snapshots) before resuming.
+- ~~**Current app state: DOWN.**~~ **RESOLVED 2026-07-25 (Opus 5 seat) — testnet has RECOVERED and
+  the app is UP.** The `code 11094 = internal_server_error` was confirmed a Deribit-side transient,
+  exactly as diagnosed (nothing in our code changed). Evidence:
+  - public API healthy (`get_time`, `ticker`, `book_summary`, `get_instruments` all 200);
+  - **the authenticated path — the one that was 500ing — now succeeds:** `WebSocket authorized
+    successfully` → `Connected successfully` → `Account summary received - Max Credits: 2000` →
+    `Rate limits updated`. No 11094.
+  - **App state at handoff: UP, PID 4660**, x64 bin, title `… V2.2 — TESTNET`, **Connected/ONLINE**,
+    **flat** (Awaiting Orders, P/L 0), Amount **10**, mode **Off / disarmed**, breaker **$1**,
+    `Remote notifier: configured`. Balance 0.01393137 BTC ≈ $888. **Preconditions for §7 are met.**
+  - This seat wrote `verify/app.pid` = its own launched PID so drive-tier harness scripts work
+    (that file exists to stop scripts driving a session the harness did not launch — this IS the
+    harness-launched session). If the owner relaunches by hand, the file goes stale; harmless.
+  - Note: each launch fires the Q1 startup ping, so the owner's phone saw 2 extra pings today
+    (09:08:58 and 09:15:26 UTC) — those are this seat's, not a fault.
 
 ## 6. The two owner observations — both RESOLVED & CONFIRMED (2026-07-25)
 - **Delayed notification** = ntfy/FCM push batching, **not the app** (ntfy's own server timestamps
@@ -131,8 +153,8 @@ Preconditions each entry: **flat**; Amount ≥ 10.
 ## 10. Finish line & after
 - **Acceptance criteria** = spec §Acceptance items 2 (Q1) and 3 (Q2): Q1 startup/acted/auto-STOP +
   disabled-parity; Q2 bridge-tagged / manual-empty / aborted-not-tagged / legacy intact. §3 above is
-  done; §4 remains. (Q1 **disabled-parity** — remove `ntfy_url`, relaunch → `disabled (no ntfy_url)`,
-  zero posts — is also still owed; quick to do anytime.)
+  done **plus Q1 disabled-parity (§3)**; §4 remains — i.e. Q1 needs only the `acted` ping and Q2
+  needs the bridge-tag / step-3-clear pair, all three of which fall out of Trades 2–3.
 - When the owner calls it complete → they **push** `2b77b75..HEAD`, then update the memory ledger.
 - The broader queue then resumes per HANDOVER-3/memory: **N1** emergency-hoist spec, **N2** risk-sized
   bridge trades, **C1** v2 feedback file, Phase-3 P5 policy enable.
@@ -144,3 +166,40 @@ Preconditions each entry: **flat**; Amount ≥ 10.
    config (testnet + ntfy) and that its dll postdates `2346fad`, then launch the x64 exe → confirm
    `Remote notifier: configured`, and walk the owner through Trades 2→4 (§7), reading back each result.
 4. Hold the §9 boundary throughout.
+
+**§11 status: ALL EXECUTED 2026-07-25 by the Opus 5 seat.** HEAD was `c42aaa3` (ahead **10**, not 8 —
+the two docs commits landed after this file was written); gate re-run at HEAD = **GATE PASSED 104/104**;
+x64 dll (00:40:16) postdates `2346fad` (00:40:03) so the runtime bin is at HEAD; testnet recovered;
+app up and connected. Only the owner-driven Trades 2–4 remain.
+
+## 12. Verifying ntfy posts server-side (recipe — use instead of trusting the phone)
+
+The phone is a *delivery* check; the topic itself is the *send* check, and it settles
+"did the app post?" without owner involvement. This is how §3's disabled-parity was proven and how
+the earlier "delayed notification" observation was pinned on FCM batching rather than the app.
+
+```powershell
+$u = ((Get-Content <secrets.json> -Raw | ConvertFrom-Json).ntfy_url).Trim().TrimEnd('/')
+$r = Invoke-WebRequest -Uri "$u/json?poll=1&since=all" -TimeoutSec 25 -UseBasicParsing
+$text = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
+@($text -split "`r?`n" | ? { $_.Trim() }) | % { $o = $_ | ConvertFrom-Json
+  "$([DateTimeOffset]::FromUnixTimeSeconds($o.time).UtcDateTime) p=$($o.priority) [$($o.title)] $($o.message)" }
+```
+
+Three traps, all of which cost this seat time:
+- **PS 5.1 hands you `.Content` as a `byte[]`** for this response, so a naive `-split` iterates *bytes*
+  and every parse silently yields empty objects — it reads exactly like "zero messages sent". Decode
+  first. (Same family as the known PS-5.1 BOM quirk.) A **200-byte body split into "200 lines"** is the
+  tell.
+- **ntfy.sh retention is ~12 h** — yesterday's accepted pings are simply gone. Absence of old messages
+  is not evidence of a fault.
+- **Never print the URL.** Print counts, timestamps, priorities and message bodies only; the topic is a
+  credential (anyone holding it can read *and post*).
+
+⚠ **Editing `secrets.json`: `ntfy_url` is the LAST key.** Deleting its line leaves a trailing comma on
+the previous line and the file becomes invalid JSON — and because `ConvertFrom-Json`'s failure is
+*non-terminating*, a validate-then-write one-liner will happily write the broken file anyway. Use a
+`ConvertFrom-Json` → `PSObject.Properties.Remove('ntfy_url')` → `ConvertTo-Json -Depth 10` round-trip,
+stage to a temp file, validate keys **and** that `DeribitTestnet.ClientId/ClientSecret` survived, then
+copy in. Always keep a byte-identical backup and restore by hash-verified copy (this seat did; the
+first attempt did corrupt the file and the backup made it a non-event).
