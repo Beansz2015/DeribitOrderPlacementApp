@@ -1,0 +1,144 @@
+# Handover — quick-wins runtime acceptance (IN FLIGHT)
+
+**Written:** 2026-07-25 by the Opus 4.8 coordinator seat · **For:** the incoming **Opus 5** seat.
+**Scope:** finish the owner's runtime acceptance of the pre-ladder quick wins (Q1 ntfy notifier,
+Q2 signal-tag lifecycle) plus two follow-ups already shipped this session. This is a **task**
+handover — the standing era checkpoint is `docs/HANDOVER-3.md` + the auto-loaded memory index; read
+those first, this second.
+
+---
+
+## 0. Read-first
+1. `docs/HANDOVER-3.md` (era checkpoint) + the memory index (auto-loads).
+2. `docs/spec-quickwins-notifier-signalcols.md` — the spec **and the two RATIFIED rulings in its
+   header** (a: item-C TEXT columns kept, no migration; b: definitive refusals clear the pending
+   tag, `"timeout"` carve-out stands).
+3. `docs/impl-report-quickwins.md` (Fable implementer) → `docs/review-quickwins.md` (this era's
+   coordinator review — **APPROVED**, incl. the grid-columns addendum).
+
+## 1. Git state  (verify: `git rev-parse HEAD origin/master`)
+- **HEAD = `2346fad`**, origin/master = `2b77b75` → **8 ahead, NOT pushed** (owner is the only pusher).
+- The 8 ahead (oldest→newest): `f24c383` Q1 · `a0648ff` Q2 · `e750525` Q3 tools · `95dd83a` impl
+  report · `4262785` rulings + N1/N2 specs · **`f49659b` review (this session)** · **`57db236` grid
+  columns (this session)** · **`2346fad` settings-window fix (this session)**.
+- Owner pushes `2b77b75..HEAD` when they call acceptance complete.
+
+## 2. Code shipped this session (all gate-green, reviewed)
+- **`57db236` — View Trades grid** now shows **Signal ID / Confidence** columns (display-only, bound
+  to existing `TradeRecord` props; DB/lifecycle/fixtures untouched; form widened 1180→1340). This is
+  how Q2 is verified now — one click, no SQLite tool needed. Addendum in `review-quickwins.md`.
+- **`2346fad` — settings window** opened `Show(Me)` instead of `Show()` (was unowned since retirement
+  B `cdc7ce4`, 2026-07-15) so it now hides/restores with the main form. `frmMainPageV2.vb:5550`.
+- Gate EXECUTED after each: **GATE PASSED, 104/104**.
+
+## 3. Runtime acceptance — PASSED (owner-confirmed)
+| Test | Priority | Evidence |
+|---|---|---|
+| Q1 startup ping | default | ✅ phone `OrderApp started — TESTNET, breaker $1` |
+| Q1 auto-STOP | **urgent** | ✅ phone `auto-STOP: STOP pressed` (owner arm→STOP) |
+| Q1 tracked close ×2 (#90, #91 scratch) | high | ✅ phone `Position closed at … : scratch` |
+| Q2 manual = NULL (#90, #91) | — | ✅ grid: both **empty** Signal/Confidence (incl. #90 armed-but-mode-Off) |
+
+## 4. Runtime acceptance — REMAINING (blocked only on a healthy testnet — see §5)
+All owner-driven; this seat reads back the log/grid. Exact steps in §7.
+- **Trade 2 — bridge `acted` + Q2 bridge-tag.** Expect phone `signal #1 HARNESS LONG (HIGH/LONG) ->
+  acted` (default); on fill+close, grid row shows **Signal ID=1, Confidence=HIGH**.
+- **Trade 3 — Q2 step-3 clear.** Aborted bridge entry (rest a limit → Cancel All Open → nuclear
+  teardown clears the stage), then a manual trade → grid row **empty** Signal ID. Fallback route:
+  open a position first, then (armed) write-payload → `rejected: position open` clears the tag.
+- **Trade 4 — external close (urgent).** Close a manual position on the **Deribit testnet web UI**
+  (not the app buttons) → phone `Position closed with NO tracked fill (external / liquidation?)`.
+  Path-dependent — may present as a tracked close if the app captures the fill; if it won't
+  reproduce, external stands as code-verified (trivial branch, reviewed).
+- **Owner side-tasks:** (a) verify the settings-window minimize fix after the `2346fad` rebuild;
+  (b) enable **Instant Delivery** in the ntfy Android app (see §6).
+
+## 5. ⚠ Runtime environment — VERIFY BEFORE ACTING
+- **Owner's runtime bin = x64:** `…\DeribitOrderPlacementApp\bin\x64\Debug\net9.0-windows8.0\`.
+  - `secrets.json` here is **testnet** + **`ntfy_url` set** (host ntfy.sh; the topic is a CREDENTIAL —
+    never log/echo it). Confirm with a JSON parse that outputs only Environment + a present-bool.
+  - **Already rebuilt to HEAD `2346fad`** (has all quick-wins + grid + settings fix).
+  - `trades.db` here is the **live journal** — testnet test rows (#90/#91 + any new) pollute it;
+    owner can delete them via View Trades right-click when done.
+- **⚠⚠ THE VERIFY GATE DOES NOT BUILD THE x64 BIN.** `verify-gate.ps1` builds **AnyCPU Debug +
+  Release only**. After ANY code change the x64 runtime bin is STALE until you rebuild it:
+  ```
+  dotnet build DeribitOrderPlacementApp\DeribitOrderPlacementApp.vbproj -c Debug -p:Platform=x64
+  ```
+  This bit us this session: the first launch ran a **07-23 pre-Q1 build** and the startup ping
+  silently never fired — caught by **reading the log** (`Remote notifier: configured` was absent),
+  not by assuming. Always confirm the running build (dll mtime vs the commit, or the `configured`
+  line). `secrets.json` survives the rebuild (`CopyToOutputDirectory=PreserveNewest`, the bin copy
+  is newer) — but back it up first anyway (`Copy-Item …\secrets.json $env:TEMP\…`).
+- **launch-app.ps1 targets the AnyCPU bin (`bin\Debug`), NOT x64**, and refuses if any app window
+  exists. The AnyCPU bin's `secrets.json` environment is UNKNOWN (could be **live**) — do **NOT**
+  blindly run launch-app.ps1. Launch the **x64 exe directly** (see §8), after confirming no instance.
+- **Engine is STOPPED** (no `DeribitVerdictEngine` process). `C:\Dev\DeribitBridge\verdict_signal.json`
+  last written **2026-07-24 16:51 UTC** (engine was briefly up; stopped now) — **re-verify engine +
+  payload state** before any write-payload run. No `.harness-backup` exists yet ⇒ write-payload has
+  not run this session.
+- **Circuit breaker persisted = `$1`** — a losing testnet trade trips it fast → a bonus way to see
+  the breaker-trip urgent auto-STOP.
+- **Current app state: DOWN.** It was PID 5584 when **Deribit testnet returned `code 11094 =
+  internal_server_error`** (their server-side 500 on the startup snapshot queries — position/orders/
+  account). **This is a testnet-side transient, NOT the app or our code** (Deribit's own docs:
+  "unhandled error on server"; testnet is taken offline without notice). **Testing is PAUSED.** When
+  testnet is healthy again, **restart the app** (fresh snapshots) before resuming.
+
+## 6. The two owner observations — both RESOLVED
+- **Delayed notification** = ntfy/FCM push batching, **not the app** (ntfy's own server timestamps
+  proved each POST fired at close time, a minute apart; nothing in `Post` defers). Fix: owner enables
+  **Instant Delivery** in the ntfy Android app. Flag for production — urgent safety alerts must not
+  batch.
+- **Settings window not minimizing with the main form** — diagnosed as the unowned `Show()` since
+  retirement B (not a rebuild/quick-wins regression). Fixed `2346fad`.
+
+## 7. Exact remaining test steps (give these to the owner; they drive)
+Preconditions each entry: **flat**; Amount ≥ 10.
+- **Trade 2:** owner arms **Live + ARM + Start**, then runs at repo root:
+  `powershell -NoProfile -ExecutionPolicy Bypass -File tools\write-payload.ps1 -Direction LONG -Confidence HIGH`
+  → `acted` (phone). On fill, **Reduce Market** to close → tracked close. Grid → Signal ID=1/HIGH.
+- **Trade 3:** armed, `…write-payload.ps1 -Direction LONG -Entry 30000 -Stop 29950 -Target 30100`
+  (rests) → **Cancel All Open** before fill → then a manual Market entry → close → grid row empty.
+- **Trade 4:** disarmed, manual Market entry → close it on **test.deribit.com web UI** → external
+  (urgent).
+- **Cleanup:** `tools\restore-payload.ps1`; delete test rows in View Trades if desired.
+
+## 8. Harness tools (`tools/`) + the launch recipe used this session
+- **read-log.ps1** `[-Tail N]` — observation-tier, finds the form by **title**, dumps `txtLogs`.
+  Safe against any session (reads only). Use it to confirm `Remote notifier: configured`, dispositions,
+  close lines.
+- **write-payload.ps1** — **OWNER runs it** (it feeds the armed bridge = their trade). Crafts a fresh
+  actionable payload with a **new instance GUID** each time (so the de-dupe watermark `last acted 24`
+  never blocks it), backs the current payload up to `.harness-backup`. Refuses if the engine runs.
+- **restore-payload.ps1** — restores the backup (cleanup).
+- **Direct launch (x64):** confirm nothing running (`tasklist | grep DeribitOrder`), then
+  `Start-Process` the x64 exe with `-WorkingDirectory` = its bin dir; poll `Find-MainFormElement`
+  (from `tools\harness-common.ps1`) for the PID. **NOT** launch-app.ps1 (§5). The PowerShell tool
+  wrapper prints a benign `$LASTEXITCODE`-undefined epilogue after such scripts — ignore it.
+- **stop:** stop-app.ps1 keys off the harness PID file (won't see a directly-launched session) — stop
+  by PID (`$p.CloseMainWindow()` then `Stop-Process`).
+
+## 9. ⛔ The SAFETY BOUNDARY this seat held (keep it)
+- This seat **did not place trades or arm the automated bridge** — executing a crypto trade, even a
+  testnet BTC-PERPETUAL order, is a hard line. The **owner** drives every trade: arm, run
+  write-payload (which triggers the armed bridge), manual entries, Reduce closes, web-UI close.
+- This seat **does**: launch the app, read logs, rebuild the bin, verify DB/grid, and hand the owner
+  exact commands. Do **not** run write-payload while the bridge is armed — give the owner the command.
+
+## 10. Finish line & after
+- **Acceptance criteria** = spec §Acceptance items 2 (Q1) and 3 (Q2): Q1 startup/acted/auto-STOP +
+  disabled-parity; Q2 bridge-tagged / manual-empty / aborted-not-tagged / legacy intact. §3 above is
+  done; §4 remains. (Q1 **disabled-parity** — remove `ntfy_url`, relaunch → `disabled (no ntfy_url)`,
+  zero posts — is also still owed; quick to do anytime.)
+- When the owner calls it complete → they **push** `2b77b75..HEAD`, then update the memory ledger.
+- The broader queue then resumes per HANDOVER-3/memory: **N1** emergency-hoist spec, **N2** risk-sized
+  bridge trades, **C1** v2 feedback file, Phase-3 P5 policy enable.
+
+## 11. First moves for the incoming seat
+1. `git rev-parse HEAD origin/master` (expect `2346fad` / `2b77b75`, ahead 8).
+2. Read §0 docs. Confirm the gate: `tools\checks\verify-gate.ps1` → expect GATE PASSED 104/104.
+3. Ask the owner whether testnet has recovered. If yes: confirm no app instance, confirm x64 bin
+   config (testnet + ntfy) and that its dll postdates `2346fad`, then launch the x64 exe → confirm
+   `Remote notifier: configured`, and walk the owner through Trades 2→4 (§7), reading back each result.
+4. Hold the §9 boundary throughout.
