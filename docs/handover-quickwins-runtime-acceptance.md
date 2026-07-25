@@ -102,6 +102,25 @@ bridge, never re-assess. So the payload is written **twice**:
 Freshness = `2.5 × max(exec_resolution_min, 1)` = **2.5 min** for harness payloads
 (`SignalBridge.vb:239`). Mode/ARM/Started all reset to Off/unticked/stopped at every app start.
 
+**WHY payload #1 is needed (two distinct requirements — do not conflate them):**
+- **Before START:** `TryStart` (`SignalBridge.vb:267`) refuses unless `IsFreshNow` **and**
+  `_engineArmed`, and BOTH are derived only from a *parsed* payload (`_lastPayloadGeneratedUtc` /
+  `_engineArmed` are written only on consumption). With nothing consumed,
+  `_lastPayloadGeneratedUtc = MinValue` ⇒ START refused *"latest payload is stale (or none received
+  yet)"*. This is the dual-arm interlock's **evidence that the engine is alive and armed**.
+  Note `StartWatching` (`:374`) only attaches the FSW — it **never seeds from the file on disk** —
+  so that first payload must arrive as a file *event*.
+- **After START:** gate 4.5 ensures the acted signal arrived *after* arming, not a stale one lying
+  on disk.
+
+**⚠ The double write is a HARNESS ARTIFACT of the engine being stopped — it is NOT how production
+works.** With the engine running it rewrites the payload every run interval, so: START just works
+(no manual write), the next engine emission lands while started and acts, and the
+`auto-STOP: stale payload` seen throughout this session never fires (it only fired because nothing
+was refreshing the file). The only residual is a possible wait of up to one run-interval after
+switching to Live before START succeeds. None of this applies in **Log-only** — gate 4.5 is
+Live-only and log-only runs un-started by design.
+
 ### Session policy is ON and it bites
 `LONDON = MEDIUM | CONFIRMED | 0.5` means LONDON accepts **MEDIUM only** — a HIGH payload is
 `refused: policy(LONDON/tier)`. Buckets are **UTC**: ASIA <08:00, LONDON 08:00–12:59, NY ≥13:00
