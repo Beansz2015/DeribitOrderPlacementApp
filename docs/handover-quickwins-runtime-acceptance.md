@@ -1,4 +1,8 @@
-# Handover — quick-wins runtime acceptance (IN FLIGHT)
+# Handover — quick-wins runtime acceptance ✅ **COMPLETE 2026-07-25**
+
+> **STATUS: acceptance-complete.** All of spec §Acceptance is closed (§4). Nothing is owed but the
+> owner's push of `2b77b75..HEAD`. Read §4 before the next bridge runtime test — the sequencing rule,
+> the session-policy tier trap, and the two corrected Trade-3 recipe defects are all there.
 
 **Written:** 2026-07-25 by the Opus 4.8 coordinator seat · **For:** the incoming **Opus 5** seat.
 **Scope:** finish the owner's runtime acceptance of the pre-ladder quick wins (Q1 ntfy notifier,
@@ -49,22 +53,69 @@ app relaunched:
   disabled launch and still 1 after it (poll recipe in §12);
 - restored → `Remote notifier: configured` and a fresh ping landed 09:15:26 UTC. A-B-A closed.
 
-So Q1 acceptance §2 now has only **one** item left: the **`acted` notification** (= Trade 2, owner).
+## 4. Runtime acceptance — ✅ **COMPLETE 2026-07-25** (Trades 2–4 owner-driven, this seat read back)
 
-## 4. Runtime acceptance — REMAINING (testnet RECOVERED — see §5; app is UP and ready)
-All owner-driven; this seat reads back the log/grid. Exact steps in §7.
-- **Trade 2 — bridge `acted` + Q2 bridge-tag.** Expect phone `signal #1 HARNESS LONG (HIGH/LONG) ->
-  acted` (default); on fill+close, grid row shows **Signal ID=1, Confidence=HIGH**.
-- **Trade 3 — Q2 step-3 clear.** Aborted bridge entry (rest a limit → Cancel All Open → nuclear
-  teardown clears the stage), then a manual trade → grid row **empty** Signal ID. Fallback route:
-  open a position first, then (armed) write-payload → `rejected: position open` clears the tag.
-- **Trade 4 — external close (urgent).** Close a manual position on the **Deribit testnet web UI**
-  (not the app buttons) → phone `Position closed with NO tracked fill (external / liquidation?)`.
-  Path-dependent — may present as a tracked close if the app captures the fill; if it won't
-  reproduce, external stands as code-verified (trivial branch, reviewed).
+**Every item in spec §Acceptance is now closed.** 1 (gate) ✅ re-run at HEAD 104/104 · 2 (Q1) ✅ ·
+3 (Q2) ✅ · 4 (Q3 tools) ✅ implementer, read-only run + archive opened · 5 (greps) ✅ implementer,
+re-verified in `review-quickwins.md`.
+
+| Trade | What it proved | Evidence |
+|---|---|---|
+| **2** | Q1 `acted` + Q2 bridge-tag | disp `10:00:32 acted (id 109534252220)`; ntfy `10:00:33 p=3`; grid **#92 = Signal 1 / MEDIUM** |
+| **3** | Q2 step-3 clear | disp `10:19:54 rejected: cancel pending`; ntfy `10:19:56 p=3`; next manual **#93 = empty** |
+| **4** | external close | log `Position closed.` (yellow); ntfy `10:30:36 **p=5 urgent**`; **no grid row** (correct — nothing to record) |
+
+**Full ntfy topic audit (18 messages, server-side):** priorities match the spec table exactly —
+startup `p=3` ×8, auto-STOP `p=5` ×5, acted `p=3`, rejected `p=3`, tracked close `p=4` ×2, external
+close `p=5`. The disabled-parity gap is visible in the same record: **nothing between 09:08:58 and
+09:15:26**, though the app ran at ~09:14 with `ntfy_url` removed.
+
+### ⚠ Two Trade-3 recipe defects found and corrected (§7 was stale — fixed here)
+1. **`-Entry 30000` does NOT make the entry rest.** `SignalBridge.vb:734`: *entry is a reference only
+   — the app enters at top-of-book under its own slippage cap*. Trade 2 filled in ~1 s (chase crosses
+   the spread), so "rest a limit → Cancel All Open" is an unwinnable sub-second race. The ATR-slippage
+   guard doesn't use the payload entry either (`IsATRSlippageExcessive` seeds `originalSignalPrice`
+   lazily from the live quote at the first chase evaluation).
+2. **The documented fallback "open a position first → `rejected: position open`" is UNREACHABLE.**
+   Bridge gate 4.6 tests `IsFlat`, which reads the *same* `positionSizeUSD` field as
+   `PlaceAutomatedOrder:658` — so it stops at `refused: not_flat` **before** `SetPendingSignalTag`.
+   Nothing staged ⇒ nothing cleared ⇒ the test proves nothing.
+
+**The route that works (deterministic, use this next time):** `cancel pending` is the ONLY rejection
+reachable *after* staging — the bridge deliberately leaves it to `PlaceAutomatedOrder`
+(`SignalBridge.vb:679`). Cancel All Open sets `cancelPending = True` with a **4-second** self-clearing
+timeout (`frmMainPageV2.vb:321`); the only early clear is the raced-abort repair (id 31), which cannot
+fire while flat. So: bridge STARTED + flat → click **Cancel All Open** → land the payload within 4 s →
+`rejected: cancel pending` → `ClearPendingSignalTag`. Give the owner a command that fetches the price,
+**sleeps 2 s**, then writes (pass `-BinDir` so the UIA lookup can't eat the window); they press Enter
+and click the button during the sleep. Worked first try.
+
+### Sequencing rule that cost two failed attempts — READ BEFORE ANY BRIDGE TEST
+**The payload must LAND while the bridge is STARTED.** Evaluation happens only on the file-change
+event (FSW → 150 ms debounce). START does **not** re-evaluate the payload already on disk, and
+`OnStalenessTick` (`SignalBridge.vb:440`) returns early when fresh — it can only ever *stop* the
+bridge, never re-assess. So the payload is written **twice**:
+1. write payload #1 → satisfies START's freshness precondition (dispositions `refused: interlock` — expected);
+2. click **START** (within the freshness window);
+3. write payload #2 → lands while started → acts.
+
+Freshness = `2.5 × max(exec_resolution_min, 1)` = **2.5 min** for harness payloads
+(`SignalBridge.vb:239`). Mode/ARM/Started all reset to Off/unticked/stopped at every app start.
+
+### Session policy is ON and it bites
+`LONDON = MEDIUM | CONFIRMED | 0.5` means LONDON accepts **MEDIUM only** — a HIGH payload is
+`refused: policy(LONDON/tier)`. Buckets are **UTC**: ASIA <08:00, LONDON 08:00–12:59, NY ≥13:00
+(`SignalBridge.vb:913`). Expect `size_mult 0.5 clamped to contract min 10` on every LONDON act
+(harmless). Use `-Confidence MEDIUM` in London, or untick Policy.
+
 - **Owner side-tasks — BOTH DONE 2026-07-25:** (a) settings-window minimize fix ✅ **owner-verified
   at runtime** (hides/restores with the main form); (b) ntfy **Instant Delivery** ✅ **enabled**
   (real-time push, no more FCM batching).
+- **Cleanup done:** `tools/restore-payload.ps1` run — payload back to the engine's own
+  (`signal_id=2`, direction `NONE`, instance `72bf33d9…`), `.harness-backup` consumed. Note that
+  backup captured an engine payload from ~09:39 today (the engine ran briefly then: the two
+  `NO TRADE [WEAK LONG] | refused: direction` rows), not the 07-24 one.
+- **Testnet rows to delete when convenient:** #92, #93 (+ #90/#91 from the earlier seat).
 
 ## 5. ⚠ Runtime environment — VERIFY BEFORE ACTING
 - **Owner's runtime bin = x64:** `…\DeribitOrderPlacementApp\bin\x64\Debug\net9.0-windows8.0\`.
