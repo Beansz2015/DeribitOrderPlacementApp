@@ -50,8 +50,9 @@ All owner-driven; this seat reads back the log/grid. Exact steps in §7.
   (not the app buttons) → phone `Position closed with NO tracked fill (external / liquidation?)`.
   Path-dependent — may present as a tracked close if the app captures the fill; if it won't
   reproduce, external stands as code-verified (trivial branch, reviewed).
-- **Owner side-tasks:** (a) verify the settings-window minimize fix after the `2346fad` rebuild;
-  (b) enable **Instant Delivery** in the ntfy Android app (see §6).
+- **Owner side-tasks — BOTH DONE 2026-07-25:** (a) settings-window minimize fix ✅ **owner-verified
+  at runtime** (hides/restores with the main form); (b) ntfy **Instant Delivery** ✅ **enabled**
+  (real-time push, no more FCM batching).
 
 ## 5. ⚠ Runtime environment — VERIFY BEFORE ACTING
 - **Owner's runtime bin = x64:** `…\DeribitOrderPlacementApp\bin\x64\Debug\net9.0-windows8.0\`.
@@ -85,13 +86,14 @@ All owner-driven; this seat reads back the log/grid. Exact steps in §7.
   "unhandled error on server"; testnet is taken offline without notice). **Testing is PAUSED.** When
   testnet is healthy again, **restart the app** (fresh snapshots) before resuming.
 
-## 6. The two owner observations — both RESOLVED
+## 6. The two owner observations — both RESOLVED & CONFIRMED (2026-07-25)
 - **Delayed notification** = ntfy/FCM push batching, **not the app** (ntfy's own server timestamps
-  proved each POST fired at close time, a minute apart; nothing in `Post` defers). Fix: owner enables
-  **Instant Delivery** in the ntfy Android app. Flag for production — urgent safety alerts must not
-  batch.
+  proved each POST fired at close time, a minute apart; nothing in `Post` defers). ✅ owner enabled
+  **Instant Delivery** in the ntfy app → real-time push. (Production note: keep it on — urgent safety
+  alerts must not batch.)
 - **Settings window not minimizing with the main form** — diagnosed as the unowned `Show()` since
-  retirement B (not a rebuild/quick-wins regression). Fixed `2346fad`.
+  retirement B (not a rebuild/quick-wins regression). Fixed `2346fad` (`Show(Me)`), ✅ owner-verified
+  at runtime.
 
 ## 7. Exact remaining test steps (give these to the owner; they drive)
 Preconditions each entry: **flat**; Amount ≥ 10.
