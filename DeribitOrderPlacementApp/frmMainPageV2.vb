@@ -3371,11 +3371,12 @@ Public Class frmMainPageV2
 
     ' EV chase budget §2: the chase-abort reason for the four own-side reposition gates, or Nothing
     ' to carry on chasing. Order is load-bearing - the ATR cap is evaluated FIRST and untouched, so
-    ' it keeps owning the originalSignalPrice seeding and the ResetOrderAttempt side effect and an
-    ' ATR trip still reads "ATR slippage" byte-identically. The EV floor is the second, opt-in arm
-    ' and its trip reads "EV floor" (the cancel REASON is the counterfactual instrument - it is
-    ' deliberately NOT a second disposition row; the file is one row per payload, written at
-    ' consumption). Both arms stay under the caller's maxSlippageATRchecked switch: housekeeping 8b
+    ' it keeps owning the originalSignalPrice seeding and the ResetOrderAttempt side effect, and an
+    ' ATR trip still logs its existing reason byte-identically. The EV floor is the second, opt-in
+    ' arm and carries its own reason (the two literals below are the ONLY place either is written -
+    ' the cancel REASON is the counterfactual instrument here, deliberately NOT a second disposition
+    ' row; that file is one row per payload, written at consumption).
+    ' Both arms stay under the caller's maxSlippageATRchecked switch: housekeeping 8b
     ' made that checkbox the single arm for chase-abort guards and this keeps it that way.
     ' Receive-thread safe: plain fields + the pure predicate, no control reads.
     Private Function ChaseAbortReason(ownSideQuote As Decimal, direction As String) As String
