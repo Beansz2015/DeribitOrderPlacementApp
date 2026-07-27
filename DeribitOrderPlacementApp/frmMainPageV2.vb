@@ -2179,9 +2179,13 @@ Public Class frmMainPageV2
                         ' threshold mirrors, the FROZEN emergencyBaseline anchor, and the comparison direction.
                         ' emergencyFired is the new single-fire latch (set at the dispatch inside
                         ' UpdateStopLossForTriggeredStopLossOrder): without the throttle, consecutive ticks could
-                        ' otherwise double-fire the market reduce before the flat echo lands. It also stops a
-                        ' post-fire tick from re-entering ForceStopLossUpdate and editing the SL to the own-side
-                        ' touch every tick while the close settles.
+                        ' otherwise double-fire the market reduce before the flat echo lands. The exposed window
+                        ' is CancelOrderAsync's own send-await inside the fire path - it sets cancelPending /
+                        ' SLTriggered = False / emergencyBaseline = 0 only AFTER its send returns, so until then
+                        ' this block's gate is still open. Reading the latch HERE (not only at the fire branch)
+                        ' additionally stops a tick in that window from re-entering ForceStopLossUpdate and, with
+                        ' the fire branch already latched out, falling through to edit the resting SL to the
+                        ' own-side touch.
                         If emergencyThresholdValid AndAlso baselineKnown AndAlso priceMovement >= emergencyThreshold Then
                             If marketStopLossChecked AndAlso Not emergencyFired Then
                                 Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))

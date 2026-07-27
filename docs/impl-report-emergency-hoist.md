@@ -163,12 +163,15 @@ design question that changes the implementation.
 
 **(c) The latch is also read at the hoisted quote-level check** (`:2186`,
 `marketStopLossChecked AndAlso Not emergencyFired`), which the spec does not explicitly call for.
-This is load-bearing, not decoration: post-fire, `ForceStopLossUpdate` sets
-`lastStopLossUpdate = DateTime.MinValue`, so the throttle is wide open; without the latch here, every
-subsequent tick would re-enter `ForceStopLossUpdate(own-side touch)` and — now that the internal
-emergency branch is latched out — fall through to **editing the resting SL to the touch price on
-every tick** while the close settles. That would be a new edit storm created by the hoist. Gating the
-entry closes it.
+It is load-bearing, and the exposed window is precisely bounded — see §6 for the derivation. In
+short: `CancelOrderAsync` (the first thing the fire path does) closes this block's gate three ways
+over — `cancelPending = True`, `SLTriggered = False`, `emergencyBaseline = 0`, `placedStopLossPrice
+= 0` — but it does all of that **after** its own `Await SendWebSocketMessageAsync` returns. Until
+then the gate is still open and `ForceStopLossUpdate` has set `lastStopLossUpdate = MinValue`, so
+the throttle is wide open too. A tick landing in that window with the fire branch already latched
+out would fall through to **editing the resting SL to the own-side touch**. Reading the latch at the
+entry closes it. (An earlier draft of this report and of the code comment said "every tick while the
+close settles" — that over-scoped it; the window is one WS send-await, not the whole close.)
 
 No other deviations. Nothing else in the file was touched.
 
@@ -220,6 +223,59 @@ moves, the two `Not emergencyFired` conjuncts, the two sets, the three clears. N
 - **All 7 paired `emergencyBaseline = 0` / `ResetCommandedSLPrices()` reset sites**: untouched.
 - **The `emergencyBaselineSettled` hybrid latch** (10 sites): untouched.
 - **Emergency dollar semantics** (anchor ∓ M.SL, per-side comparison direction): copied verbatim.
+
+## 6a. The latch closes a PRE-EXISTING double-fire race (not only one created by the hoist)
+
+Derived while scoping §4(c), and worth the coordinator's attention because it changes what N1 is:
+the double-fire this latch prevents **was already reachable before the hoist**.
+
+`CancelOrderAsync` is the first statement of both fire branches. Its state resets — `cancelPending =
+True` (`:3702`), `placedStopLossPrice = 0` (`:3695`), `SLTriggered = False` (`:3731`),
+`emergencyBaseline = 0` (`:3733`) — all execute **after** `Await SendWebSocketMessageAsync`
+(`:3691`). So for the duration of that one send-await, every gate that would otherwise stop a
+re-entrant quote tick is still open:
+
+- block gate: `SLTriggered` still True, `Not IsCancelPending()` still True, socket still connected;
+- throttle: `ForceStopLossUpdate` has just set `lastStopLossUpdate = DateTime.MinValue`, so it
+  passes unconditionally — **this was equally true before N1**;
+- `currentStopPrice > 0`: `placedStopLossPrice` not yet zeroed;
+- the emergency comparison: `emergencyBaseline` not yet zeroed, price still beyond the cap.
+
+`HandleQuoteUpdates` is `Async Sub` (fire-and-forget), so a tick arriving in that window runs
+concurrently rather than queueing. Pre-N1 it would have re-entered the emergency and dispatched a
+**second `CancelOrderAsync` + `SendReduceMarketOrderAsync`**. Narrow — one WS send — but real, and
+on the taker-close path. N1's latch is the first thing that structurally forecloses it.
+
+This does not change the implementation; it does mean the honest characterisation of N1 is
+"hoist + close a latent double-fire race", not "hoist, plus a latch to pay for the hoist".
+
+## 6b. Named residual: latch set, send silently not dispatched
+
+The one behaviour change I cannot argue away, stated plainly for ratification. `emergencyFired` is
+set immediately before `Await CancelOrderAsync()`, but `SendReduceMarketOrderAsync` — two frames
+later — has two early returns of its own:
+
+1. `If Not IsWebSocketConnected` → "reduce order skipped" (`:5801`-area);
+2. position model empty **and** `orderAmountVal <= 0` → "Invalid amount."
+
+If either fires, the latch is set and no reduce was sent. **Pre-N1** the next tick would retry the
+emergency; **post-N1** the cap stays latched off for that position until `CompletePositionClose` or
+a fresh placement.
+
+Why I implemented it this way anyway, and why I recommend accepting it:
+
+- Both paths are narrow. Path 1 needs the socket to drop between this block's `IsWebSocketConnected`
+  gate and the send, across `CancelOrderAsync` — and if the socket is down, the retry that N1
+  removes could not have sent anything either. Path 2 needs `positionSizeUSD = 0` in a
+  `SLTriggered` context with a working `PositionSLOrderId`, which the position model makes close to
+  unreachable.
+- The alternatives are worse. Setting the latch *after* the send returns reintroduces the
+  double-fire race in §6a (a re-entrant tick during `CancelOrderAsync` would see it clear) — trading
+  a rare missed retry for a rare **duplicate taker close**, which is the more expensive error.
+  Clearing the latch inside `SendReduceMarketOrderAsync`'s guard-returns is wrong because that
+  function is shared with `FlattenPositionAsync` and `btnReduceMarket_Click`.
+
+**Ask:** ratify "accept + document", or direct a different trade-off.
 
 ## 7. Open items for the owner
 
