@@ -378,6 +378,69 @@ Public Class frmMainPageV2
     ' field - same lifecycle as legAnchorPrice; reset to 0 at the order-context death sites and on consume.
     Private pendingReanchorFill As Decimal = 0D             ' 0 = no pending TP re-anchor
 
+    ' --- EV chase budget (docs/spec-ev-chase-budget.md) ---
+    ' Deribit's 2026-08-01 schedule (maker 1.5 bps / taker 3.5 bps) makes the tail of a chase
+    ' unprofitable well before the ATR cap trips: past a point the remaining move to the target no
+    ' longer pays for the round trip. These are the HOT-PATH mirrors - the four reposition gates
+    ' read them on the receive thread on every quote tick, so they are plain fields (the same
+    ' convention as the ATR tooling values), while the persisted copies live in userSettings on
+    ' item A's save path.
+    '
+    ' minNetMovePctVal is a price FRACTION, not a percent: 0.0005 = 0.05% = 5 bps. The Tooling box
+    ' is the only percent-flavoured surface in the whole path (it divides by 100 on commit).
+    ' <= 0 = the EV condition is OFF entirely, and 0 is the shipped default.
+    Private minNetMovePctVal As Decimal = 0D
+    ' Maker fee in bps. File-only knob (no UI): the schedule changes by exchange announcement about
+    ' once a year, by relay. Nothing hardcodes the 3.0 bps round trip - it derives from this.
+    Private makerFeeBpsVal As Decimal = 1.5D
+
+    ' Round-trip maker fee as a price fraction: maker entry + maker TP (the trader's standing
+    ' maker-first flow, per the fee relay). Pure; OrderCheck-pinned.
+    Friend Shared Function RoundTripFeePctFromMakerBps(makerFeeBps As Decimal) As Decimal
+        Return 2D * makerFeeBps / 10000D
+    End Function
+
+    ' Stop chasing when the remaining move to the target no longer clears round-trip fees plus the
+    ' trader's minimum net move. Pure; Friend Shared; OrderCheck-pinned (spec §1).
+    Friend Shared Function IsChaseEvExhausted(targetInForce As Decimal, currentPrice As Decimal,
+                                              roundTripFeePct As Decimal, minNetMovePct As Decimal) As Boolean
+        If minNetMovePct <= 0D OrElse targetInForce <= 0D OrElse currentPrice <= 0D Then Return False ' OFF/undefined = never binds
+        Dim remainingNet As Decimal = Math.Abs(targetInForce - currentPrice) - roundTripFeePct * currentPrice
+        Return remainingNet < minNetMovePct * currentPrice
+    End Function
+
+    ' The knob and the derived round-trip fee, as the gates and the settings form read them.
+    Friend ReadOnly Property MinNetMovePct As Decimal
+        Get
+            Return minNetMovePctVal
+        End Get
+    End Property
+
+    Friend ReadOnly Property RoundTripFeePct As Decimal
+        Get
+            Return RoundTripFeePctFromMakerBps(makerFeeBpsVal)
+        End Get
+    End Property
+
+    ' The BREAKER's contract, deliberately not SetToolingValues' (spec §4): 0 is a legitimate,
+    ' persistable OFF, so ANY parsed value is accepted here and only a PARSE failure keeps the last
+    ' good one (that TryParse lives in the settings form). Takes the FRACTION - the box has already
+    ' divided by 100. A negative value is simply another way to spell OFF (the predicate's guard).
+    Friend Sub SetMinNetMovePct(value As Decimal)
+        If userSettings Is Nothing Then userSettings = New AppUserSettings()
+        minNetMovePctVal = value
+        userSettings.MinNetMovePct = value
+    End Sub
+
+    ' Seed the hot-path mirrors from the loaded settings. Called at Load right after
+    ' ApplyUserSettingsToControls and BEFORE AutoTradeSettings is constructed, because the Tooling
+    ' box seeds itself from MinNetMovePct (the standing seed-before-commit ordering).
+    Private Sub ApplyEvChaseBudgetFromSettings()
+        If userSettings Is Nothing Then Return
+        minNetMovePctVal = userSettings.MinNetMovePct
+        makerFeeBpsVal = userSettings.MakerFeeBps
+    End Sub
+
     ' Transition-race fix: True while a cancel is in flight. Auto-clears once the timeout elapses so a
     ' missed cancel confirmation can never wedge repositioning permanently. Read by the hot-path decision
     ' gates (quote thread); the echo handler reads the raw cancelPending flag directly.
@@ -770,6 +833,10 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, "Trade defaults restored from orderapp-settings.json", Color.LimeGreen)
             End If
             ApplyUserSettingsToControls()
+            ' EV chase budget §4: the knob + fee block are file-only reads, so they seed the plain
+            ' hot-path fields directly rather than riding a control's TextChanged. Must precede the
+            ' AutoTradeSettings construction below - its Tooling box seeds itself from these.
+            ApplyEvChaseBudgetFromSettings()
 
             ' Item A save affordance (implementer's choice per spec: context item over a button -
             ' no free space near the inputs): right-click the MARGINS or AMOUNT($) group.

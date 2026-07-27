@@ -434,6 +434,53 @@ Module Program
         Check("notifier: urgent bypasses BOTH limits (4 s gap AND a full window)",
               RemoteNotifier.ShouldSend(n0.AddSeconds(4), n0, 12, True))
 
+        ' ================== EV chase budget (docs/spec-ev-chase-budget.md) ==================
+
+        ' ---- Fee derivation (§4): the round trip is 2 x MAKER, never a hardcoded 3.0 bps ----
+        Check("EV fees: 2 x 1.5 bps maker = 0.0003 round trip",
+              frmMainPageV2.RoundTripFeePctFromMakerBps(1.5D) = 0.0003D,
+              $"got {frmMainPageV2.RoundTripFeePctFromMakerBps(1.5D)}")
+        Check("EV fees: the derivation tracks a schedule change (2.0 bps maker = 0.0004)",
+              frmMainPageV2.RoundTripFeePctFromMakerBps(2D) = 0.0004D)
+
+        ' ---- IsChaseEvExhausted (§1 / §5) ----
+        ' The shipped knob is 0, and 0 is the whole ship-safety argument: the predicate returns
+        ' False on its first guard, before it looks at anything else.
+        Dim rt As Decimal = frmMainPageV2.RoundTripFeePctFromMakerBps(1.5D)   ' 0.0003
+        Check("EV floor: knob 0 = OFF, never binds (the ship-safe default)",
+              Not frmMainPageV2.IsChaseEvExhausted(64800D, 64786D, rt, 0D))
+        Check("EV floor: a negative knob is OFF too",
+              Not frmMainPageV2.IsChaseEvExhausted(64800D, 64786D, rt, -0.0005D))
+
+        ' §5's worked example: remaining 14, fees 19.44, floor 32.39 => exhausted.
+        Check("EV floor: binds when the remaining move is under fees + floor (14 vs 19.4 + 32.4)",
+              frmMainPageV2.IsChaseEvExhausted(64800D, 64786D, rt, 0.0005D))
+        ' Same knobs, price 60 away: 60 - 19.42 = 40.58 net, over the 32.37 floor => keep chasing.
+        Check("EV floor: slack when the target is still far (60 remaining)",
+              Not frmMainPageV2.IsChaseEvExhausted(64800D, 64740D, rt, 0.0005D))
+
+        ' Exact boundary, both sides. At price 60000: fees = 18, floor = 30, so a 48-wide remaining
+        ' move nets EXACTLY the floor. The comparison is strict "<", so equality keeps chasing.
+        Check("EV floor: exact equality does NOT bind (strict <)",
+              Not frmMainPageV2.IsChaseEvExhausted(60048D, 60000D, rt, 0.0005D))
+        Check("EV floor: a cent under the boundary binds",
+              frmMainPageV2.IsChaseEvExhausted(60047.99D, 60000D, rt, 0.0005D))
+
+        ' §3 (D1): no target in force = SKIP. The OFFSET flow passes 0 here and keeps ATR-only.
+        Check("EV floor: a zero target never binds (the OFFSET-flow skip)",
+              Not frmMainPageV2.IsChaseEvExhausted(0D, 64786D, rt, 0.0005D))
+        Check("EV floor: a zero price never binds (undefined quote)",
+              Not frmMainPageV2.IsChaseEvExhausted(64800D, 0D, rt, 0.0005D))
+
+        ' SHORT symmetry: the target sits BELOW the price and Math.Abs handles it - the same three
+        ' cases must give the same three answers mirrored around the price.
+        Check("EV floor SHORT: binds when the target is 14 below the price",
+              frmMainPageV2.IsChaseEvExhausted(64772D, 64786D, rt, 0.0005D))
+        Check("EV floor SHORT: slack when the target is 60 below the price",
+              Not frmMainPageV2.IsChaseEvExhausted(64680D, 64740D, rt, 0.0005D))
+        Check("EV floor SHORT: exact equality does NOT bind",
+              Not frmMainPageV2.IsChaseEvExhausted(59952D, 60000D, rt, 0.0005D))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

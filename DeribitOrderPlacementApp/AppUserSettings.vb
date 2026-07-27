@@ -12,8 +12,9 @@ Imports Newtonsoft.Json.Linq
 ''' Persisted: the eight standing inputs (amount / take_profit / trigger / stop_loss /
 ''' trigger_offset / tp_offset / comms / market_stop_loss), the two guard checkboxes + the
 ''' ATR-slippage multiplier, the item-B risk-sizing keys (risk_per_trade_usd / max_size_usd), the
-''' item-D alerts block and the session_policy block (spec-session-policy-gate.md D2 - the one
-''' bridge gate setting that persists, because it is a weeks-cadence standing policy). (comms was added by owner ruling 2026-07-18 - it is a standing
+''' item-D alerts block, the session_policy block (spec-session-policy-gate.md D2 - the one
+''' bridge gate setting that persists, because it is a weeks-cadence standing policy) and the EV
+''' chase budget knob + fee schedule (spec-ev-chase-budget.md §4). (comms was added by owner ruling 2026-07-18 - it is a standing
 ''' session value like the rest, and the item-E break-even trigger derives from it, so a reset
 ''' to the Designer default silently changes where B.E. puts the stop.)
 ''' Per-trade values (txtManualTP/txtManualSL) and anything credential-like are deliberately
@@ -59,6 +60,21 @@ Public NotInheritable Class AppUserSettings
     ' biggest operational hole. Default 10 (min-size era). <= 0 still disables, and a persisted
     ' disable is a legitimate owner choice (unlike the risk keys, negatives are ACCEPTED).
     Public CircuitBreakerUsd As Decimal = 10D
+
+    ' EV chase budget (docs/spec-ev-chase-budget.md §4). MinNetMovePct is a price FRACTION, not a
+    ' percent: 0.0005 = 0.05% = 5 bps. <= 0 disables the EV floor entirely, and 0 is the shipped
+    ' default - absent key => byte-identical to the pre-EV app. The Tooling box is the only surface
+    ' that speaks percent (it divides by 100 before this value is set).
+    Public MinNetMovePct As Decimal = 0D
+
+    ' Fee schedule (Deribit BTC-PERPETUAL, effective 2026-08-01). File-only knobs - no UI, because
+    ' an exchange schedule changes about once a year by announcement, relayed to both repos. The
+    ' round-trip constant the chase budget uses DERIVES as 2 x maker (maker entry + maker TP, the
+    ' standing maker-first flow), so a schedule change is these two numbers and nothing else.
+    ' TakerFeeBps is carried for the schedule's sake: v1 reads only the maker leg. It is the input
+    ' the crossing-delta guidance (relay Rec 2, deferred to its own micro-spec) will compute from.
+    Public MakerFeeBps As Decimal = 1.5D
+    Public TakerFeeBps As Decimal = 3.5D
 
     ' Session policy gate (docs/spec-session-policy-gate.md, D2). A weeks-cadence standing policy
     ' that had to be retyped every start would guarantee drift, so unlike the rest of the bridge
@@ -116,6 +132,11 @@ Public NotInheritable Class AppUserSettings
             result.MaxSizeUsd = If(json.SelectToken("max_size_usd")?.ToObject(Of Decimal?)(), 500D)
             result.CircuitBreakerUsd = If(json.SelectToken("circuit_breaker_usd")?.ToObject(Of Decimal?)(), 10D)
 
+            ' EV chase budget: absent min_net_move_pct => 0 => the EV floor never binds (ship-safe).
+            result.MinNetMovePct = If(json.SelectToken("min_net_move_pct")?.ToObject(Of Decimal?)(), 0D)
+            result.MakerFeeBps = If(json.SelectToken("maker_fee_bps")?.ToObject(Of Decimal?)(), 1.5D)
+            result.TakerFeeBps = If(json.SelectToken("taker_fee_bps")?.ToObject(Of Decimal?)(), 3.5D)
+
             Dim alerts As JToken = json.SelectToken("alerts")
             If alerts IsNot Nothing Then
                 result.AlertEntryFill = If(alerts.SelectToken("entry_fill")?.ToObject(Of Boolean?)(), True)
@@ -156,6 +177,9 @@ Public NotInheritable Class AppUserSettings
                 {"risk_per_trade_usd", RiskPerTradeUsd},
                 {"max_size_usd", MaxSizeUsd},
                 {"circuit_breaker_usd", CircuitBreakerUsd},
+                {"min_net_move_pct", MinNetMovePct},
+                {"maker_fee_bps", MakerFeeBps},
+                {"taker_fee_bps", TakerFeeBps},
                 {"alerts", New JObject From {
                     {"entry_fill", AlertEntryFill},
                     {"close_fill", AlertCloseFill},
