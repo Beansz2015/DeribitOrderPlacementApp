@@ -168,6 +168,16 @@ Live-only and log-only runs un-started by design.
   restoring it, stamp the mtime to now (`(Get-Item …).LastWriteTime = Get-Date`). The harness's own
   safety tier keys on the TESTNET title for exactly this reason — trust the title, not the memory of
   what the config used to say.
+- **✅ FIXED STRUCTURALLY 2026-07-27 (owner-directed):** the project source
+  `DeribitOrderPlacementApp\secrets.json` is now **`Environment: testnet`** and byte-identical to the
+  x64 bin's copy (both credential blocks — `Deribit` and `DeribitTestnet` — intact, `ntfy_url`
+  present), so the build's copy is a no-op and a rebuild can no longer flip the runtime bin to live.
+  **Verified:** rebuilt x64 → bin still `testnet` → relaunch came up `— TESTNET`. The previous live
+  source is backed up OUTSIDE the repo at
+  `C:\Users\user\AppData\Local\DeribitOrderApp\secrets-SOURCE-live-2026-07-27.json` (the only
+  difference was `Environment` + the absent `ntfy_url`). `secrets.json` remains git-ignored.
+  **This does not retire the verify rule above** — it removes the usual cause, not the need to look.
+  At production cutover the source flips to `live` deliberately, and the trap returns inverted.
 - **launch-app.ps1 targets the AnyCPU bin (`bin\Debug`), NOT x64**, and refuses if any app window
   exists. The AnyCPU bin's `secrets.json` environment is UNKNOWN (could be **live**) — do **NOT**
   blindly run launch-app.ps1. Launch the **x64 exe directly** (see §8), after confirming no instance.
