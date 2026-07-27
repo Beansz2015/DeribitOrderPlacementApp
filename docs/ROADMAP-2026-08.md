@@ -32,8 +32,9 @@ brain. One implementer conversation at a time; reviews execute the gate; owner i
 
 | # | Item | Notes |
 |---|---|---|
-| N1 | **Emergency-check hoist above the SL-edit throttle.** Requires designing the single-fire latch FIRST (the documented trade-off: a persistently failing SL edit delays emergency detection ≤ ~5 s). Noise at size 10; the one latent safety-latency item at normal size. Spec in the Fable window if possible; implement Fable/Opus HIGH, own pass, before the ladder tops out. |
-| N2 | **Risk-sized bridge trades** — per-signal size = `risk_per_trade_usd ÷ engine stop distance`, capped `max_size_usd`, × sessionFactor (the session-policy mult folds in — ONE formula, as its spec anticipated), floored to the contract step. The principled endpoint of the size ladder; spec after fixed-size proves out, so the formula's inputs are runtime-informed. |
+| N1 | **DONE 2026-07-28** — implemented, reviewed (4 asks ruled), owner runtime-accepted (#96–#98). *Framing corrected post-acceptance:* the "~5 s" delay was never reachable (the backoff was dead code); the real pre-N1 exposure was ≤ 333 ms **plus a latent double-fire race, which N1 closed** — the more valuable half. |
+| N1b | **SL-backoff coupling** (`spec-sl-backoff-coupling.md`, the §2 ruling: option (a)) — couple genuine SL-edit failures (223344–223350 red class ONLY, benign races excluded) into `BackoffStopLossRetry` via `HandleUnhandledJsonRpcError`. Before normal size, after the EV chase budget. Opus HIGH, own pass. |
+| N2 | **Risk-sized bridge trades** — per-signal size = `risk_per_trade_usd ÷ engine stop distance`, capped `max_size_usd`, × sessionFactor (the session-policy mult folds in — ONE formula, as its spec anticipated), floored to the contract step. The principled endpoint of the size ladder; spec written (`spec-risk-sized-bridge-trades.md`), ships DISABLED. |
 
 ## §4 — The next era's centerpiece
 
@@ -43,7 +44,7 @@ brain. One implementer conversation at a time; reviews execute the gate; owner i
 
 ## §5 — Hygiene backlog (anytime, unscheduled, all on record)
 
-FrmIndicators full retirement (more attractive now — with the engine 24/7 on AWS the indicator
+**Triple-placement WATCH** (N1 spec-back §3: one harness UIA `Invoke` of Mkt. BUY produced 3 entries; 5-vs-1 tally leans harness-side, unproven — protocol until investigated: trade-placing steps in runtime tests use OWNER mouse clicks, harness drives everything else; if it reproduces, capture logs+tree immediately — that session becomes the investigation) · `set-textbox -Exact` switch (the substring trap silently set the wrong box and reported success) · FrmIndicators full retirement (more attractive now — with the engine 24/7 on AWS the indicator
 fallback is nearly never exercised; retiring it = payload ATR + $70 constant only) · Edit T.S.
 post-trigger rework (4-trap catalog; `EditStopLossTo` is the home) · item G stale-SL-box cosmetic
 (mechanism documented in `runtime-record-live-ladder-2026-07-23.md`) · housekeeping smoke

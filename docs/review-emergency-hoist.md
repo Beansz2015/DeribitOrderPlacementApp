@@ -52,6 +52,16 @@ that window. This supersedes the item-16 trade-off comment's framing.
 - The tripwire-prose lesson (comments containing literal tripwire tokens pollute the standing
   greps) is worth keeping — noted for the handover.
 
+> **Addendum 2026-07-28 (post-acceptance correction):** the closing spec-back
+> (`spec-back-emergency-hoist-acceptance-2026-07-28.md` §2) proved `BackoffStopLossRetry` has been
+> **unreachable** at HEAD (send-site swallow-catches; wrapped body), so this review's §4 line —
+> and item-16's, and the ROADMAP's — citing "up to ~5 s" of pre-N1 emergency delay overstated it:
+> the real pre-N1 exposure was **≤ 333 ms plus the latent double-fire race**, and the race was the
+> more valuable half of N1. The verdict and all four rulings are unaffected. Ruling on the
+> spec-back's options: **(a)**, as `spec-sl-backoff-coupling.md` — which is what will make the
+> backoff (and the ~5 s scenario) reachable for the first time, with N1 already immunising the
+> emergency path against it.
+
 ## Remaining before "done"
 
 Owner runtime acceptance per spec §2/§3 with D1 semantics (re-arm provable at ANY of the three
