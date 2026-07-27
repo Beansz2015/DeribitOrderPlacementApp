@@ -151,8 +151,23 @@ Live-only and log-only runs un-started by design.
   This bit us this session: the first launch ran a **07-23 pre-Q1 build** and the startup ping
   silently never fired — caught by **reading the log** (`Remote notifier: configured` was absent),
   not by assuming. Always confirm the running build (dll mtime vs the commit, or the `configured`
-  line). `secrets.json` survives the rebuild (`CopyToOutputDirectory=PreserveNewest`, the bin copy
-  is newer) — but back it up first anyway (`Copy-Item …\secrets.json $env:TEMP\…`).
+  line).
+- **🚨 THE x64 REBUILD CLOBBERS `secrets.json` WITH THE PROJECT SOURCE'S — WHICH IS `live`.**
+  **The earlier claim here ("secrets.json survives the rebuild, the bin copy is newer") is FALSE and
+  was corrected 2026-07-27 the hard way:** a rebuild replaced the bin's **testnet** `secrets.json`
+  with `DeribitOrderPlacementApp\secrets.json` (`Environment: live`, no `ntfy_url`), the app was
+  relaunched, and it came up **`— LIVE`** and authenticated against the live account before the title
+  was read. Caught within ~30 s, stopped, config restored; no order was placed and the bridge was
+  never armed (Mode/ARM/Started reset to Off at every start). `PreserveNewest` does **not** save you:
+  the copy is skipped only when size **and** timestamp match, so any differing bin copy is
+  overwritten regardless of which is newer — and restoring a backup with `Copy-Item` carries the
+  *backup's* old timestamp, which makes a clobber more likely, not less.
+  **Standing rule, no exceptions: after ANY rebuild of the x64 bin, (1) re-check
+  `bin\x64\…\secrets.json` reads `Environment: testnet`, and (2) read the WINDOW TITLE and confirm
+  `— TESTNET` before clicking Connect or anything else.** Keep a backup outside the bin, and after
+  restoring it, stamp the mtime to now (`(Get-Item …).LastWriteTime = Get-Date`). The harness's own
+  safety tier keys on the TESTNET title for exactly this reason — trust the title, not the memory of
+  what the config used to say.
 - **launch-app.ps1 targets the AnyCPU bin (`bin\Debug`), NOT x64**, and refuses if any app window
   exists. The AnyCPU bin's `secrets.json` environment is UNKNOWN (could be **live**) — do **NOT**
   blindly run launch-app.ps1. Launch the **x64 exe directly** (see §8), after confirming no instance.
