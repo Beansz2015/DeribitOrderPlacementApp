@@ -6,6 +6,10 @@ FIRST, so the owner's own confirming run is a short re-check rather than a disco
 **Verdict: the N1 acceptance items that are reachable all PASS.** One unexplained non-N1 anomaly is
 recorded in §5 — it did not reproduce.
 
+> **OWNER CONFIRMING RUN 2026-07-28 — PASSED on the real runtime bin (x64 Debug), trades #96–#98.
+> Spec §Acceptance 2 and 3 are CLOSED.** Full result in §7. Restore of `orderapp-settings.json`
+> verified by the owner. The §5 anomaly did NOT reproduce across three further placements.
+
 **Environment (verified before any order was placed, not assumed):**
 
 | Check | Result |
@@ -125,3 +129,36 @@ Recommend this gets its own look, independent of N1; it should not gate N1's acc
 - **The two placement-seed clears** (D1's addition) are not runtime-reachable — they only matter when
   an emergency never reaches `CompletePositionClose`. Test C proves the `CompletePositionClose` clear,
   which is the one that fires in normal operation. The other two remain inspection-only, as ruled.
+
+---
+
+## 7. Owner confirming run — 2026-07-28, real runtime bin (x64 Debug) — PASSED
+
+Same three tests, driven by the owner with a mouse on their own bin (not the harness), same geometry
+(Trig 5 / S.Loss 1 / M.SL 1, then M.SL 200 for parity). **Spec §Acceptance 2 and 3 are now CLOSED.**
+
+| Trade | Test | Entry | Anchor (= entry−6) | Cap | Outcome |
+|---|---|---|---|---|---|
+| #96 | cap fires, exactly once | 64989.5 | 64983.5 ✓ | 64982.5 | one emergency, one reduce of 10, closed 64976.84 |
+| #97 | **re-arm** | 64977 | 64971 ✓ | 64970 | fired again after #96 set the latch; closed 64967.13 |
+| #98 | **parity**, M.SL 200 | 64956 | 64946.50 (latched at 1st reposition) | 64746.50 (unreachable) | **10 clean repositions → maker fill 64921, ZERO emergency lines** |
+
+**Two readings worth recording so the log is not misinterpreted later:**
+
+1. **Fill price ≠ trigger price.** #96 closed 6.66 below the anchor, not 1. The cap *triggers* at
+   anchor − M.SL; `CancelOrderAsync` and the market reduce are then two WS round-trips, and in a
+   fast fall price keeps moving through them. The taker fill is where the close executed, not where
+   the emergency fired. Nothing here indicates a late cap.
+2. **#96 and #97 fired with NO preceding `SL repositioned` line**, i.e. `emergencyBaselineSettled`
+   was still False and the cap measured from the **pre-settle flip price**. That is precisely the
+   adversarial case the 2026-07-13 re-check called out as conservative-and-bounded but unexercised
+   ("pre-settle emergency measures from the flip price for ≤1 reposition"). It is now runtime-proven.
+
+**Anomaly status (§5):** did **not** reproduce. One `Market buy order placed` line per click across
+all three trades. Tally is now **5 clean placements vs 1 anomalous** (the single bad one was a
+harness UIA `Invoke`; all three real mouse clicks were clean). That mildly shifts suspicion toward
+the harness/UIA path over the app's handler — evidence, not proof; the item stays open.
+
+**Housekeeping produced by this run:** trades **#96–#98 are testnet rows in the LIVE journal**
+(the owner's bin, unlike §4's harness DB) — deletable via View Trades right-click, together with the
+older #90–#93. Owner confirmed the `orderapp-settings.json` restore (Trig. P. reads 50 again).
