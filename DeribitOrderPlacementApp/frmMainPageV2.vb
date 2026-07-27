@@ -153,6 +153,21 @@ Public Class frmMainPageV2
     ' actual top-of-book SL (then True = frozen). A manual edit / restore seed sets it True directly.
     Private emergencyBaselineSettled As Boolean = False
 
+    ' N1 emergency hoist (docs/spec-emergency-hoist.md): single-fire latch for the M.SL emergency
+    ' market-stop. The threshold CHECK now runs on every qualifying quote tick (outside the
+    ' MinStopLossUpdateInterval / BackoffStopLossRetry throttle), so without a latch consecutive ticks
+    ' could dispatch a second market reduce before the flat echo lands. Set immediately BEFORE the
+    ' dispatch at both fire branches of UpdateStopLossForTriggeredStopLossOrder (set-then-send: the set
+    ' is synchronous, ahead of the first Await, so a re-entrant tick during the await sees it), and
+    ' cleared at exactly three sites - CompletePositionClose and the two "fresh order re-establishes a
+    ' clean context" placement seeds (beside their cancelPending reset). Deliberately NOT cleared in
+    ' the SL-edit paths and NOT in the cancel teardowns: a mid-cancel latch must survive the cancel
+    ' window. This is NOT an 8th SL-context reset site - it zeroes no price, no commanded set, no
+    ' baseline. Quote-thread owned (the fire path and the hoisted check are both on it); the placement
+    ' clears are UI-thread Boolean writes, atomic and benign, same class as the baseline-zeroing
+    ' placement writes beside them.
+    Private emergencyFired As Boolean = False
+
     ' Commanded-SL-price set - triggered-SL reconciliation (docs/spec-reconcile-manual-sl-edits.md, 4a + P1).
     ' Post-trigger the app is the single writer of placedStopLossPrice, but a MANUAL SL edit on the exchange
     ' arrives as the SAME open StopLossOrder echo as a lagging echo of the app's OWN chase reposition. We tell
@@ -2121,53 +2136,71 @@ Public Class frmMainPageV2
                 If IsWebSocketConnected AndAlso (Not IsCancelPending()) AndAlso SLTriggered AndAlso PositionSLOrderId IsNot Nothing Then
                     Dim currentTime As DateTime = DateTime.UtcNow
 
+                    ' Cross-thread fix: read the engine field, not txtPlacedStopLossPrice. placedStopLossPrice
+                    ' is set at placement, from the exchange, and after each SL reposition below.
+                    ' N1 hoist: read here (above the throttle) so the emergency check below and the chase
+                    ' machinery further down share the one read of the chase reference.
+                    Dim currentStopPrice As Decimal = placedStopLossPrice
+
+                    ' Emergency condition: Check if price moved beyond emergency threshold (marketStopThreshold
+                    ' mirrors txtMarketStopLoss). Blank OR 0 disables the emergency path; normal SL trailing below
+                    ' still runs (deviation from the old TryParse, which treated "0" as an always-on threshold).
+                    Dim emergencyThreshold As Decimal = marketStopThreshold
+                    Dim emergencyThresholdValid As Boolean = marketStopThreshold > 0D
+                    ' Restore hardening: an unknown baseline (0, e.g. after a restart before the
+                    ' order-context snapshot lands) disables the emergency market-stop - otherwise
+                    ' priceMovement below is measured from 0 and a short fires an INSTANT close
+                    ' (bestBid - 0 >= threshold). Same philosophy as threshold-0-disables; normal
+                    ' SL trailing further down is unaffected.
+                    ' M.SL emergency baseline: the ACTUAL SL price once triggered (emergencyBaseline,
+                    ' pinned at the trigger moment), else the trigger price (StopLossTriggerOriginal,
+                    ' kept in sync with exchange-side moves). 0 => unknown => guard disables the stop.
+                    Dim emgBaseline As Decimal = If(emergencyBaseline > 0D, emergencyBaseline, StopLossTriggerOriginal)
+                    Dim baselineKnown As Boolean = emgBaseline > 0D
+                    Dim priceMovement As Decimal = 0D
+
+                    If currentStopPrice > 0 Then
+                        If TradeMode Then
+                            priceMovement = emgBaseline - bestAsk
+                        Else
+                            priceMovement = bestBid - emgBaseline
+                        End If
+
+                        ' Call ForceStopLossUpdate if emergency conditions are met
+                        ' N1 emergency hoist (docs/spec-emergency-hoist.md): this THRESHOLD CHECK used to sit
+                        ' inside the MinStopLossUpdateInterval gate below, so a persistently failing SL edit
+                        ' (BackoffStopLossRetry pushing lastStopLossUpdate forward) delayed emergency detection
+                        ' by up to SLUpdateMaxBackoffMs (5 s) - the housekeeping item-16 trade-off. It now runs
+                        ' on EVERY qualifying tick; the SL-edit machinery below stays throttled exactly as before.
+                        ' Hoisting changes WHEN we look, not WHAT we respect: every gate is carried over verbatim
+                        ' - the block's IsWebSocketConnected / Not IsCancelPending() / SLTriggered /
+                        ' PositionSLOrderId gate (the 2026-07-08 owner ruling deliberately leaves the emergency
+                        ' gated during the <= 4 s cancel window), currentStopPrice > 0, the M.SL checkbox +
+                        ' threshold mirrors, the FROZEN emergencyBaseline anchor, and the comparison direction.
+                        ' emergencyFired is the new single-fire latch (set at the dispatch inside
+                        ' UpdateStopLossForTriggeredStopLossOrder): without the throttle, consecutive ticks could
+                        ' otherwise double-fire the market reduce before the flat echo lands. It also stops a
+                        ' post-fire tick from re-entering ForceStopLossUpdate and editing the SL to the own-side
+                        ' touch every tick while the close settles.
+                        If emergencyThresholdValid AndAlso baselineKnown AndAlso priceMovement >= emergencyThreshold Then
+                            If marketStopLossChecked AndAlso Not emergencyFired Then
+                                Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
+                                Return ' Exit early after emergency update
+                            End If
+                        End If
+                    End If
+
                     ' Rate limiting: Only update if minimum time has passed.
                     ' Trade-off (spec item 16): a persistently failing SL edit pushes lastStopLossUpdate
-                    ' forward via BackoffStopLossRetry, delaying emergency market-stop detection by up to
-                    ' SLUpdateMaxBackoffMs (5 s). Accepted trade-off vs. the edit-storm fix. The emergency
-                    ' threshold check sits inside this gate, so it shares the same 5 s worst-case delay;
-                    ' however, the emergency comparison is measured from the FROZEN emergencyBaseline anchor
-                    ' (set at the moment the SL first triggers), not from the reposition attempt time, so
-                    ' brief throttle delays do not shrink the actual emergency window.
+                    ' forward via BackoffStopLossRetry, delaying the SL-EDIT machinery by up to
+                    ' SLUpdateMaxBackoffMs (5 s). Accepted trade-off vs. the edit-storm fix. N1 hoist
+                    ' (2026-07-27): the emergency threshold check no longer sits inside this gate, so it no
+                    ' longer shares that 5 s worst-case delay - it is evaluated above, every tick. The
+                    ' emergency comparison is measured from the FROZEN emergencyBaseline anchor (set at the
+                    ' moment the SL first triggers), not from the reposition attempt time.
                     If (currentTime - lastStopLossUpdate).TotalMilliseconds >= MinStopLossUpdateInterval Then
 
-                        ' Cross-thread fix: read the engine field, not txtPlacedStopLossPrice. placedStopLossPrice
-                        ' is set at placement, from the exchange, and after each SL reposition below.
-                        Dim currentStopPrice As Decimal = placedStopLossPrice
                         If currentStopPrice > 0 Then
-
-                            ' Emergency condition: Check if price moved beyond emergency threshold (marketStopThreshold
-                            ' mirrors txtMarketStopLoss). Blank OR 0 disables the emergency path; normal SL trailing below
-                            ' still runs (deviation from the old TryParse, which treated "0" as an always-on threshold).
-                            Dim emergencyThreshold As Decimal = marketStopThreshold
-                            Dim emergencyThresholdValid As Boolean = marketStopThreshold > 0D
-                            ' Restore hardening: an unknown baseline (0, e.g. after a restart before the
-                            ' order-context snapshot lands) disables the emergency market-stop - otherwise
-                            ' priceMovement below is measured from 0 and a short fires an INSTANT close
-                            ' (bestBid - 0 >= threshold). Same philosophy as threshold-0-disables; normal
-                            ' SL trailing further down is unaffected.
-                            ' M.SL emergency baseline: the ACTUAL SL price once triggered (emergencyBaseline,
-                            ' pinned at the trigger moment), else the trigger price (StopLossTriggerOriginal,
-                            ' kept in sync with exchange-side moves). 0 => unknown => guard disables the stop.
-                            Dim emgBaseline As Decimal = If(emergencyBaseline > 0D, emergencyBaseline, StopLossTriggerOriginal)
-                            Dim baselineKnown As Boolean = emgBaseline > 0D
-                            Dim priceMovement As Decimal = 0D
-
-                            If TradeMode Then
-                                priceMovement = emgBaseline - bestAsk
-                            Else
-                                priceMovement = bestBid - emgBaseline
-                            End If
-
-                            ' Call ForceStopLossUpdate if emergency conditions are met
-
-
-                            If emergencyThresholdValid AndAlso baselineKnown AndAlso priceMovement >= emergencyThreshold Then
-                                If marketStopLossChecked Then
-                                    Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
-                                    Return ' Exit early after emergency update
-                                End If
-                            End If
 
                             'Normal conditions operation
                             ' SL-chase v2 (docs/spec-sl-chase-v2.md §2): chase the triggered SL to the most
@@ -3602,6 +3635,7 @@ Public Class frmMainPageV2
             placedPrice = BestPrice               ' seed engine state at placement (cross-thread fix)
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
+            emergencyFired = False                ' N1: a fresh order re-establishes a clean emergency context too
 
             ' Entry-chase v2 §4: the legs' geometry is anchored to this placement price. Bound the
             ' geometry error so a chased entry can never overrun its own TP:
@@ -4102,7 +4136,12 @@ Public Class frmMainPageV2
             ' or the short branch below fires instantly (newPrice - 0 >= threshold). emgBaseline = the actual
             ' SL price once triggered (emergencyBaseline), else the trigger price (StopLossTriggerOriginal).
             Dim emgBaseline As Decimal = If(emergencyBaseline > 0D, emergencyBaseline, StopLossTriggerOriginal)
-            If marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = True) AndAlso (emgBaseline - newPrice >= marketStopThreshold) Then
+            If marketStopLossChecked AndAlso Not emergencyFired AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = True) AndAlso (emgBaseline - newPrice >= marketStopThreshold) Then
+                ' N1 single-fire latch: SET-THEN-SEND. This assignment and the branch test are synchronous
+                ' (the first Await is the CancelOrderAsync below), so a re-entrant quote tick arriving during
+                ' the await already sees the latch and cannot dispatch a second market reduce. Cleared only at
+                ' CompletePositionClose and the two fresh-order placement seeds.
+                emergencyFired = True
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
@@ -4110,7 +4149,9 @@ Public Class frmMainPageV2
                 Alert("emergency_stop") ' item D
                 RemoteNotifier.Post("OrderApp", "Emergency Sell Market Order Executed.", priority:="urgent") ' Q1
                 Return ' Exit early after emergency execution
-            ElseIf marketStopLossChecked AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = False) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
+            ElseIf marketStopLossChecked AndAlso Not emergencyFired AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = False) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
+                ' N1 single-fire latch: SET-THEN-SEND (see the long branch above).
+                emergencyFired = True
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
                 Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
@@ -4491,6 +4532,7 @@ Public Class frmMainPageV2
             placedPrice = BestPrice               ' seed engine state at placement (cross-thread fix)
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
+            emergencyFired = False                ' N1: a fresh order re-establishes a clean emergency context too
 
             ' Entry-chase v2 §4: anchor the SL leg's geometry to this placement price. Same spec
             ' formula as the OTOCO placement; this bracket has no TP leg, so the takeProfitOffset
@@ -4893,6 +4935,7 @@ Public Class frmMainPageV2
         StopLossTriggerOriginal = 0
         emergencyBaseline = 0
         emergencyBaselineSettled = False   ' hybrid fix: clear the loss-cap latch with the triggered-SL context
+        emergencyFired = False             ' N1: the trade is over - a new position gets its own single emergency
         ResetCommandedSLPrices() ' reconcile: position closed - triggered-SL context is gone
         legAnchorPrice = 0D          ' entry-chase v2: order context is gone (CancelOrderAsync below also clears it)
         pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
