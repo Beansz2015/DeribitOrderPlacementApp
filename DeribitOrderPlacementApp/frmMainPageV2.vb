@@ -2063,8 +2063,12 @@ Public Class frmMainPageV2
                                 If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
                                     'Stop if repositioned past ATR slippage threshold (guard input stays the
                                     'raw own-side quote - it measures market drift, not our limit price)
-                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestBid, "LONG") Then
-                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                    ' EV chase budget §2: the ATR cap and the EV floor are the two arms of one
+                                    ' abort decision now - ChaseAbortReason names whichever binds first (Nothing
+                                    ' = keep chasing). Same arm switch, same guard input, ATR evaluated first.
+                                    Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestBid, "LONG"), Nothing)
+                                    If abortReason IsNot Nothing Then
+                                        Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
                                         ' Entry-chase v2 §4 (EntryOnlyChase, owner-ruled default ON): within the
@@ -2114,8 +2118,10 @@ Public Class frmMainPageV2
                             If placedPriceValid AndAlso bestAsk IsNot Nothing AndAlso chaseTarget < placedPrice _
                                AndAlso (DateTime.UtcNow - lastEntryChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
                                 If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
-                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestAsk, "SHORT") Then
-                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                    ' EV chase budget §2: ATR cap OR EV floor, whichever binds first.
+                                    Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestAsk, "SHORT"), Nothing)
+                                    If abortReason IsNot Nothing Then
+                                        Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
                                         ' Entry-chase v2 §4: entry-only within the drift bound, full bracket beyond.
@@ -2383,8 +2389,10 @@ Public Class frmMainPageV2
                                     ' Owner ruling 2026-07-24 (audit F18 flag closed, spec-breaker-persist-atr7-item8.md
                                     ' R2): own-side convention like the other three reposition gates - LONG measures
                                     ' drift on the BID (was bestAsk, copy/paste drift; guard now trips ~1 tick later).
-                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestBid, "LONG") Then
-                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                    ' EV chase budget §2: ATR cap OR EV floor, whichever binds first.
+                                    Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestBid, "LONG"), Nothing)
+                                    If abortReason IsNot Nothing Then
+                                        Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
                                         ' Entry-chase v2 §4: entry-only within the drift bound; the full 2-edit
@@ -2420,8 +2428,10 @@ Public Class frmMainPageV2
                             If placedPriceValid AndAlso bestAsk IsNot Nothing AndAlso chaseTarget < placedPrice _
                                AndAlso (DateTime.UtcNow - lastEntryChaseUtc).TotalMilliseconds >= EntryChaseMinIntervalMs Then
                                 If rateLimiter IsNot Nothing AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.HasHeadroom(4) Then
-                                    If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(bestAsk, "SHORT") Then
-                                        Await CancelWorkingEntryCoreAsync("ATR slippage")
+                                    ' EV chase budget §2: ATR cap OR EV floor, whichever binds first.
+                                    Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestAsk, "SHORT"), Nothing)
+                                    If abortReason IsNot Nothing Then
+                                        Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
                                         ' Entry-chase v2 §4: entry-only within the drift bound, full 2-edit path beyond.
@@ -3349,6 +3359,30 @@ Public Class frmMainPageV2
         orderCreationTime = DateTime.MinValue
         originalSignalPrice = 0
     End Sub
+
+    ' EV chase budget §3 (D1, ruled): the target the budget measures the remaining move against is
+    ' the TP IN FORCE - manualTPval, which a bridge act always sets (it carries the engine target)
+    ' and a manual trade sets when a TP is typed. 0 = no target in force, which makes the predicate
+    ' return False: an OFFSET-flow trade keeps the ATR cap alone, exactly as today, because its
+    ' target is derived from the chase anchor and an EV check against it would be self-referential.
+    Private Function ChaseEvTargetInForce() As Decimal
+        Return If(manualTPval > 0D, manualTPval, 0D)
+    End Function
+
+    ' EV chase budget §2: the chase-abort reason for the four own-side reposition gates, or Nothing
+    ' to carry on chasing. Order is load-bearing - the ATR cap is evaluated FIRST and untouched, so
+    ' it keeps owning the originalSignalPrice seeding and the ResetOrderAttempt side effect and an
+    ' ATR trip still reads "ATR slippage" byte-identically. The EV floor is the second, opt-in arm
+    ' and its trip reads "EV floor" (the cancel REASON is the counterfactual instrument - it is
+    ' deliberately NOT a second disposition row; the file is one row per payload, written at
+    ' consumption). Both arms stay under the caller's maxSlippageATRchecked switch: housekeeping 8b
+    ' made that checkbox the single arm for chase-abort guards and this keeps it that way.
+    ' Receive-thread safe: plain fields + the pure predicate, no control reads.
+    Private Function ChaseAbortReason(ownSideQuote As Decimal, direction As String) As String
+        If IsATRSlippageExcessive(ownSideQuote, direction) Then Return "ATR slippage"
+        If IsChaseEvExhausted(ChaseEvTargetInForce(), ownSideQuote, RoundTripFeePct, minNetMovePctVal) Then Return "EV floor"
+        Return Nothing
+    End Function
 
 
     'All order execution code below
