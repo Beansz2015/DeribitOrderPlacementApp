@@ -6171,24 +6171,14 @@ Public Class frmMainPageV2
             }
                 dataGrid.Columns.Add(resultColumn)
 
-                ' Bind data and color code rows
+                ' Bind data. The row styling CANNOT run here: dataGrid is still unparented at this
+                ' point (it is added to viewForm further down), an unparented control has no
+                ' BindingContext, and DataGridView DEFERS the bind until it gets one. So Rows is
+                ' empty right after this assignment and a styling loop here silently does nothing -
+                ' that was the "no colours AND a blank Result column until you delete a row" bug
+                ' (the delete path rebinds an already-shown grid, which is why only it looked right).
+                ' ApplyTradeRowStyling is called after viewForm.Show() below instead.
                 dataGrid.DataSource = trades
-
-                For Each row As DataGridViewRow In dataGrid.Rows
-                    If row.DataBoundItem IsNot Nothing Then
-                        Dim trade = CType(row.DataBoundItem, TradeRecord)
-
-                        If trade.IsProfit Then
-                            row.Cells("ResultColumn").Value = "WIN"
-                            row.DefaultCellStyle.BackColor = Color.LightGreen
-                            row.DefaultCellStyle.ForeColor = Color.DarkGreen
-                        Else
-                            row.Cells("ResultColumn").Value = "LOSS"
-                            row.DefaultCellStyle.BackColor = Color.LightCoral
-                            row.DefaultCellStyle.ForeColor = Color.DarkRed
-                        End If
-                    End If
-                Next
 
                 ' Add context menu for deletion
                 Dim contextMenu As New ContextMenuStrip
@@ -6246,6 +6236,10 @@ Public Class frmMainPageV2
                 viewForm.Controls.Add(dataGrid)
                 viewForm.Controls.Add(summaryPanel)
                 viewForm.Show()
+
+                ' Now the grid is parented and shown, the deferred bind has completed and Rows is
+                ' populated - style it here (see the note at the DataSource assignment above).
+                ApplyTradeRowStyling(dataGrid)
 
                 AppendColoredText(txtLogs, $"Displaying {totalTrades} trades - Right-click to delete", Color.LimeGreen)
 
@@ -6323,29 +6317,40 @@ Public Class frmMainPageV2
             ' Get updated trade list
             Dim updatedTrades = tradeDatabase.GetAllTrades()
 
-            ' Update the data source
+            ' Update the data source. This grid is already shown, so the bind completes synchronously
+            ' and Rows is populated by the time the styling runs.
             dataGrid.DataSource = updatedTrades
 
             ' Reapply color coding
-            For Each row As DataGridViewRow In dataGrid.Rows
-                If row.DataBoundItem IsNot Nothing Then
-                    Dim trade = CType(row.DataBoundItem, TradeRecord)
-
-                    If trade.IsProfit Then
-                        row.Cells("ResultColumn").Value = "WIN"
-                        row.DefaultCellStyle.BackColor = Color.LightGreen
-                        row.DefaultCellStyle.ForeColor = Color.DarkGreen
-                    Else
-                        row.Cells("ResultColumn").Value = "LOSS"
-                        row.DefaultCellStyle.BackColor = Color.LightCoral
-                        row.DefaultCellStyle.ForeColor = Color.DarkRed
-                    End If
-                End If
-            Next
+            ApplyTradeRowStyling(dataGrid)
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error refreshing trade grid: {ex.Message}", Color.Red)
         End Try
+    End Sub
+
+    ' The View Trades grid's row presentation: the unbound Result column's WIN/LOSS text plus the
+    ' win/loss row colours. Single implementation shared by the initial open and the post-delete
+    ' refresh - the two used to carry byte-identical copies of this loop, and only the refresh copy
+    ' ever ran (see the bind-site note in the ViewTrades handler). Safe to call repeatedly.
+    Private Sub ApplyTradeRowStyling(dataGrid As DataGridView)
+        If dataGrid Is Nothing Then Return
+
+        For Each row As DataGridViewRow In dataGrid.Rows
+            If row.DataBoundItem IsNot Nothing Then
+                Dim trade = CType(row.DataBoundItem, TradeRecord)
+
+                If trade.IsProfit Then
+                    row.Cells("ResultColumn").Value = "WIN"
+                    row.DefaultCellStyle.BackColor = Color.LightGreen
+                    row.DefaultCellStyle.ForeColor = Color.DarkGreen
+                Else
+                    row.Cells("ResultColumn").Value = "LOSS"
+                    row.DefaultCellStyle.BackColor = Color.LightCoral
+                    row.DefaultCellStyle.ForeColor = Color.DarkRed
+                End If
+            End If
+        Next
     End Sub
 
 
