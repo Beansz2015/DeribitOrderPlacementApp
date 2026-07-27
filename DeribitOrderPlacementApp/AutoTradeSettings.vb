@@ -134,11 +134,16 @@ Public Class AutoTradeSettings
         SeedSessionPolicyFromHost()
         ' R1 breaker persistence: the trap's FOURTH application - seed before the first commit.
         SeedCircuitBreakerFromHost()
+        ' EV chase budget §4: the trap AGAIN (the spec calls this the sixth application; N2's is
+        ' still queued, so in the code today it is the fifth). Without this seed the first commit
+        ' below would write the Designer's "0" over a persisted, ENABLED EV floor - i.e. silently
+        ' disable the guard the owner turned on. Same position, same reason as the four above.
+        SeedMinNetMoveFromHost()
         CommitGateConfig()
         CommitToolingConfig()
         For Each tb As TextBox In {txtCooloff, txtCircuitBreaker, txtStartTime, txtEndTime,
                                    txtBridgeTiers, txtAtrLength, txtAtrFallback,
-                                   txtRiskPerTrade, txtMaxSize}
+                                   txtRiskPerTrade, txtMaxSize, txtMinNetMove}
             AddHandler tb.Enter, AddressOf SelectAllOnEnter
             AddHandler tb.Click, AddressOf SelectAllOnEnter
             AddHandler tb.Leave, AddressOf CommitOnLeave
@@ -300,6 +305,15 @@ Public Class AutoTradeSettings
         chkSessionPolicyOn.Checked = cfg.Enabled
     End Sub
 
+    ' EV chase budget §4: one-time seed of the Min Net Move box from the host's loaded settings.
+    ' MUST run before the first CommitToolingConfig (see InitialiseSettings). x100 because the host
+    ' holds the FRACTION and the box speaks PERCENT; invariant culture so the rendered text is the
+    ' same string the invariant parse on commit reads back.
+    Private Sub SeedMinNetMoveFromHost()
+        If _host Is Nothing Then Return
+        txtMinNetMove.Text = (_host.MinNetMovePct * 100D).ToString(Globalization.CultureInfo.InvariantCulture)
+    End Sub
+
     ' §2: one-time seed of the risk-sizing boxes from the host's loaded settings. MUST run before
     ' the first CommitToolingConfig (see InitialiseSettings) so the file's values win over the
     ' Designer defaults.
@@ -324,6 +338,18 @@ Public Class AutoTradeSettings
         If Not Decimal.TryParse(txtRiskPerTrade.Text, risk) Then risk = 0D
         If Not Decimal.TryParse(txtMaxSize.Text, maxSize) Then maxSize = 0D
         _host.SetRiskSizingValues(risk, maxSize)
+
+        ' EV chase budget §4. Two things are deliberately different from the boxes above:
+        '   * the BREAKER's contract, not SetToolingValues' - 0 is a legitimate, persistable OFF, so
+        '     ANY parsed value is pushed and only a PARSE failure keeps the last good one;
+        '   * an INVARIANT parse. "0.05" read under a comma-decimal culture would treat the dot as a
+        '     group separator and commit FIVE PERCENT - a 100x error on a guard that abandons trades.
+        ' The /100 here is the one and only percent -> fraction conversion in the path.
+        Dim minNetMovePercent As Decimal
+        If Decimal.TryParse(txtMinNetMove.Text, Globalization.NumberStyles.Number,
+                            Globalization.CultureInfo.InvariantCulture, minNetMovePercent) Then
+            _host.SetMinNetMovePct(minNetMovePercent / 100D)
+        End If
     End Sub
 
     ' Surfaces the cases where what is typed is not what is in force.
@@ -343,6 +369,11 @@ Public Class AutoTradeSettings
         If Not Decimal.TryParse(txtAtrFallback.Text, d) OrElse d <= 0D Then problems.Add($"ATR fallback '{txtAtrFallback.Text}'")
         If Not Decimal.TryParse(txtRiskPerTrade.Text, d) OrElse d <= 0D Then problems.Add($"risk/trade '{txtRiskPerTrade.Text}'")
         If Not Decimal.TryParse(txtMaxSize.Text, d) OrElse d <= 0D Then problems.Add($"max size '{txtMaxSize.Text}'")
+        ' EV chase budget §4: a PARSE failure only - 0 and negatives are valid ways to spell OFF.
+        ' Checked invariantly, matching the commit above (a box that commits must not warn, and a
+        ' box that warns must not commit).
+        If Not Decimal.TryParse(txtMinNetMove.Text, Globalization.NumberStyles.Number,
+                                Globalization.CultureInfo.InvariantCulture, d) Then problems.Add($"min net move '{txtMinNetMove.Text}'")
         If _sessionPolicyProblem IsNot Nothing Then problems.Add($"session policy '{_sessionPolicyProblem}'")
 
         ' Record the warning (Nothing = none) and hand the label to its single writer, which decides

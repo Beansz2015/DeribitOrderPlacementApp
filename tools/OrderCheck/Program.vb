@@ -481,6 +481,70 @@ Module Program
         Check("EV floor SHORT: exact equality does NOT bind",
               Not frmMainPageV2.IsChaseEvExhausted(59952D, 60000D, rt, 0.0005D))
 
+        ' ---- Persistence round-trip for the EV keys (§6 acceptance 4) ----
+        ' The REAL AppUserSettings.Save -> Load, through a real file. Save/Load resolve a fixed path
+        ' beside the running exe, which for OrderCheck is its own bin - not the app's - so this
+        ' cannot reach the owner's settings. Belt and braces anyway: if a file IS sitting there, its
+        ' bytes are preserved (and mirrored to a .bak for the duration) and restored at the end.
+        Dim evPath As String = AppUserSettings.SavePath
+        Dim evBackup As String = If(File.Exists(evPath), File.ReadAllText(evPath), Nothing)
+        If evBackup IsNot Nothing Then File.WriteAllText(evPath & ".ordercheck-bak", evBackup)
+        Try
+            Dim toSave As New AppUserSettings() With {
+                .MinNetMovePct = 0.0005D, .MakerFeeBps = 1.5D, .TakerFeeBps = 3.5D}
+            Dim saveErr As String = toSave.Save()
+            Dim loadMsg As String = Nothing
+            Dim reloaded As AppUserSettings = AppUserSettings.Load(loadMsg)
+            Check("EV persistence: min_net_move_pct round-trips as the FRACTION 0.0005",
+                  saveErr Is Nothing AndAlso reloaded.MinNetMovePct = 0.0005D,
+                  $"saveErr='{saveErr}' got {reloaded.MinNetMovePct}")
+            Check("EV persistence: the fee block round-trips (1.5 / 3.5 bps)",
+                  reloaded.MakerFeeBps = 1.5D AndAlso reloaded.TakerFeeBps = 3.5D,
+                  $"got {reloaded.MakerFeeBps}/{reloaded.TakerFeeBps}")
+            Check("EV persistence: the round trip derived from the RELOADED maker key is 0.0003",
+                  frmMainPageV2.RoundTripFeePctFromMakerBps(reloaded.MakerFeeBps) = 0.0003D)
+
+            ' "Hand-editable" is the acceptance wording: the three keys must be plain, findable,
+            ' top-level numbers in the file - not nested, not renamed by the writer.
+            Dim raw As String = File.ReadAllText(evPath)
+            Check("EV persistence: all three keys are present in the written file",
+                  raw.Contains("""min_net_move_pct""") AndAlso raw.Contains("""maker_fee_bps""") AndAlso
+                  raw.Contains("""taker_fee_bps"""))
+
+            ' A hand-edit is read back verbatim (5 bps typed straight into the file), and the fee
+            ' schedule is genuinely a one-number change.
+            File.WriteAllText(evPath,
+                "{ ""min_net_move_pct"": 0.0005, ""maker_fee_bps"": 2.0, ""taker_fee_bps"": 4.0 }")
+            Dim handEdited As AppUserSettings = AppUserSettings.Load(loadMsg)
+            Check("EV persistence: a hand-edited fee schedule is read back and re-derives (2.0 bps -> 0.0004)",
+                  handEdited.MinNetMovePct = 0.0005D AndAlso handEdited.TakerFeeBps = 4D AndAlso
+                  frmMainPageV2.RoundTripFeePctFromMakerBps(handEdited.MakerFeeBps) = 0.0004D)
+
+            ' The ship-safe path: a file with none of the EV keys = OFF + the shipped schedule.
+            File.WriteAllText(evPath, "{ ""amount"": 10 }")
+            Dim bare As AppUserSettings = AppUserSettings.Load(loadMsg)
+            Check("EV persistence: absent keys = 0 (OFF) + the 1.5/3.5 schedule",
+                  bare.MinNetMovePct = 0D AndAlso bare.MakerFeeBps = 1.5D AndAlso bare.TakerFeeBps = 3.5D,
+                  $"got {bare.MinNetMovePct} / {bare.MakerFeeBps} / {bare.TakerFeeBps}")
+        Catch ex As Exception
+            Check("EV persistence fixture: no throw", False, ex.Message)
+        Finally
+            Try
+                If evBackup Is Nothing Then
+                    File.Delete(evPath)
+                Else
+                    File.WriteAllText(evPath, evBackup)
+                    File.Delete(evPath & ".ordercheck-bak")
+                End If
+            Catch
+            End Try
+        End Try
+        ' Assert the cleanup actually happened rather than assuming it (the harness lesson: verify
+        ' what is in force, do not trust the write).
+        Check("EV persistence: the fixture left the settings path as it found it",
+              If(evBackup Is Nothing, Not File.Exists(evPath),
+                 File.Exists(evPath) AndAlso File.ReadAllText(evPath) = evBackup))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

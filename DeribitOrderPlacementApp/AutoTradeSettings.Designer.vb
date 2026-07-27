@@ -58,6 +58,9 @@ Partial Class AutoTradeSettings
         txtMaxSize = New TextBox()
         lblMaxSizeUnit = New Label()
         btnRiskSize = New Button()
+        lblMinNetMoveCap = New Label()
+        txtMinNetMove = New TextBox()
+        lblMinNetMoveUnit = New Label()
         lblAtrNow = New Label()
         AutoTradingToolTip = New ToolTip(components)
         grpTradeGates.SuspendLayout()
@@ -384,12 +387,16 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(txtMaxSize)
         grpTooling.Controls.Add(lblMaxSizeUnit)
         grpTooling.Controls.Add(btnRiskSize)
+        grpTooling.Controls.Add(lblMinNetMoveCap)
+        grpTooling.Controls.Add(txtMinNetMove)
+        grpTooling.Controls.Add(lblMinNetMoveUnit)
         grpTooling.Controls.Add(lblAtrNow)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
         grpTooling.Location = New Point(18, 556)
         grpTooling.Name = "grpTooling"
-        grpTooling.Size = New Size(482, 270)
+        ' EV chase budget §4: +48 for the Min Net Move row (the form's ClientSize grows to match).
+        grpTooling.Size = New Size(482, 318)
         grpTooling.TabIndex = 4
         grpTooling.TabStop = False
         grpTooling.Text = "Tooling"
@@ -562,6 +569,49 @@ Partial Class AutoTradeSettings
         AutoTradingToolTip.SetToolTip(btnRiskSize, "Risk-based size: risk_per_trade_usd x best price / stop distance" & vbCrLf & "(manual SL if set, else Trig. P.), floored to a 10-USD multiple and" & vbCrLf & "clamped to max_size_usd. Both keys live in orderapp-settings.json.")
         btnRiskSize.UseVisualStyleBackColor = False
         '
+        ' lblMinNetMoveCap
+        '
+        ' EV chase budget (docs/spec-ev-chase-budget.md §4). THE UNIT TRAP, stated once and loudly:
+        ' this box is typed as a PERCENT (0.05 = 5 bps), and CommitToolingConfig divides by 100
+        ' before it reaches the host - everything downstream of that (the min_net_move_pct key, the
+        ' host mirror, the predicate's minNetMovePct argument) is a price FRACTION. The value lives
+        ' in the HOST's userSettings and persists on item A's save path; this box is a commit-on-blur
+        ' mirror seeded from the host BEFORE the first commit (the standing seed-before-commit trap
+        ' - see InitialiseSettings).
+        lblMinNetMoveCap.AutoSize = True
+        lblMinNetMoveCap.Font = New Font("Calibri", 14F)
+        lblMinNetMoveCap.ForeColor = SystemColors.ControlLight
+        lblMinNetMoveCap.Location = New Point(11, 226)
+        lblMinNetMoveCap.Name = "lblMinNetMoveCap"
+        lblMinNetMoveCap.Size = New Size(178, 35)
+        lblMinNetMoveCap.TabIndex = 0
+        lblMinNetMoveCap.Text = "Min Net Move:"
+        AutoTradingToolTip.SetToolTip(lblMinNetMoveCap, "EV chase budget: stop chasing an entry once the move still left to" & vbCrLf & "the take-profit no longer covers round-trip fees PLUS this much" & vbCrLf & "net move. The chase is then abandoned with 'EV floor' instead of" & vbCrLf & "running on to the ATR slippage cap." & vbCrLf & "UNIT: PERCENT of price. 0.05 here = 0.05% = 5 bps." & vbCrLf & "0 (the default) turns it OFF - behaviour is then exactly as before." & vbCrLf & "Only applies while a TP is in force (bridge trades always have one;" & vbCrLf & "manual OFFSET trades keep the ATR cap alone)." & vbCrLf & "Persists as min_net_move_pct (a FRACTION: 0.0005) in" & vbCrLf & "orderapp-settings.json, alongside the maker/taker fee bps keys.")
+        '
+        ' txtMinNetMove
+        '
+        txtMinNetMove.BackColor = Color.Black
+        txtMinNetMove.BorderStyle = BorderStyle.FixedSingle
+        txtMinNetMove.Font = New Font("Calibri", 14F)
+        txtMinNetMove.ForeColor = Color.White
+        txtMinNetMove.Location = New Point(330, 222)
+        txtMinNetMove.Name = "txtMinNetMove"
+        txtMinNetMove.Size = New Size(64, 42)
+        txtMinNetMove.TabIndex = 6
+        txtMinNetMove.Text = "0"
+        txtMinNetMove.TextAlign = HorizontalAlignment.Center
+        '
+        ' lblMinNetMoveUnit
+        '
+        lblMinNetMoveUnit.AutoSize = True
+        lblMinNetMoveUnit.Font = New Font("Calibri", 10F)
+        lblMinNetMoveUnit.ForeColor = SystemColors.ControlLight
+        lblMinNetMoveUnit.Location = New Point(400, 230)
+        lblMinNetMoveUnit.Name = "lblMinNetMoveUnit"
+        lblMinNetMoveUnit.Size = New Size(50, 24)
+        lblMinNetMoveUnit.TabIndex = 0
+        lblMinNetMoveUnit.Text = "%"
+        '
         ' lblAtrNow
         '
         ' Live readout: FrmIndicators is retired, so its ATR display is gone - this is now the only
@@ -569,7 +619,7 @@ Partial Class AutoTradeSettings
         ' actually running. Ticks once a second while this form is open.
         lblAtrNow.Font = New Font("Calibri", 11F, FontStyle.Bold)
         lblAtrNow.ForeColor = SystemColors.ControlLight
-        lblAtrNow.Location = New Point(11, 226)
+        lblAtrNow.Location = New Point(11, 274)
         lblAtrNow.Name = "lblAtrNow"
         lblAtrNow.Size = New Size(460, 30)
         lblAtrNow.TabIndex = 0
@@ -583,7 +633,7 @@ Partial Class AutoTradeSettings
         AutoScaleDimensions = New SizeF(10F, 25F)
         AutoScaleMode = AutoScaleMode.Font
         BackColor = SystemColors.ActiveCaptionText
-        ClientSize = New Size(512, 856)
+        ClientSize = New Size(512, 904)
         Controls.Add(grpTooling)
         Controls.Add(grpSignalBridge)
         Controls.Add(grpTradeGates)
@@ -635,6 +685,9 @@ Partial Class AutoTradeSettings
     Friend WithEvents txtMaxSize As TextBox
     Friend WithEvents lblMaxSizeUnit As Label
     Friend WithEvents btnRiskSize As Button
+    Friend WithEvents lblMinNetMoveCap As Label
+    Friend WithEvents txtMinNetMove As TextBox
+    Friend WithEvents lblMinNetMoveUnit As Label
     Friend WithEvents lblAtrNow As Label
     Friend WithEvents AutoTradingToolTip As ToolTip
 End Class
