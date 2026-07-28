@@ -2241,10 +2241,17 @@ Public Class frmMainPageV2
 
                         ' Call ForceStopLossUpdate if emergency conditions are met
                         ' N1 emergency hoist (docs/spec-emergency-hoist.md): this THRESHOLD CHECK used to sit
-                        ' inside the MinStopLossUpdateInterval gate below, so a persistently failing SL edit
-                        ' (BackoffStopLossRetry pushing lastStopLossUpdate forward) delayed emergency detection
-                        ' by up to SLUpdateMaxBackoffMs (5 s) - the housekeeping item-16 trade-off. It now runs
-                        ' on EVERY qualifying tick; the SL-edit machinery below stays throttled exactly as before.
+                        ' inside the MinStopLossUpdateInterval gate below. CORRECTED FRAMING (2026-07-28,
+                        ' docs/spec-sl-backoff-coupling.md commit 1): the old comment claimed that cost up to
+                        ' SLUpdateMaxBackoffMs (~5 s) of emergency-detection delay via BackoffStopLossRetry.
+                        ' That was FALSE. The backoff has never been reachable - the send site swallows every
+                        ' exception and the awaited edit body is itself fully wrapped - so slUpdateFailures has
+                        ' always been 0 and this gate has always been a flat 333 ms. The REAL pre-hoist exposure
+                        ' was <= one throttle interval (333 ms), plus the latent double-fire race the
+                        ' emergencyFired latch closes. The hoist is still correct, and now load-bearing: N1b
+                        ' (same doc) couples genuine SL-edit failures into the backoff for the FIRST time, and
+                        ' this check is already out from under it. It now runs on EVERY qualifying tick; the
+                        ' SL-edit machinery below stays throttled exactly as before.
                         ' Hoisting changes WHEN we look, not WHAT we respect: every gate is carried over verbatim
                         ' - the block's IsWebSocketConnected / Not IsCancelPending() / SLTriggered /
                         ' PositionSLOrderId gate (the 2026-07-08 owner ruling deliberately leaves the emergency
@@ -2268,13 +2275,16 @@ Public Class frmMainPageV2
                     End If
 
                     ' Rate limiting: Only update if minimum time has passed.
-                    ' Trade-off (spec item 16): a persistently failing SL edit pushes lastStopLossUpdate
-                    ' forward via BackoffStopLossRetry, delaying the SL-EDIT machinery by up to
-                    ' SLUpdateMaxBackoffMs (5 s). Accepted trade-off vs. the edit-storm fix. N1 hoist
-                    ' (2026-07-27): the emergency threshold check no longer sits inside this gate, so it no
-                    ' longer shares that 5 s worst-case delay - it is evaluated above, every tick. The
-                    ' emergency comparison is measured from the FROZEN emergencyBaseline anchor (set at the
-                    ' moment the SL first triggers), not from the reposition attempt time.
+                    ' Spec item 16 trade-off, CORRECTED (2026-07-28, docs/spec-sl-backoff-coupling.md commit 1):
+                    ' the old comment said a persistently failing SL edit pushes lastStopLossUpdate forward and
+                    ' delays the SL-EDIT machinery by up to SLUpdateMaxBackoffMs (5 s). The mechanism is real
+                    ' but has never fired - no failure path reaches BackoffStopLossRetry today (the swallowing
+                    ' send site + the fully wrapped edit body), so slUpdateFailures is always 0 and this is a
+                    ' flat 333 ms gate. N1b makes it reachable for the first time; when it does escalate, only
+                    ' the SL-EDIT machinery below is delayed - the N1 hoist (2026-07-27) moved the emergency
+                    ' threshold check out of this gate, so it never shares the delay and is evaluated above,
+                    ' every tick. The emergency comparison is measured from the FROZEN emergencyBaseline anchor
+                    ' (set at the moment the SL first triggers), not from the reposition attempt time.
                     If (currentTime - lastStopLossUpdate).TotalMilliseconds >= MinStopLossUpdateInterval Then
 
                         If currentStopPrice > 0 Then
