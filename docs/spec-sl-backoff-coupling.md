@@ -27,26 +27,44 @@ the emergency path against it.
 
 ## Commit 2 — the coupling
 
-In `HandleUnhandledJsonRpcError`'s **SL-edit error arm (ids 223344–223350)** — the seam that
-already parses the error and knows the ids — call `BackoffStopLossRetry(DateTime.UtcNow)` for
-**genuine edit failures only**:
+**AMENDED 2026-07-28 (coordinator ruling on `spec-back-sl-backoff-coupling-id-scope.md`: OPTION
+(a)).** The original text said "SL-edit error arm (ids 223344–223350)"; the implementer proved
+that range is the WHOLE order-edit id space (verified independently by the coordinator at the
+senders: 223344 = entry main/pre-fill TP/post-fill TP re-anchor, 223345 = manual TP button,
+223347 = trailing main, 223349 = reduce reposition — none an SL edit). The range was shorthand
+carried from the benign-race arm (where all-edit-ids is CORRECT — any edit can lose the chase
+race), not a deliberate widening; taken literally it breaks acceptance 4 and re-couples non-SL
+failures onto the SL hot path. Therefore:
 
-- **EXCLUDED, load-bearing:** the benign `already_closed` chase-race downgrade (the gray-line
-  class) must NOT count — it is the fill winning a race, not an edit failing. Same for the id-31
-  benign abort race. Only errors that survive to a RED emission on those ids couple in.
+In `HandleUnhandledJsonRpcError`, couple **the SL-edit ids ONLY: `223346` (pre-fill secondary SL
++ manual SL button), `223348` (trailing SL), `223350` (the triggered-SL chase — the one path the
+throttle it feeds actually governs)** — call `BackoffStopLossRetry(DateTime.UtcNow)` on the
+**red emission path** for those ids:
+
+- **Hook placement RATIFIED as the implementer derived it:** hanging the coupling on the red
+  emission automatically excludes the benign `already_closed` chase-race downgrade and the id-31
+  abort race (both `Return` before the red emission) — no extra condition needed.
 - The success-reset (`slUpdateFailures = 0` at the edit-success site) already exists — verify,
   don't duplicate.
-- **Implementer re-verification item:** the spec-back asserts the `:4246` `too_many_requests`
-  arm is also currently unreachable — re-derive that as part of the anchor pass; if it turns out
-  reachable, this coupling simply joins it (no design change), but the impl report must say which.
-- Thread discipline: `HandleUnhandledJsonRpcError` is receive-thread; `BackoffStopLossRetry`
-  writes `slUpdateFailures`/`lastStopLossUpdate` — engine fields, same-thread class as their
-  existing writers. Confirm, don't assume.
+- **Accepted residual (ruled with the amendment):** the counter persists across positions (the
+  only reset is the successful chase edit; the mechanism goes live for the first time with this
+  commit). Benign by construction: a pre-armed counter changes nothing unless the chase is ALSO
+  failing — its first success resets to 0, and only on a failure does the pre-arm shorten the
+  escalation to the 5 s cap, which is exactly when escalation is wanted. No placement-seed reset
+  in this pass; revisit only if runtime shows noise.
+- **Re-verification items: CLOSED by the spec-back** — both existing `BackoffStopLossRetry` call
+  sites confirmed dead (send-site swallow-catches; the wrapped edit body), so this coupling is
+  the backoff's first reachable trigger. Thread discipline confirmed with the spec's wording
+  corrected: the writer set is the receive loop AND its post-await threadpool continuations (the
+  accepted lock-free torn-write class, `emergencyBaseline` precedent) — the new receive-thread
+  writer adds no class not already present; **no new synchronisation**.
 
 ## Acceptance
 
 1. Gate per commit. Greps: `BackoffStopLossRetry` call sites = the existing 2 + exactly 1 new (the
-   error arm); `emergencyFired` census untouched (1+2+3+3); tripwires unchanged.
+   error arm); **the new site's id condition names exactly `223346`, `223348`, `223350`** (2026-07-28
+   amendment); `emergencyFired` census untouched (1+2+3+3 — raw grep 10, incl. the N1-era comment);
+   tripwires unchanged.
 2. **Emergency independence (the point of the ordering):** with a persistent SL-edit failure now
    genuinely driving the backoff to multi-second throttles, the M.SL cap still fires pre-throttle
    — spec-emergency-hoist §Acceptance 2's scenario becomes REACHABLE for the first time; run it
