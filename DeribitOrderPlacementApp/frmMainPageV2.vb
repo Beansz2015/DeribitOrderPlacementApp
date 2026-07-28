@@ -1624,6 +1624,28 @@ Public Class frmMainPageV2
                 $"code {If(errorCode?.ToString(), "?")} - {errorMessage}" &
                 $"{If(errorData IsNot Nothing, " | " & errorData, "")}",
                 Color.Red)
+
+            ' N1b (docs/spec-sl-backoff-coupling.md commit 2; coordinator ruling 2026-07-28, option (a)):
+            ' couple a GENUINE SL-edit failure into the retry backoff. This is the FIRST reachable
+            ' trigger the backoff has ever had - both pre-existing call sites are dead (the send site
+            ' swallows on all three catch arms, and the awaited edit body is itself fully wrapped), so
+            ' the failure counter has been 0 for the life of the app.
+            ' SL ids ONLY: 223346 (pre-fill secondary SL + the manual SL button), 223348 (trailing SL),
+            ' 223350 (the triggered-SL chase - the one path the throttle this feeds actually gates).
+            ' The rest of the edit-id block is deliberately EXCLUDED: entry-main / TP re-anchor, manual
+            ' TP, trailing main and reduce-reposition are not SL edits and must never throttle the SL
+            ' chase - the TP re-anchor in particular fires post-fill, while the chase is live.
+            ' Placement is load-bearing: hanging this on the RED emission is what excludes the benign
+            ' races - the already_closed chase race and the id-31 abort race both Return above, so a
+            ' fill WINNING a race can never be miscounted as an edit failing. (A 10028 also returns
+            ' earlier, to its own owner, so the rate-limit class does not couple here.)
+            ' A success resets the counter at the edit-success site - search "success clears the
+            ' backoff"; do not add a second reset. Receive-thread write to the same lock-free engine
+            ' fields their existing post-await writers already use - no new thread class, no new lock.
+            If messageId.HasValue AndAlso
+               (messageId.Value = 223346 OrElse messageId.Value = 223348 OrElse messageId.Value = 223350) Then
+                BackoffStopLossRetry(DateTime.UtcNow)
+            End If
         Catch
             ' Parse noise / unexpected shapes: ignore, like the other handlers.
         End Try
@@ -2247,8 +2269,8 @@ Public Class frmMainPageV2
                         ' That was FALSE. The backoff has never been reachable - the send site swallows every
                         ' exception and the awaited edit body is itself fully wrapped - so slUpdateFailures has
                         ' always been 0 and this gate has always been a flat 333 ms. The REAL pre-hoist exposure
-                        ' was <= one throttle interval (333 ms), plus the latent double-fire race the
-                        ' emergencyFired latch closes. The hoist is still correct, and now load-bearing: N1b
+                        ' was <= one throttle interval (333 ms), plus the latent double-fire race the N1
+                        ' single-fire latch below closes. The hoist is still correct, and now load-bearing: N1b
                         ' (same doc) couples genuine SL-edit failures into the backoff for the FIRST time, and
                         ' this check is already out from under it. It now runs on EVERY qualifying tick; the
                         ' SL-edit machinery below stays throttled exactly as before.
