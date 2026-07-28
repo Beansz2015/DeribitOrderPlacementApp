@@ -1,0 +1,146 @@
+# Coordinator review — EV-aware chase budget (2026-07-28)
+
+**Verdict: APPROVED. All five open asks RULED — none changes code.** Implementation
+`03bafe8 · 2ffbe1a · fef4371 · e9f5bfc` (+ spec-back `ac860d9`) against
+`spec-ev-chase-budget.md`; review request `spec-back-ev-chase-budget.md`. Ships OFF
+(`min_net_move_pct = 0`); the owner's §6.3 runtime pass remains and can run before or after this
+review's fold-backs land.
+
+## 1. What this reviewer executed and verified (not taken on trust)
+
+- **Gate EXECUTED at HEAD: GATE PASSED, OrderCheck 124/124** — including the 7 D3 persistence
+  fixtures and their final "left the settings path as it found it" assertion.
+- **`git show 2ffbe1a` read in full.** The four gates are the one mechanical substitution the
+  spec-back describes — `Dim abortReason = If(maxSlippageATRchecked, ChaseAbortReason(<own-side>,
+  "<dir>"), Nothing)` — and nothing else inside those blocks moved. The VB ternary `If(...)`
+  short-circuits, so the unchecked-arm behaviour (no guard calls at all) is preserved exactly.
+- **Tripwire censuses re-grepped independently, all at spec-back values:**
+  `ResetCommandedSLPrices()` 8 · `cancelPending = False` 5 · `emergencyBaselineSettled` 10 ·
+  `RecordCommandedSLPrice` 3 · `SendReduceMarketOrderAsync` 5 · `ResetOrderAttempt()` 5 ·
+  `CancelWorkingEntryCoreAsync` 6 · `IsATRSlippageExcessive` 11 → 8 (delta = the 4-site collapse
+  into `ChaseAbortReason`, fully accounted) · reason literals `"ATR slippage"`/`"EV floor"` on
+  exactly one code line each.
+- **`emergencyFired` raw-count note for future greps:** the census is 1 decl + 2 sets + 3 clears +
+  3 reads = **9 code sites**, but a raw grep returns **10** — the 10th is a pre-existing N1-era
+  *comment* at :2253 naming the latch. 10 at `cd567e1`, 10 at HEAD: unchanged by this diff, and the
+  emergency block (:4245–:4260 fire path, all three clears) is untouched.
+- **Knob-0 parity verified structurally** (acceptance 2): ATR is called first with the same
+  argument in the same position (the `Decimal?`→`Decimal` conversion moved from one call's
+  argument to another's — same site, same throw semantics); on ATR-False the predicate's first
+  guard returns False at knob ≤ 0; both literals byte-identical. The two pure argument
+  evaluations (a field read, a multiply) are the only delta — accepted.
+- **Commit 1 and commit 3 diffs read**: spec §1 predicate verbatim; fee round-trip derives as
+  2 × maker (no hardcoded 3.0); absent keys ⇒ 0/1.5/3.5; invariant parse in BOTH the commit and
+  the warning path; seed-before-commit positioned with the other four applications;
+  `SetMinNetMovePct` follows the breaker's contract (any parsed value, parse-failure keeps last
+  good) and the breaker's userSettings arrangement.
+
+## 2. Rulings
+
+### D1 — RATIFIED: the EV check reads the own-side quote
+
+The implementer's algebra was re-derived and holds in **both** directions, not just LONG:
+LONG (target above, bid ≤ chaseTarget): remaining term larger AND fee term smaller AND floor
+term smaller ⇒ binds strictly later. SHORT (target below, ask ≥ chaseTarget): the LHS grows by
+(ask − ct)(1 − fee) while the RHS grows by only floor × (ask − ct) ⇒ binds strictly later.
+So own-side can only ever chase LONGER than the economically-exact `chaseTarget` input — it
+defers to today's ATR-cap behaviour, never aborts a chase the exact input would keep. Magnitude
+≈ spread + tick, under 2% of a 5 bps threshold — inside knob-tuning noise. Against that, the
+own-side choice buys invariant-8 uniformity (all four gates, one guard input) and the mechanical
+diff. **The input is now PINNED own-side** (folded into spec §2); revisiting it is a spec change.
+
+### D2 — RATIFIED: `ChaseAbortReason` replaces the literal `OrElse`
+
+The spec's own §2 demands two distinct cancel reasons, which a bare `OrElse` cannot name. The
+helper preserves every §2 property: ATR evaluated first (keeps owning `originalSignalPrice`
+seeding + the attempt-reset side effect), both arms under the single `maxSlippageATRchecked`
+switch (housekeeping 8b), each literal in exactly one place. The `ByRef`/module-field
+alternatives are correctly rejected. Shape folded into spec §2.
+
+### D3 — RATIFIED: acceptance 4 stays automated (the 7 persistence fixtures)
+
+Filesystem I/O is not "a UI layer on the gate" (the charter's actual exclusion), the item-12
+SQLite fixture is precedent, and the resolved path is OrderCheck's own bin — structurally never
+the app's. The backup/restore + leave-as-found assertion executed and passed under this review's
+own gate run. One recorded assumption: gate runs are serial (a concurrent gate could race the
+`.ordercheck-bak`) — true of every current usage. **Acceptance 4 is hereby OFF the owner's
+runtime list** (§6.3 remains).
+
+### D4 — no action
+
+Trap-application numbering is a historical label; the comment stating both counts is the right
+form. Specs are not renumbered when the queue reorders.
+
+### §3 residual — ACCEPTED, with the DERIVATION CORRECTED (the review's one substantive delta)
+
+The spec-back flagged this claim for a second pair of eyes, and it needed one. **Gates 3/4 are
+not a post-fill/post-close context.** The block at :2378–:2381 requires a *working entry order*
+(`CurrentOpenOrderId` + `CurrentSLOrderId` + `isTrailingStopLossPlaced`), and the only site
+setting `isTrailingStopLossPlaced = True` (:4650) is the **BuyTrail/SellTrail placement** — the
+manual Trail flow, whose bracket has no TP leg. So gates 3/4 are the **pre-fill chase of a manual
+Trail entry**, running while `manualTPval` is whatever the owner had in the box at placement
+(the :3193 clear has NOT run — no position exists yet).
+
+The corrected rule, uniform across all four gates: **the EV floor is live wherever
+`manualTPval > 0` at evaluation.** Bridge acts (bracket flow, gates 1/2) always have it; manual
+brackets with a typed TP have it; offset-only flows — at either block — skip to ATR-only per §3.
+A Trail entry WITH a typed manual TP therefore has the EV floor live at gates 3/4, correctly:
+`manualTPval` is the honest in-force target there too (the Trail flow itself reads it —
+:4623 displays it as the placed TP, and :2484 seeds `TPTrailprice` from it post-fill).
+
+The implementer's practical conclusion survives for a different reason: gates 3/4 will usually
+run ATR-only because the Trail flow is offset-centric, not because the target was cleared. The
+consequences all still hold: fail-safe, §6.3's entry-chase acceptance is the right scope, and
+**no follow-up micro-spec is needed** — the trailing chase already has the correct target source
+whenever one exists. Corrected derivation folded into spec §3.
+
+### §4 finding — RULED: queued micro-spec, and YES the engine seat should be told
+
+Verified live: `TakerFeeRate = 0.0005D` (:354, 2024 schedule) sets the default comms every index
+tick (:1871 `comms = TakerFeeRate × indexPrice`), and comms feeds the derived TP and the item-E
+break-even trigger — ~43% overstatement against the 2026-08-01 taker of 3.5 bps. The implementer
+was right not to touch it (a TP-moving behaviour change, adjacent to the Rec-2-deferred
+arithmetic). Disposition:
+
+- **Micro-spec queued: `spec-fee-comms-repoint.md`** (written alongside this review) — repoint
+  the default-comms computation to the persisted `taker_fee_bps` key; owner acceptance on the
+  comms-default shift (≈ $10 on a derived TP at 64k). Owner schedules it — it is Aug-1-adjacent
+  correctness; recommended slot: with the owner's Aug-1 settings touch, or immediately after N1b.
+- **Engine-seat relay: one line** — their §0 "fee constants deliberately duplicated per-repo"
+  note should record that the order app had a third, older copy (2024 taker) driving its comms
+  default, now known and queued for repoint. No contract impact.
+
+## 3. Endorsements (adversarial table checked, two items called out)
+
+The §5 table's cases were spot-checked rather than re-run in full; two deserve the record:
+
+- **Arm-switch coupling, consciously ticked:** unticking Max Slippage ATR disables the EV floor
+  too. This is what spec §2 mandates (housekeeping 8b's single arm) and is harmless for bridge
+  trades (the checkbox is a bridge START precondition), but the owner should know the manual-
+  trade consequence. It rides the review summary to the owner rather than a code change.
+- **Gate 3's missing `bestBid` null check** — pre-existing, position-identical before/after the
+  diff, not reached in practice (quote messages carry both sides). Stays on the hygiene backlog.
+
+## 4. Fold-backs landed with this review (the N1 precedent — no stale greps)
+
+1. Spec §2: D1's own-side input PINNED; D2's `ChaseAbortReason` shape recorded; the standing
+   "four gates call the ATR guard" grep replaced — the reposition gates now show up under
+   `ChaseAbortReason` (census 1 decl + 1 call + 6 pre-placement = 8).
+2. Spec §3: the corrected residual derivation (Trail flow, uniform `manualTPval > 0` rule).
+3. Spec §6: acceptance 4 marked automated (D3); the §6.5 grep note gains the raw-vs-census
+   `emergencyFired` count (10 raw = 9 sites + 1 N1-era comment).
+4. `spec-fee-comms-repoint.md` created (owner-tick pending; not scheduled by this review).
+5. Roadmap: EV row marked implemented+reviewed; the micro-spec added to the backlog.
+
+## 5. What remains
+
+1. **Owner §6.3 runtime pass** (recipe: impl report §5) — knob 0.5% + near-target bridge act ⇒
+   `Working entry cancelled (EV floor)` on the first reposition evaluation; knob 0 ⇒ chases to
+   the ATR cap as today. **x64 rebuild first** (the runtime bin is pre-EV) and **re-check the
+   window title for `— TESTNET`** — the rebuild clobbers the bin's `secrets.json`. Back up
+   `orderapp-settings.json` (the run tightens geometry; FormClosing persists all 11 fields).
+   Trade-placing steps: OWNER mouse clicks only (triple-placement WATCH).
+2. **Tooling row visual check** rides the same session (`grpTooling` +48px, ClientSize 856→904).
+3. Owner push (this review + fold-backs land on top of the five EV commits).
+4. Owner tick on `spec-fee-comms-repoint.md` scheduling; relay the one-line fee note to the
+   engine seat with the standing ack header.

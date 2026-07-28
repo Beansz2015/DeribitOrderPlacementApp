@@ -55,6 +55,19 @@ reason is **`"EV floor"`** (→ `Working entry cancelled (EV floor) - position l
 ATR trips keep `"ATR slippage"` byte-identical. The 6 pre-placement gates are **NOT touched** —
 EV-exhaustion is a property of an ongoing chase, not of initial placement.
 
+**As implemented + review-ratified (2026-07-28, `review-ev-chase-budget.md` D1/D2):**
+- **The EV check's price input is PINNED to the same own-side quote the ATR guard reads**
+  (`bestBid` LONG / `bestAsk` SHORT) — not `chaseTarget`. Ruled D1: binds strictly later than the
+  economically-exact input in both directions (≈ spread + tick, <2% of threshold), so it only
+  ever defers to today's behaviour; invariant-8 uniformity wins. Revisiting this is a spec change.
+- The `OrElse` is realized as **`ChaseAbortReason(ownSideQuote, direction) As String`** (returns
+  the cancel reason or `Nothing`) because two distinct reasons cannot come out of a bare `OrElse`.
+  ATR is evaluated first inside it (keeps owning `originalSignalPrice` seeding + the
+  attempt-reset side effect); each reason literal exists on exactly one code line.
+- **Grep note:** the standing "four reposition gates call the ATR guard" grep is superseded —
+  `IsATRSlippageExcessive` is now 8 sites (1 decl + 1 call inside `ChaseAbortReason` + 6
+  pre-placement); the four gates grep as `ChaseAbortReason`.
+
 ## §3 — `targetInForce` (D1, ruled): `manualTPval` when > 0, else SKIP
 
 - Bridge trades always carry `manualTPval` (= the engine target, set at act) — the relay's primary
@@ -62,6 +75,14 @@ EV-exhaustion is a property of an ongoing chase, not of initial placement.
 - Manual OFFSET-flow trades (no manual TP) fall back to **ATR cap only, exactly as today** — the
   offset target moves with the chase anchor, so a v1 EV check against it would be self-referential.
   Documented limitation, revisit only if the owner asks.
+- **Review correction (2026-07-28, replaces the spec-back §3 residual's derivation):** the rule is
+  uniform across ALL FOUR gates — the EV floor is live wherever `manualTPval > 0` at evaluation.
+  Gates 3/4 are the **pre-fill chase of the manual Trail flow** (BuyTrail/SellTrail sets
+  `isTrailingStopLossPlaced`; the block requires a working entry), NOT a post-fill context: the
+  position-open clear has not run there, so a Trail entry with a typed manual TP has the EV floor
+  live, correctly (`manualTPval` seeds the placed-TP display and `TPTrailprice`). Gates 3/4 still
+  *usually* run ATR-only — because the Trail flow is offset-centric, not because the target was
+  cleared. No separate trailing target source is needed.
 
 ## §4 — Knobs + persistence
 
@@ -93,10 +114,13 @@ target never binds · SHORT symmetry (target below price, Abs handles it) · fee
 3. **Testnet (isolated harness):** knob set high (e.g. 0.5%) + a bridge act with a near target ⇒
    chase aborts with `Working entry cancelled (EV floor)` on the FIRST reposition evaluation;
    knob 0 ⇒ same setup chases to the ATR cap exactly as today.
-4. Persist round-trip for the knob; fee keys hand-editable and read back.
-5. Greps: emergency block untouched (`emergencyFired` census unchanged 1+2+3+3);
-   `IsATRSlippageExcessive` internals untouched; disposition file writers untouched; reason string
-   is the ONLY new host-log surface.
+4. Persist round-trip for the knob; fee keys hand-editable and read back. **AUTOMATED (review
+   D3 ruling): OrderCheck carries 7 persistence fixtures incl. a leave-the-path-as-found
+   assertion — this item is OFF the owner's runtime list.**
+5. Greps: emergency block untouched (`emergencyFired` census unchanged 1+2+3+3 — **note a raw
+   grep returns 10: 9 code sites + 1 pre-existing N1-era comment at the throttle block**);
+   `IsATRSlippageExcessive` internals untouched (8 total sites post-collapse, see §2's grep
+   note); disposition file writers untouched; reason string is the ONLY new host-log surface.
 
 ## Commits
 
