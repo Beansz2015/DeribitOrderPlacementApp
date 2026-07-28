@@ -3371,7 +3371,7 @@ Public Class frmMainPageV2
 
     ' EV chase budget §2: the chase-abort reason for the four own-side reposition gates, or Nothing
     ' to carry on chasing. Order is load-bearing - the ATR cap is evaluated FIRST and untouched, so
-    ' it keeps owning the originalSignalPrice seeding and the ResetOrderAttempt side effect, and an
+    ' it keeps owning the originalSignalPrice seeding and its own attempt-reset side effect, and an
     ' ATR trip still logs its existing reason byte-identically. The EV floor is the second, opt-in
     ' arm and carries its own reason (the two literals below are the ONLY place either is written -
     ' the cancel REASON is the counterfactual instrument here, deliberately NOT a second disposition
