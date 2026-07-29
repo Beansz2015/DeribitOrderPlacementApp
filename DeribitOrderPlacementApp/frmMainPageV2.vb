@@ -1984,11 +1984,25 @@ Public Class frmMainPageV2
     ' (capped at 5s) by pushing lastStopLossUpdate forward; a success resets the counter.
     Private slUpdateFailures As Integer = 0
     Private Const SLUpdateMaxBackoffMs As Double = 5000
+
+    ' N1b closing commit (docs/spec-sl-backoff-coupling.md §Acceptance 5, the 3b(i) extraction): the
+    ' backoff arithmetic as a PURE seam so OrderCheck can pin it and prove the chase-path behaviour
+    ' deterministically, with no trade and no testnet. Same math, same constants, same clamp as before
+    ' the extraction - the caller below owns the two field writes and nothing else moved.
+    ' Contract: (failures, failedAt) -> (newFailures, stamp). The counter clamps at 8; the delay is
+    ' Min(333 * 2^n, 5000) ms; the stamp is failedAt + backoffMs - 333, because the gate downstream is
+    ' (now - lastStopLossUpdate) >= 333, so subtracting one interval makes the next attempt land at
+    ' exactly failedAt + backoffMs. Pure; Friend Shared; OrderCheck-pinned.
+    Friend Shared Function NextSlBackoff(failures As Integer, failedAt As DateTime) As (Failures As Integer, Stamp As DateTime)
+        Dim n As Integer = Math.Min(failures + 1, 8)
+        Dim backoffMs As Double = Math.Min(MinStopLossUpdateInterval * (2 ^ n), SLUpdateMaxBackoffMs)
+        Return (n, failedAt.AddMilliseconds(backoffMs - MinStopLossUpdateInterval))
+    End Function
+
     Private Sub BackoffStopLossRetry(failedAt As DateTime)
-        slUpdateFailures = Math.Min(slUpdateFailures + 1, 8)
-        Dim backoffMs As Double = Math.Min(MinStopLossUpdateInterval * (2 ^ slUpdateFailures), SLUpdateMaxBackoffMs)
-        ' Gate is (now - lastStopLossUpdate) >= MinInterval, so this delays the next attempt to failedAt + backoffMs.
-        lastStopLossUpdate = failedAt.AddMilliseconds(backoffMs - MinStopLossUpdateInterval)
+        Dim next_ = NextSlBackoff(slUpdateFailures, failedAt)
+        slUpdateFailures = next_.Failures
+        lastStopLossUpdate = next_.Stamp
     End Sub
 
     ' #5: single-flight guard for the order-reposition section of HandleQuoteUpdates. 0 = idle, 1 = a

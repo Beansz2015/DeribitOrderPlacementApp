@@ -545,6 +545,74 @@ Module Program
               If(evBackup Is Nothing, Not File.Exists(evPath),
                  File.Exists(evPath) AndAlso File.ReadAllText(evPath) = evBackup))
 
+        ' ============ SL backoff (docs/spec-sl-backoff-coupling.md §Acceptance 5, the 3b(i) seam) ============
+        ' NextSlBackoff is the pure arithmetic behind the triggered-SL retry throttle. These fixtures
+        ' exist because the runtime acceptance for this mechanism was twice found to be unobservable:
+        ' they replace an eyeball test on testnet with a deterministic one, and they are written so the
+        ' confirmed-reset spec (N1c) extends them rather than rewriting them.
+        Dim b0 As New DateTime(2026, 7, 30, 9, 0, 0, DateTimeKind.Utc)
+
+        ' Backoff in ms, recovered from the stamp: the seam returns the STAMP (what the gate reads),
+        ' so deriving the delay back out also pins the stamp formula itself.
+        Dim BackoffMsOf = Function(failures As Integer) _
+            (frmMainPageV2.NextSlBackoff(failures, b0).Stamp - b0).TotalMilliseconds + 333
+
+        ' ---- the arithmetic: doubling from 666 ms, capped at 5 s, counter clamped at 8 ----
+        Check("SL backoff: n=0 -> 1 failure, 666 ms (333 x 2^1)", BackoffMsOf(0) = 666,
+              $"got {BackoffMsOf(0)}")
+        Check("SL backoff: stamp = failedAt + backoffMs - 333 (one interval short, so the gate opens at failedAt + backoff)",
+              frmMainPageV2.NextSlBackoff(0, b0).Stamp = b0.AddMilliseconds(333))
+        Check("SL backoff: n=1 -> 2 failures, 1332 ms", BackoffMsOf(1) = 1332)
+        Check("SL backoff: n=2 -> 3 failures, 2664 ms", BackoffMsOf(2) = 2664)
+        Check("SL backoff: n=3 -> 4 failures, capped at 5000 ms (5328 would overshoot)", BackoffMsOf(3) = 5000)
+        Check("SL backoff: the cap holds at every higher count", BackoffMsOf(7) = 5000)
+        Check("SL backoff: counter clamps at 8", frmMainPageV2.NextSlBackoff(8, b0).Failures = 8)
+        Check("SL backoff: the clamp holds the delay at the cap, not beyond",
+              frmMainPageV2.NextSlBackoff(8, b0).Stamp = b0.AddMilliseconds(5000 - 333))
+
+        ' ---- the acceptance-2 threshold: why the rate-limited line needs 2+ failures ----
+        ' The chase's else-branch logs only when remainingMs > 1000, and remainingMs peaks at backoffMs.
+        ' So the line is reachable iff the counter reaches 2 - the whole reason acceptance 2 was corrected.
+        Check("SL backoff: 1 failure cannot print the rate-limited line (666 <= 1000)", BackoffMsOf(0) <= 1000)
+        Check("SL backoff: 2 failures can (1332 > 1000)", BackoffMsOf(1) > 1000)
+
+        ' ---- today's chase path: reset-per-attempt pins the counter at 0<->1 ----
+        ' Every chase attempt runs the optimistic reset (the send never throws, so the Try always
+        ' completes), then exactly one rejection response increments. Documents the defect N1c fixes.
+        Dim oscCounter As Integer = 0
+        Dim oscMaxMs As Double = 0
+        Dim oscMaxCount As Integer = 0
+        For attempt = 1 To 25
+            oscCounter = 0                                          ' the attempt's optimistic reset
+            Dim r = frmMainPageV2.NextSlBackoff(oscCounter, b0)     ' the one rejection it earns
+            oscCounter = r.Failures
+            oscMaxCount = Math.Max(oscMaxCount, oscCounter)
+            oscMaxMs = Math.Max(oscMaxMs, (r.Stamp - b0).TotalMilliseconds + 333)
+        Next
+        Check("SL backoff: chase path today never exceeds 1 failure (reset per attempt)", oscMaxCount = 1,
+              $"got {oscMaxCount}")
+        Check("SL backoff: chase path today never exceeds 666 ms - so it never escalates", oscMaxMs = 666,
+              $"got {oscMaxMs}")
+        Check("SL backoff: and therefore never reaches the 5 s cap from the chase alone", oscMaxMs < 5000)
+
+        ' ---- a no-reset run DOES escalate ----
+        ' True today on the pump paths (the manual SL button and the trailing-SL loop increment with no
+        ' reset between them), and it is what the chase path itself becomes once the reset is moved to a
+        ' confirmed success. When N1c lands this same sequence models the chase - extend, do not rewrite.
+        Dim escCounter As Integer = 0
+        Dim escSeries As New List(Of Double)
+        For hit = 1 To 5
+            Dim r = frmMainPageV2.NextSlBackoff(escCounter, b0)
+            escCounter = r.Failures
+            escSeries.Add((r.Stamp - b0).TotalMilliseconds + 333)
+        Next
+        Check("SL backoff: consecutive failures with no reset escalate 666 -> 1332 -> 2664 -> 5000",
+              escSeries(0) = 666 AndAlso escSeries(1) = 1332 AndAlso escSeries(2) = 2664 AndAlso escSeries(3) = 5000,
+              String.Join(", ", escSeries))
+        Check("SL backoff: escalation reaches the rate-limited line's threshold on the 2nd failure",
+              escSeries(0) <= 1000 AndAlso escSeries(1) > 1000)
+        Check("SL backoff: escalation saturates at the cap, it does not run away", escSeries(4) = 5000)
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then
