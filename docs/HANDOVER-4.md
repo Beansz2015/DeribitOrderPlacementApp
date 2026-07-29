@@ -104,3 +104,29 @@ list (H-3 §6) unchanged and extended by: auto-arm-on-boot, rate-limiting the lo
 This rotation: Fable→Fable (window to ~Aug 2). At the window close: Opus-high coordinator; this doc
 gets a light delta (state + queue), not a rewrite; consolidate memory then. The successor's first
 acts: verify push state, check whether the EV implementer is in flight, then C1 proposal drafting.
+
+## 8. Delta 2026-07-30 (the light delta §7 promised; memory's era-state-checkpoint has the detail)
+
+**Everything §3 queued through N1b is DONE and reviewed; C1's documentation phase is CLOSED.**
+
+1. **EV chase budget** — implemented + reviewed (`review-ev-chase-budget.md`, all 5 asks ruled;
+   §3's residual derivation corrected: gates 3/4 = the PRE-FILL Trail flow; EV floor live wherever
+   `manualTPval > 0`). Ships OFF. Open: owner §6.3 runtime pass + Tooling visual check.
+2. **N1b SL-backoff coupling** — full arc: id-scope ruling (SL ids 223346/223348/223350 ONLY) →
+   implemented → reviewed → **escalation defect** (the optimistic reset pins the chase-path
+   backoff at 666 ms; acceptance-2-passed premise WITHDRAWN on the review, coupling approval
+   stands) → 3b(i) `NextSlBackoff` extraction + 16 fixtures → **CLOSED code-side**. Open: the
+   corrected pump-recipe runtime record (or wait for N1c). **N1c
+   (`spec-sl-backoff-confirmed-reset.md`) is ticked and NEXT** — reset moves to the recognized
+   commanded-SL echo; `lastStopLossUpdate`/`placedStopLossPrice` stay optimistic (ruled).
+3. **C1 v2 feedback file** — proposal → engine ACCEPT (+3 refinements, all accepted) → ack →
+   trader tick T1–T8 → **contract §8 is the binding spec** (`f6bea0a`); engine mirror landed
+   (their §10, `52c8633`). Only the two implementation builds remain (our emitter after N2).
+4. **Fee-comms repoint** — the EV review's found 2024 `TakerFeeRate` is GONE; comms derives from
+   `taker_fee_bps` (32 → 22 at 64k). All acceptances + review closed.
+5. **Gate is now 146 fixtures** (was 104 at rotation). New grep traps: `emergencyFired` raw 10 =
+   9 sites + 1 comment; `IsATRSlippageExcessive` 8 (gates grep as `ChaseAbortReason`);
+   `slUpdateFailures = 0` exactly 1 (the site N1c moves); `NextSlBackoff` 2.
+6. **Queue of record: N1c → N2 (`spec-risk-sized-bridge-trades.md`) → C1 emitter build.** The
+   standing lesson gained a corollary this era: verify acceptances' OBSERVABLES exist, not just
+   the code — two unobservable acceptances on the same mechanism produced N1b and then N1c.
