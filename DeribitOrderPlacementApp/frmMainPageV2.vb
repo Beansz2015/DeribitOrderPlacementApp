@@ -1656,7 +1656,16 @@ Public Class frmMainPageV2
             ' class, no new lock.
             If messageId.HasValue AndAlso
                (messageId.Value = 223346 OrElse messageId.Value = 223348 OrElse messageId.Value = 223350) Then
-                BackoffStopLossRetry(DateTime.UtcNow)
+                Dim failedAt As DateTime = DateTime.UtcNow
+                BackoffStopLossRetry(failedAt)
+                ' N1c commit 2 (3b(ii)): make the climb legible the first time SL edits fail for real.
+                ' The delay is read back OUT of the stamp the call just wrote (stamp = failedAt +
+                ' backoff - one interval) rather than re-derived from the formula, so this line can
+                ' never disagree with the gate it is describing. Log delegate only - no UI touch, safe
+                ' on the receive thread like the red API ERROR line above.
+                Dim backoffMs As Double = (lastStopLossUpdate - failedAt).TotalMilliseconds + MinStopLossUpdateInterval
+                AppendColoredText(txtLogs,
+                    $"SL-edit failure #{slUpdateFailures} - backoff {backoffMs / 1000:F1}s", Color.Gray)
             End If
         Catch
             ' Parse noise / unexpected shapes: ignore, like the other handlers.
@@ -2415,7 +2424,12 @@ Public Class frmMainPageV2
                                     ' the backoff").
                                     lastStopLossUpdate = currentTime
 
-                                    AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
+                                    ' N1c commit 2 (log honesty): "sent", not "repositioned". This line runs on send
+                                    ' completion, which the swallowing send site reaches for a rejected edit too - the
+                                    ' same optimistic completion that produced the reset defect. No mechanism change:
+                                    ' the CONFIRMATION is already visible through the reconcile machinery's own
+                                    ' recognition of the echo, so there is deliberately no second "confirmed" line.
+                                    AppendColoredText(txtLogs, $"SL reposition sent: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
 
                                 Catch ex As Exception
                                     AppendColoredText(txtLogs, $"Critical SL update failed: {ex.Message}", Color.Red)
