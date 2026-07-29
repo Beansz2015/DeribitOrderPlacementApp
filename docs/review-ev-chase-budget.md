@@ -195,8 +195,19 @@ both are implementer misses from the EV pass, not defects in the shipped behavio
    under the group is a defensible home for it — but it IS a change to the grouping and wants an
    eyeball on the next screenshot.
 
-3. **Caption renamed `Min Net Move:` → `Min Net Profit:`** (owner, 2026-07-30). **Display text
-   only**, by instruction: `lblMinNetMoveCap`, `txtMinNetMove`, `minNetMovePctVal`, `MinNetMovePct`,
+   **CONFIRMED by owner screenshot, TESTNET, 2026-07-30 — the eyeball above is closed.** The two
+   windows' bottom edges line up again (both `856`, both top-aligned by `StickToHost`), which was
+   the whole point of the reclaim. Five rows render at the tighter pitch with the value column and
+   the unit column both still aligned; `SIZE` still spans the Risk/Trade and Max Size rows and
+   clears the fifth row beneath it; `ATR now: 27.39 (indicator) -> slip limit $16.43` is fully
+   legible on its new form-level line, nothing clipped at either the group or the window edge.
+   (Readout self-consistent: 27.39 × the 0.6 ATRSlip multiplier = 16.43.) The relocated readout
+   does now read as a status line detached from the group rather than as the group's last row —
+   intended, and it looks deliberate rather than orphaned.
+
+3. **Caption renamed `Min Net Move:` → `Min Net Profit:`** (owner, 2026-07-30) — **confirmed on the
+   same screenshot**: the row reads `Min Net Profit:` / `0` / `%`, caption not clipped and not
+   colliding with `SIZE`. **Display text only**, by instruction: `lblMinNetMoveCap`, `txtMinNetMove`, `minNetMovePctVal`, `MinNetMovePct`,
    `SetMinNetMovePct`, `SeedMinNetMoveFromHost`, the persisted `min_net_move_pct` key and the
    harness `AccessibleName` are all unchanged. The gate-config warning line now reads
    `min net profit '<text>'`, and the caption tooltip's one "net move" became "net profit"; the

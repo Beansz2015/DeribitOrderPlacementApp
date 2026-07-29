@@ -118,7 +118,9 @@ acts: verify push state, check whether the EV implementer is in flight, then C1 
    do it: single-line TextBox heights are font-clamped). Caption also renamed to
    **`Min Net Profit:`**, display text only — every identifier and the `min_net_move_pct` key still
    say MinNetMove, so the two spellings must both be grepped.
-   **Open: owner §6.3 runtime pass ONLY** (which now also re-eyeballs the reflowed group).
+   Reflow + rename **re-confirmed on a second owner screenshot** the same day (bottom edges line up
+   again; five rows aligned; readout legible on its new line) — the UI side of EV is fully closed.
+   **Open: owner §6.3 runtime pass ONLY.**
 2. **N1b SL-backoff coupling** — full arc: id-scope ruling (SL ids 223346/223348/223350 ONLY) →
    implemented → reviewed → **escalation defect** (the optimistic reset pins the chase-path
    backoff at 666 ms; acceptance-2-passed premise WITHDRAWN on the review, coupling approval
