@@ -1,7 +1,12 @@
 # Micro-spec — move the SL-backoff success-reset to a CONFIRMED success (N1c)
 
-**Status: WRITTEN 2026-07-30, owner-tick pending on scheduling** (recommended slot: after the
-fee-comms repoint, before normal size — same before-normal-size class as N1b). Origin:
+**Status: IMPLEMENTED 2026-07-30** — commits `a960f07` (commit 1) + `9d3b9f5` (commit 2), gate
+executed at each and at final HEAD: **GATE PASSED, OrderCheck 146 → 153**. Report:
+`docs/impl-report-sl-backoff-confirmed-reset.md`. Acceptances 1, 2 and 4 CLOSED in the report
+(4 with one flagged exception: commit 2 deliberately changes a log line every normal session
+prints); **acceptance 3 is OWNER-RUN runtime** — recipe in the report §5. Nothing pushed.
+*(Was: WRITTEN 2026-07-30, owner-tick pending on scheduling — recommended slot after the
+fee-comms repoint, before normal size, same before-normal-size class as N1b.)* Origin:
 `spec-back-sl-backoff-escalation-defect.md`, defect CONFIRMED by the coordinator (ruling in
 `spec-sl-backoff-coupling.md` §Acceptance amendment 2026-07-30). **Recommended implementer: Opus
 HIGH, fresh conversation** — SL hot path + the reconciliation discriminator. Standing ground
