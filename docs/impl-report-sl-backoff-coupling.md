@@ -8,6 +8,56 @@
 
 ---
 
+## ADDENDUM 2026-07-30 — N1b's CLOSING COMMIT: the 3b(i) extraction + fixtures (`d3c9a04`)
+
+Approved in the escalation-defect ruling (`513a2c8`, `spec-sl-backoff-coupling.md` §Acceptance 5).
+**Gate-only, no behaviour change, no trades.** Files: `frmMainPageV2.vb` + `tools/OrderCheck/Program.vb`.
+
+**1. The extraction.** `NextSlBackoff(failures, failedAt) → (Failures, Stamp)`, `Friend Shared` on
+`frmMainPageV2` immediately above its caller — the `RoundTripFeePctFromMakerBps` /
+`IsChaseEvExhausted` precedent, so **no new file and no constants moved** (a `Shared` member reads
+the type's own `Private Const`s, so `MinStopLossUpdateInterval` and `SLUpdateMaxBackoffMs` stay
+exactly where they are, with all five of their other references untouched). `BackoffStopLossRetry` is
+now a three-line caller owning the two field writes and nothing else.
+
+*Behaviour identity, the one subtlety worth stating:* the old code assigned `slUpdateFailures` **first**
+and then used the **new** value in `2 ^ slUpdateFailures`. `n` is that new value and feeds the same
+exponent, so the arithmetic is identical rather than off-by-one — and the caller writes the same two
+fields in the same order (counter, then stamp). Cross-checked against the fixtures: 0 → 1 failure →
+666 ms, which is what the pre-extraction code produced.
+
+**2. Fixtures: 124 → 140 (+16).** Four groups:
+
+| Group | What it pins |
+|---|---|
+| Arithmetic | 666 ms at one failure · doubling · the 5 s cap (5328 would overshoot) · counter clamp at 8 · the stamp formula `failedAt + backoffMs − 333`, recovered *from the stamp* so the formula is pinned rather than restated |
+| Acceptance-2 threshold | the rate-limited line needs `remainingMs > 1000` ⇒ needs 2+ failures — the reason acceptance 2 was corrected, now an assertion instead of prose |
+| Today's chase path | reset-per-attempt + one increment per response never exceeds **1 failure / 666 ms** ⇒ never escalates. Documents the defect N1c fixes |
+| No-reset run | escalates 666 → 1332 → 2664 → 5000 and saturates. True **today** on the pump paths (manual SL button 223346, trailing-SL loop 223348); becomes the chase path once N1c moves the reset |
+
+The last two are deliberately the same shape, so N1c **extends** them (point the chase model at the
+confirmed-reset state machine) rather than rewriting: the oscillation fixture then flips from
+documenting the defect to guarding against its return, exactly as N1c §Fixtures anticipates.
+
+**3. Censuses — RUN, not assumed** (at `d3c9a04`):
+
+- `BackoffStopLossRetry` **raw 7 = 1 decl + 3 comments + 3 call sites** (`:1647`, `:2398`, `:4394`) —
+  unchanged. The new comment block avoids the token deliberately (prose-near-tripwire rule; this era
+  has hit that trap twice).
+- `slUpdateFailures = 0` reset sites: **exactly 1**, still at the chase `Try` (`:2389`) — the site
+  N1c will move.
+- `emergencyFired` **raw 10 / 9 code sites** (1+2+3+3) — untouched.
+- `IsATRSlippageExcessive` 8 · `RecordCommandedSLPrice` 3 · `isSLRepositioning` 3 — unchanged.
+- New symbol `NextSlBackoff` = 2 in `frmMainPageV2.vb` (declaration + the caller).
+
+**Gate: GATE PASSED, OrderCheck 140/140.** Nothing found worth a spec-back.
+
+**Out of scope and untouched, per the ruling:** the N1c reset move, the log-honesty reword, the gray
+diagnostic — all of `spec-sl-backoff-confirmed-reset.md`. The acceptance-2/3 runtime record stays
+HELD; the owner runs the corrected pump recipe, or waits for N1c.
+
+---
+
 ## 1. What shipped
 
 **Commit 1 `afb4bbc` — the "~5 s" framing correction (comment-only, zero IL).** Both comments the
