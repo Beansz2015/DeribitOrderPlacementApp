@@ -1648,9 +1648,12 @@ Public Class frmMainPageV2
             ' races - the already_closed chase race and the id-31 abort race both Return above, so a
             ' fill WINNING a race can never be miscounted as an edit failing. (A 10028 also returns
             ' earlier, to its own owner, so the rate-limit class does not couple here.)
-            ' A success resets the counter at the edit-success site - search "success clears the
-            ' backoff"; do not add a second reset. Receive-thread write to the same lock-free engine
-            ' fields their existing post-await writers already use - no new thread class, no new lock.
+            ' A CONFIRMED success resets the counter - N1c moved that reset off the chase's send
+            ' completion (which ran on rejected edits too, pinning the counter at 0<->1) and onto the
+            ' commanded-price echo branch in HandleOrderPositionUpdates; search "confirmed success
+            ' clears the backoff". Do not add a second reset. Receive-thread write to the same
+            ' lock-free engine fields their existing post-await writers already use - no new thread
+            ' class, no new lock.
             If messageId.HasValue AndAlso
                (messageId.Value = 223346 OrElse messageId.Value = 223348 OrElse messageId.Value = 223350) Then
                 BackoffStopLossRetry(DateTime.UtcNow)
@@ -2292,14 +2295,16 @@ Public Class frmMainPageV2
                         ' inside the MinStopLossUpdateInterval gate below. CORRECTED FRAMING (2026-07-28,
                         ' docs/spec-sl-backoff-coupling.md commit 1): the old comment claimed that cost up to
                         ' SLUpdateMaxBackoffMs (~5 s) of emergency-detection delay via BackoffStopLossRetry.
-                        ' That was FALSE. The backoff has never been reachable - the send site swallows every
-                        ' exception and the awaited edit body is itself fully wrapped - so slUpdateFailures has
-                        ' always been 0 and this gate has always been a flat 333 ms. The REAL pre-hoist exposure
+                        ' That was FALSE. Pre-N1b the backoff was never reachable - the send site swallows every
+                        ' exception and the awaited edit body is itself fully wrapped - so the failure counter
+                        ' stayed at zero and this gate was a flat 333 ms. The REAL pre-hoist exposure
                         ' was <= one throttle interval (333 ms), plus the latent double-fire race the N1
                         ' single-fire latch below closes. The hoist is still correct, and now load-bearing: N1b
-                        ' (same doc) couples genuine SL-edit failures into the backoff for the FIRST time, and
-                        ' this check is already out from under it. It now runs on EVERY qualifying tick; the
-                        ' SL-edit machinery below stays throttled exactly as before.
+                        ' (same doc) couples genuine SL-edit failures into the backoff, and N1c
+                        ' (docs/spec-sl-backoff-confirmed-reset.md) makes them ESCALATE - a persistently failing
+                        ' chase now walks 666 ms -> 5 s instead of oscillating at 666. This check is already out
+                        ' from under that gate: it runs on EVERY qualifying tick, and only the SL-edit machinery
+                        ' below is delayed.
                         ' Hoisting changes WHEN we look, not WHAT we respect: every gate is carried over verbatim
                         ' - the block's IsWebSocketConnected / Not IsCancelPending() / SLTriggered /
                         ' PositionSLOrderId gate (the 2026-07-08 owner ruling deliberately leaves the emergency
@@ -2326,9 +2331,11 @@ Public Class frmMainPageV2
                     ' Spec item 16 trade-off, CORRECTED (2026-07-28, docs/spec-sl-backoff-coupling.md commit 1):
                     ' the old comment said a persistently failing SL edit pushes lastStopLossUpdate forward and
                     ' delays the SL-EDIT machinery by up to SLUpdateMaxBackoffMs (5 s). The mechanism is real
-                    ' but has never fired - no failure path reaches BackoffStopLossRetry today (the swallowing
-                    ' send site + the fully wrapped edit body), so slUpdateFailures is always 0 and this is a
-                    ' flat 333 ms gate. N1b makes it reachable for the first time; when it does escalate, only
+                    ' but had never fired pre-N1b - no failure path reached BackoffStopLossRetry (the swallowing
+                    ' send site + the fully wrapped edit body), so the failure counter stayed at zero and this
+                    ' was a flat 333 ms gate. N1b made it reachable and N1c (the confirmed-reset move) makes it
+                    ' ESCALATE: a red SL-edit rejection now compounds, up to the 5 s cap, until the exchange
+                    ' confirms one of our edits. When it does escalate, only
                     ' the SL-EDIT machinery below is delayed - the N1 hoist (2026-07-27) moved the emergency
                     ' threshold check out of this gate, so it never shares the delay and is evaluated above,
                     ' every tick. The emergency comparison is measured from the FROZEN emergencyBaseline anchor
@@ -2397,8 +2404,16 @@ Public Class frmMainPageV2
                                         emergencyBaselineSettled = True
                                     End If
                                     UiInvoke(Sub() txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2"))
+                                    ' N1c (docs/spec-sl-backoff-confirmed-reset.md commit 1): lastStopLossUpdate STAYS here, on
+                                    ' the attempt. It is the anti-duplicate throttle stamp (SL-chase v2 §3 - without it a second
+                                    ' tick passes the gate while this send's Await is in flight and dispatches a duplicate edit),
+                                    ' NOT a success signal. Only the failure COUNTER's reset moved out: the send site swallows
+                                    ' every exception, so this line also runs when the exchange REJECTS the edit, and clearing the
+                                    ' counter here pinned it at 0<->1 and the retry backoff at 666 ms for the life of the app. The
+                                    ' counter is now cleared where the exchange CONFIRMS one of our own SL edits - the
+                                    ' commanded-price echo branch in HandleOrderPositionUpdates (search "confirmed success clears
+                                    ' the backoff").
                                     lastStopLossUpdate = currentTime
-                                    slUpdateFailures = 0   ' success clears the backoff
 
                                     AppendColoredText(txtLogs, $"SL repositioned: ${currentStopPrice:F2} → ${newStopPrice:F2}", Color.Orange)
 
@@ -2993,6 +3008,27 @@ Public Class frmMainPageV2
                                                           ' or a lagging echo of it -> ignore. placedStopLossPrice was advanced at the reposition;
                                                           ' emergencyBaseline is the frozen loss-cap anchor (not touched by the chase). Preserves the
                                                           ' runaway/transition-race protection.
+
+                                                          ' N1c (docs/spec-sl-backoff-confirmed-reset.md commit 1): the SL-edit retry backoff's failure
+                                                          ' counter is cleared HERE - on the exchange's CONFIRMATION of an edit we sent, i.e. an open
+                                                          ' echo carrying a price the app itself commanded (the 4a discriminator's set). It used to be
+                                                          ' cleared at the chase's send completion, which the swallowing send site made unconditional -
+                                                          ' a REJECTED edit reset it too - so the counter oscillated 0<->1 and the backoff never
+                                                          ' escalated past 666 ms. Only the triggered-SL chase (id 223350) feeds that set, so the chase
+                                                          ' is the one coupled id that gains a confirmed reset; the other two (223346 manual/pre-fill SL,
+                                                          ' 223348 trailing SL) keep exactly the shared counter they already had. The discriminator
+                                                          ' itself is NOT widened - this is an extra POSITIVE test of the same set, deliberately not the
+                                                          ' else-arm above: the ordinary success reaches that else via "price unchanged" (the chase
+                                                          ' advances placedStopLossPrice optimistically at the send), which short-circuits before the set
+                                                          ' is ever consulted. Residual, accepted in the spec: a lost or unrecognised echo leaves the
+                                                          ' counter armed, so a later transient failure starts one step escalated - bounded by the 5 s
+                                                          ' cap and self-healing on the next confirmed edit.
+                                                          ' Thread class: UI thread (this Select runs inside Me.Invoke off the receive loop) writing a
+                                                          ' field the receive loop and the chase's post-await continuations already write lock-free -
+                                                          ' the same accepted class as N1b's coupling. No new synchronisation.
+                                                          If price.HasValue AndAlso IsRecentlyCommandedSLPrice(price.Value) Then
+                                                              slUpdateFailures = 0   ' confirmed success clears the backoff
+                                                          End If
                                                       End If
 
                                                       lblOrderStatus.Text = "Stop Loss Triggered"

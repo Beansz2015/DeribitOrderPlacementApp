@@ -570,11 +570,12 @@ Module Program
               If(evBackup Is Nothing, Not File.Exists(evPath),
                  File.Exists(evPath) AndAlso File.ReadAllText(evPath) = evBackup))
 
-        ' ============ SL backoff (docs/spec-sl-backoff-coupling.md §Acceptance 5, the 3b(i) seam) ============
+        ' ============ SL backoff (spec-sl-backoff-coupling.md §Acceptance 5 + spec-sl-backoff-confirmed-reset.md) ============
         ' NextSlBackoff is the pure arithmetic behind the triggered-SL retry throttle. These fixtures
         ' exist because the runtime acceptance for this mechanism was twice found to be unobservable:
-        ' they replace an eyeball test on testnet with a deterministic one, and they are written so the
-        ' confirmed-reset spec (N1c) extends them rather than rewriting them.
+        ' they replace an eyeball test on testnet with a deterministic one. N1c EXTENDED them (last
+        ' group below) rather than rewriting them - the oscillation group now guards against the
+        ' defect's return instead of documenting it as current behaviour.
         Dim b0 As New DateTime(2026, 7, 30, 9, 0, 0, DateTimeKind.Utc)
 
         ' Backoff in ms, recovered from the stamp: the seam returns the STAMP (what the gate reads),
@@ -601,9 +602,12 @@ Module Program
         Check("SL backoff: 1 failure cannot print the rate-limited line (666 <= 1000)", BackoffMsOf(0) <= 1000)
         Check("SL backoff: 2 failures can (1332 > 1000)", BackoffMsOf(1) > 1000)
 
-        ' ---- today's chase path: reset-per-attempt pins the counter at 0<->1 ----
-        ' Every chase attempt runs the optimistic reset (the send never throws, so the Try always
-        ' completes), then exactly one rejection response increments. Documents the defect N1c fixes.
+        ' ---- the DEFECT model: reset-per-attempt pins the counter at 0<->1 ----
+        ' This was the chase path until N1c. Every chase attempt ran the optimistic reset (the send
+        ' never throws, so the Try always completes), then exactly one rejection response incremented.
+        ' N1c moved that reset to the confirmed echo; these three checks now GUARD AGAINST ITS RETURN -
+        ' if a future change puts an unconditional reset back on the attempt, this is what the chase
+        ' collapses to, and the comparison at the end of this section says so in one line.
         Dim oscCounter As Integer = 0
         Dim oscMaxMs As Double = 0
         Dim oscMaxCount As Integer = 0
@@ -614,16 +618,16 @@ Module Program
             oscMaxCount = Math.Max(oscMaxCount, oscCounter)
             oscMaxMs = Math.Max(oscMaxMs, (r.Stamp - b0).TotalMilliseconds + 333)
         Next
-        Check("SL backoff: chase path today never exceeds 1 failure (reset per attempt)", oscMaxCount = 1,
+        Check("SL backoff: a per-attempt reset never exceeds 1 failure (the defect)", oscMaxCount = 1,
               $"got {oscMaxCount}")
-        Check("SL backoff: chase path today never exceeds 666 ms - so it never escalates", oscMaxMs = 666,
+        Check("SL backoff: a per-attempt reset never exceeds 666 ms - so it never escalates", oscMaxMs = 666,
               $"got {oscMaxMs}")
         Check("SL backoff: and therefore never reaches the 5 s cap from the chase alone", oscMaxMs < 5000)
 
         ' ---- a no-reset run DOES escalate ----
-        ' True today on the pump paths (the manual SL button and the trailing-SL loop increment with no
-        ' reset between them), and it is what the chase path itself becomes once the reset is moved to a
-        ' confirmed success. When N1c lands this same sequence models the chase - extend, do not rewrite.
+        ' True on the pump paths (the manual SL button and the trailing-SL loop increment with no reset
+        ' between them), and - since N1c - it is what the chase path itself does between confirmations:
+        ' every rejection compounds because nothing clears the counter until the exchange confirms.
         Dim escCounter As Integer = 0
         Dim escSeries As New List(Of Double)
         For hit = 1 To 5
@@ -637,6 +641,50 @@ Module Program
         Check("SL backoff: escalation reaches the rate-limited line's threshold on the 2nd failure",
               escSeries(0) <= 1000 AndAlso escSeries(1) > 1000)
         Check("SL backoff: escalation saturates at the cap, it does not run away", escSeries(4) = 5000)
+
+        ' ---- N1c: the chase's confirmed-reset state machine (docs/spec-sl-backoff-confirmed-reset.md) ----
+        ' The counter now sees exactly two signals: a RED SL-edit rejection (the N1b coupling, modelled by
+        ' NextSlBackoff) and a CONFIRMED echo - an open StopLossOrder echo carrying a price the app itself
+        ' commanded, which clears it. The send completing is no longer a signal at all. Modelled here as the
+        ' two transitions so the escalate-then-heal cycle is pinned without a trade or a testnet session.
+        Dim cfCounter As Integer = 0
+        Dim cfSeries As New List(Of Double)
+        Dim ChaseRejected = Sub()
+                                Dim r = frmMainPageV2.NextSlBackoff(cfCounter, b0)
+                                cfCounter = r.Failures
+                                cfSeries.Add((r.Stamp - b0).TotalMilliseconds + 333)
+                            End Sub
+        Dim ChaseConfirmed = Sub() cfCounter = 0
+
+        ChaseRejected() : ChaseRejected() : ChaseRejected() : ChaseRejected()
+        Check("SL backoff (N1c): the chase ALONE escalates 666 -> 1332 -> 2664 -> 5000",
+              cfSeries(0) = 666 AndAlso cfSeries(1) = 1332 AndAlso cfSeries(2) = 2664 AndAlso cfSeries(3) = 5000,
+              String.Join(", ", cfSeries))
+        Check("SL backoff (N1c): the chase reaches 2 failures, so the rate-limited line is reachable from the chase path",
+              cfCounter >= 2 AndAlso cfSeries(1) > 1000, $"counter {cfCounter}")
+
+        ChaseConfirmed()
+        Check("SL backoff (N1c): a confirmed echo clears the counter", cfCounter = 0)
+        ChaseRejected()
+        Check("SL backoff (N1c): the next failure restarts at 666, not at the cap", cfSeries(4) = 666,
+              $"got {cfSeries(4)}")
+
+        ' The accepted residual, stated as a fixture: a lost/unrecognised echo leaves the counter armed, so
+        ' the next transient failure starts one step escalated - bounded by the cap, healed by any
+        ' confirmation. Two rejections, no confirmation, then one more: 2664, not 666.
+        cfCounter = 2
+        cfSeries.Clear()
+        ChaseRejected()
+        Check("SL backoff (N1c): an un-reset counter starts the next failure escalated (accepted residual)",
+              cfSeries(0) = 2664, $"got {cfSeries(0)}")
+        ChaseConfirmed()
+        cfSeries.Clear()
+        ChaseRejected()
+        Check("SL backoff (N1c): and one confirmation heals it back to the 666 ms first step", cfSeries(0) = 666)
+
+        ' The one-line statement of what N1c changed: same four rejections, two reset policies.
+        Check("SL backoff (N1c): moving the reset off the attempt is the whole delta - 666 ms before, 5000 ms cap now",
+              oscMaxMs = 666 AndAlso escSeries(3) = 5000)
 
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
