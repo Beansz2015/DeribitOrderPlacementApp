@@ -41,7 +41,7 @@ brain. One implementer conversation at a time; reviews execute the gate; owner i
 
 | # | Item | Notes |
 |---|---|---|
-| C1 | **v2 feedback file (contract §8)** — order app → engine: position state, last disposition, armed/started. Unlocks the engine's `hold_status`/exit-guard as ACTIONABLE EXITS (engine-managed exits = the largest remaining P/L lever) + slippage-aware pricing. Cross-app spec, owner arbitrates, both repos, schema addendum through the frozen-contract amendment process. Soak gate: met. Right-sized as the Opus era's flagship. |
+| C1 | **v2 feedback file — SPECIFIED 2026-07-28, trader-ticked T1–T8; contract §8 amended (coordinated pass).** Exchange closed (proposal → engine reply ACCEPTED → ack → tick). Remaining = the two implementation builds, each on its own queue: order-app emitter (own Opus-HIGH pass, ships OFF, after N2 unless reordered) and engine consumption (behind its net-EV rider). Phase 2 (ACTIONABLE EXITS — the largest remaining P/L lever) stays fenced as a future signal-schema-v2 amendment, gated on the phase-1 display soak. Right-sized as the Opus era's flagship. |
 
 ## §5 — Hygiene backlog (anytime, unscheduled, all on record)
 
