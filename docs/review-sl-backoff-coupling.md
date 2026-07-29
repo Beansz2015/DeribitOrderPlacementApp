@@ -1,5 +1,18 @@
 # Coordinator review — N1b SL-backoff coupling (2026-07-28)
 
+> **ADDENDUM 2026-07-30 (escalation-defect ruling; see the spec's amended Acceptance section):**
+> §4.1's premise — "acceptance 2/3 owner-run PASSED per the handoff" — is **WITHDRAWN as to
+> acceptance 2**: its observable was structurally unreachable from the chase path (the optimistic
+> success-reset pins the counter at 0↔1 and the backoff at 666 ms), so whatever run occurred, it
+> did not observe acceptance 2 as then written. The runtime record was correctly HELD and now
+> follows the corrected recipe. **The approval of the coupling itself STANDS** — commit 2 does
+> exactly what was ruled; the defect is the pre-existing optimistic reset it interacts with
+> (fix: `spec-sl-backoff-confirmed-reset.md`). Reviewer's self-assessment, on the record: this
+> review CONFIRMED the dead chase `Catch` (§2 ask 2) but did not chase its corollary — a dead
+> Catch means the success path always executes, making the reset unconditional. The implementer
+> found the corollary while writing the runtime recipe. Third instance of the era's standing
+> lesson: verify what is IN FORCE — including whether an acceptance's observable can exist.
+
 **Verdict: APPROVED. All three open asks RULED — none changes code.** Commits `afb4bbc` (commit 1,
 comment-only) · `6d23bf0` (commit 2, the coupling per ruling `a973c3f`) · `65ef548` (impl report),
 against `spec-sl-backoff-coupling.md` as amended. Review request = the implementer's handoff +

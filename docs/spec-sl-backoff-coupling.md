@@ -59,17 +59,39 @@ throttle it feeds actually governs)** — call `BackoffStopLossRetry(DateTime.Ut
   accepted lock-free torn-write class, `emergencyBaseline` precedent) — the new receive-thread
   writer adds no class not already present; **no new synchronisation**.
 
-## Acceptance
+## Acceptance — AMENDED 2026-07-30 (escalation-defect ruling on `spec-back-sl-backoff-escalation-defect.md`)
+
+**Defect CONFIRMED by the coordinator at the sites:** the chase's success-reset is OPTIMISTIC —
+the dead chase `Catch` (established in the N1b review) means the `Try` ALWAYS completes, so
+`slUpdateFailures = 0` runs on rejected edits too; the rejection then increments 0→1 via the
+coupling. **From the chase path alone the counter oscillates 0↔1 and the backoff pins at 666 ms**
+(one response per attempt, every attempt resets, single-flight serializes). The original
+acceptance 2's observable (`SL update rate limited`, gated `remainingMs > 1000` ⇒ needs the
+counter ≥ 2 at increment) is therefore UNREACHABLE from the chase path — it cannot have been
+observed, and the fix is `spec-sl-backoff-confirmed-reset.md` (own spec). **The counter CAN
+exceed 1 today via the no-reset pump paths:** the manual SL button (223346) and the trailing-SL
+loop (223348) increment with no intervening reset — which is what the corrected acceptance 2
+uses. N1b's coupling itself is correct as ruled; nothing in this amendment changes commit 2.
 
 1. Gate per commit. Greps: `BackoffStopLossRetry` call sites = the existing 2 + exactly 1 new (the
    error arm); **the new site's id condition names exactly `223346`, `223348`, `223350`** (2026-07-28
    amendment); `emergencyFired` census untouched (1+2+3+3 — raw grep 10, incl. the N1-era comment);
-   tripwires unchanged.
-2. **Emergency independence (the point of the ordering):** with a persistent SL-edit failure now
-   genuinely driving the backoff to multi-second throttles, the M.SL cap still fires pre-throttle
-   — spec-emergency-hoist §Acceptance 2's scenario becomes REACHABLE for the first time; run it
-   (isolated harness, testnet): backoff engages (the `SL update rate limited` line appears — its
-   first-ever genuine appearance), emergency fires immediately regardless, exactly once.
-3. Benign-race exclusion: force the chase race (the standing recipe) — gray line, **no backoff
-   increment** (log the counter in the report's evidence).
-4. Normal sessions byte-identical (no red SL-edit errors ⇒ counter stays 0 ⇒ flat 333 ms as today).
+   tripwires unchanged. **PASSED (review `c5f539a` + re-verified at the defect ruling).**
+2. **CORRECTED — emergency independence, via the reachable pump recipe** (isolated harness,
+   testnet, owner-mouse): dead-order chase live (SL cancelled outside the app; chase red-fails on
+   223350 each tick) + **two or more manual SL button clicks** (each a red 223346, no reset
+   between them) ⇒ counter ≥ 2 ⇒ stamp goes multi-second ⇒ the `SL update rate limited` line
+   PRINTS (now reachable); then force the M.SL trip ⇒ **emergency fires immediately, exactly
+   once, despite the multi-second throttle** (the N1 hoist's guarantee under a genuinely engaged
+   backoff — the point of the ordering, preserved).
+3. Benign-race exclusion: **structurally ratified in the review** (the gray branch `Return`s
+   ahead of the coupling); the runtime eyeball test is superseded by the N1b-closeout fixtures
+   (the 3b(i) extraction below) — "no increment" becomes a fixture assertion.
+4. Normal sessions byte-identical (no red SL-edit errors ⇒ counter stays 0 ⇒ flat 333 ms as
+   today). **Unaffected by the defect; stands as argued.**
+5. **ADDED (3b(i), approved for immediate execution as N1b's closing commit — gate-only, no
+   behaviour change):** extract the backoff arithmetic to a `Friend Shared` helper
+   ((failures, failedAt) → (newFailures, stamp)) + OrderCheck fixtures pinning the arithmetic AND
+   proving today's 0↔1 chase-path oscillation deterministically (`InternalsVisibleTo("OrderCheck")`
+   exists — the `EffectiveSizeUsd`/`SessionBucketFor` precedent). When the confirmed-reset spec
+   lands, these fixtures extend to prove real escalation.
