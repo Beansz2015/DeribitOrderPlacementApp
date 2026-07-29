@@ -111,7 +111,10 @@ acts: verify push state, check whether the EV implementer is in flight, then C1 
 
 1. **EV chase budget** — implemented + reviewed (`review-ev-chase-budget.md`, all 5 asks ruled;
    §3's residual derivation corrected: gates 3/4 = the PRE-FILL Trail flow; EV floor live wherever
-   `manualTPval > 0`). Ships OFF. Open: owner §6.3 runtime pass + Tooling visual check.
+   `manualTPval > 0`). Ships OFF. **Tooling visual check PASSED 2026-07-30** (owner screenshot,
+   TESTNET; review §5a records its two findings — a stale designer comment, now corrected, and the
+   broken 856-height match with the host, left as an owner accept-or-reclaim call).
+   **Open: owner §6.3 runtime pass ONLY.**
 2. **N1b SL-backoff coupling** — full arc: id-scope ruling (SL ids 223346/223348/223350 ONLY) →
    implemented → reviewed → **escalation defect** (the optimistic reset pins the chase-path
    backoff at 666 ms; acceptance-2-passed premise WITHDRAWN on the review, coupling approval

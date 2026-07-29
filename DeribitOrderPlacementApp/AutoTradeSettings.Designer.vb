@@ -129,8 +129,12 @@ Partial Class AutoTradeSettings
         '
         ' Risk-sizing UI spec §1: the "AutoTrading Section" title label (lblBacktestTitle, a legacy
         ' name from the retired backtest era) was deleted and all four groups reflowed up into its
-        ' space. ClientSize stays 512x856 - StickToHost top-aligns this form to the host and the
-        ' matching heights are deliberate.
+        ' space. ClientSize was 512x856 then, matching the host's 856 exactly - StickToHost
+        ' top-aligns this form to the host, so the matched heights gave matched bottom edges too.
+        ' EV chase budget §4 grew this form to 512x904 for the Min Net Move row, so that match no
+        ' longer holds: the settings window now overhangs the host by 48px. Cosmetic (the overhang
+        ' is dead space under lblAtrNow, nothing clips) and recorded in review-ev-chase-budget.md
+        ' §5a as an accept-or-reclaim decision - do NOT re-assert "the heights match" here.
         ' Session policy spec D5: the Inclusion Time Range row is now the third row of THIS group
         ' (breaker y28 / cooloff y74 / time y125, all unchanged in x).
         grpTradeGates.Controls.Add(Label1)

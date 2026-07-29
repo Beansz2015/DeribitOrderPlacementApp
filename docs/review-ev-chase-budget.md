@@ -140,7 +140,41 @@ The §5 table's cases were spot-checked rather than re-run in full; two deserve 
    window title for `— TESTNET`** — the rebuild clobbers the bin's `secrets.json`. Back up
    `orderapp-settings.json` (the run tightens geometry; FormClosing persists all 11 fields).
    Trade-placing steps: OWNER mouse clicks only (triple-placement WATCH).
-2. **Tooling row visual check** rides the same session (`grpTooling` +48px, ClientSize 856→904).
+2. ~~**Tooling row visual check** rides the same session (`grpTooling` +48px, ClientSize 856→904).~~
+   **PASSED — owner screenshot, TESTNET, 2026-07-30.** The row renders as specified: caption
+   `Min Net Move:`, unit `%`, default `0`, textbox on the same x as the four boxes above it, unit
+   label in the same column, no overlap with the `SIZE` button (which ends at y=216; the row starts
+   at y=226), `lblAtrNow` intact and fully legible on its new line
+   (`ATR now: 30.51 (indicator) -> slip limit $18.31`), nothing clipped at the group or form edge,
+   window fully on screen. Corroboration that the screenshot is a current build: `Comms.: 22` at
+   index 63746.51 = the post-repoint 3.5 bps derivation (the retired constant would read 32).
+   **Two findings the check produced — see §5a.**
 3. Owner push (this review + fold-backs land on top of the five EV commits).
 4. Owner tick on `spec-fee-comms-repoint.md` scheduling; relay the one-line fee note to the
    engine seat with the standing ack header.
+
+## 5a. Findings from the Tooling visual check (2026-07-30)
+
+The row itself is correct; both findings are about what the +48px did to its surroundings, and
+both are implementer misses from the EV pass, not defects in the shipped behaviour.
+
+1. **Stale comment CORRECTED in this commit.** `AutoTradeSettings.Designer.vb` carried, from the
+   risk-sizing pass, "ClientSize stays 512x856 … the matching heights are deliberate". The EV pass
+   changed `ClientSize` to 904 and did not update it, leaving a designer comment that stated a
+   false number — exactly the class of stale fact a future seat greps and trusts. Reworded to
+   record the actual history and the property below.
+
+2. **The deliberate height match is BROKEN — owner decision, deliberately not fixed here.**
+   `frmMainPageV2` is `1080x856`; `AutoTradeSettings` was `512x856`, an exact match the designer
+   comment called deliberate, with `StickToHost` top-aligning the two. At 904 the settings window
+   now overhangs the main form's bottom edge by **48px**, visible in the owner's screenshot. It is
+   cosmetic — nothing clips, both windows fit the display, and the overhang is dead space below
+   `lblAtrNow` — so it does not block anything. But the EV spec did not licence breaking a
+   documented deliberate property, and the choice belongs to the owner:
+   - **accept** the asymmetry (zero work, one comment already records it); or
+   - **reclaim the 48px** inside the existing 856 — the Tooling group has ~30px of slack under
+     `lblAtrNow` plus ~14px inside the group, so tightening the five row pitches from 48 to ~44
+     would fit the new row without growing the form. That is a designer-only change, no logic.
+
+   Recommend **accept** unless the owner wants the matched bottom edges back; raising it rather
+   than silently keeping the growth.
