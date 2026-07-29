@@ -90,9 +90,17 @@ Re-run after the prose edits, per the standing tripwire lesson:
 | `NextSlBackoff` | 2 — unchanged |
 | `takerFeeBpsVal` | 3 (decl · seed · the one read) |
 
-## 6. Open — owner runtime acceptance 2
+## 6. Acceptance 2 — PASSED, owner runtime 2026-07-30
 
-Not runnable from this seat (no trades, and the number only lands on a live index tick):
+**Observed:** window title `— TESTNET`, bridge consumer ready in mode Off, index **63678.54**,
+comms box **22**. That is 3.5 bps to the dollar (0.00035 × 63678.54 = 22.287 → 22 away from zero);
+the retired 2024 constant would have written 32 (31.839 → 32), so the −10 of §2 is confirmed on the
+real feed. No trade was placed — the number lands on the first index tick, which is the whole
+observable. **The owner accepted the derived-TP / break-even shift as-is; no offsets re-tuned**
+(standing geometry at the pass: T.Prof. 60 · Trig.P 50 · S.Loss 20 · T.P.Off 60 · Trig.O 30 ·
+M.SL 70 checked · ATRSlip 0.6). **All three acceptances now pass; the spec has nothing open.**
+
+The steps that were run, kept for the next seat that repeats this shape:
 
 1. Rebuild the **x64** bin (the gate builds AnyCPU only) — then **read the window title** and
    confirm `— TESTNET` before anything else; the rebuild clobbers the bin's `secrets.json` from

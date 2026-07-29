@@ -2,9 +2,10 @@
 
 **Status: IMPLEMENTED 2026-07-30 at `60b95d6`** (approved 2026-07-28, owner tick, post-N1b — the
 recommended slot). Gate PASSED, OrderCheck 140 → 146; as-built in
-`docs/impl-report-fee-comms-repoint.md`. Acceptances 1 and 3 met in-seat; **acceptance 2 (owner
-runtime: the comms box lands ≈ 3.5 bps of index, and the derived-TP / break-even shift is accepted
-or the offsets re-tuned) is OPEN.**
+`docs/impl-report-fee-comms-repoint.md`. **ALL THREE ACCEPTANCES PASSED** — 1 and 3 in-seat;
+**acceptance 2 CLOSED by the owner's runtime pass 2026-07-30** (TESTNET, index 63678.54 → comms
+box **22**, i.e. 3.5 bps to the dollar; the retired constant would have written 32). The
+derived-TP / break-even shift was accepted as-is. Awaiting coordinator review only.
 Origin: EV-chase-budget spec-back §4 finding, ruled in `review-ev-chase-budget.md` §2.
 **Contract impact: NONE. Engine-seat relay: CLOSED** (their relay record amended; the engine
 carries no analogous constant — fees entered engine code at v62, `scoring.trade_costs`).
