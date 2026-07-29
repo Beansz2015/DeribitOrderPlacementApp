@@ -1,5 +1,20 @@
 # Micro-spec — repoint the comms default off the 2024 taker constant
 
+> **COORDINATOR REVIEW 2026-07-30: APPROVED — CLOSED.** Gate EXECUTED by the reviewer: GATE
+> PASSED, OrderCheck **146/146**, all six comms fixtures passing under the reviewer's own run.
+> Diff verified at `60b95d6`: rounding carried verbatim (only the rate moved), the string→decimal
+> conversion stays in the same position (non-numeric index still throws into the same Catch), the
+> mirror follows the maker-sibling pattern, and the owner's acceptance-2 numbers corroborate to
+> the dollar (63678.54 × 3.5 bps = 22.29 → 22; the retired rate gives 31.84 → 32). Censuses
+> re-run independently: `TakerFeeRate` **0 in code**, `DefaultCommsFromTakerBps` 2,
+> `takerFeeBpsVal` 3, `emergencyFired` 10, `slUpdateFailures = 0` exactly 1, `NextSlBackoff` 2.
+> **The two reviewer observations, ruled:** (a) comms stays ONE taker leg — that is the box's
+> historical semantic; any round-trip/break-even redefinition is the deferred Rec-2
+> crossing-delta micro-spec's scope, not drift to absorb here; (b) the persisted `comms` key
+> being overwritten by the first index tick is pre-existing and accepted — the persisted value
+> covers only the start→first-tick window; if the owner ever wants a tick-surviving manual comms
+> override, that is a new ask, not a defect. **Nothing remains on this spec.**
+
 **Status: IMPLEMENTED 2026-07-30 at `60b95d6`** (approved 2026-07-28, owner tick, post-N1b — the
 recommended slot). Gate PASSED, OrderCheck 140 → 146; as-built in
 `docs/impl-report-fee-comms-repoint.md`. **ALL THREE ACCEPTANCES PASSED** — 1 and 3 in-seat;
