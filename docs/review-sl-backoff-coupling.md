@@ -13,6 +13,20 @@
 > found the corollary while writing the runtime recipe. Third instance of the era's standing
 > lesson: verify what is IN FORCE — including whether an acceptance's observable can exist.
 
+> **CLOSURE 2026-07-30 — 3b(i) REVIEWED + APPROVED; N1b is CLOSED code-side.** `d3c9a04`
+> (+ report addendum `e8d2f2c`) reviewed against Acceptance 5: gate EXECUTED by the reviewer —
+> **GATE PASSED, OrderCheck 140/140**, all 16 SL-backoff fixtures passing under the reviewer's
+> own run. The `NextSlBackoff` extraction verified **behaviour-identical** (`n` reproduces the
+> assign-first/use-new-value order; the caller writes the same two fields in the same order;
+> the read-modify-write window on the field is the same pre-existing class; `Private Const`s
+> readable from `Shared` — nothing moved). All censuses re-run independently at the stated
+> values, incl. `slUpdateFailures = 0` still exactly 1 (the site N1c moves) and `NextSlBackoff`
+> = 2 (decl + caller). The four fixture groups do what the ruling asked: arithmetic pinned from
+> the stamp, the acceptance-2 threshold now a fixture, the chase-path oscillation proven
+> deterministically, and the no-reset escalation proven — shaped so N1c extends them.
+> **Remaining on this mechanism: the owner's corrected-recipe runtime record (or wait for N1c)
+> — everything else is closed. Next: fee-comms repoint → N1c, per the owner's sequencing.**
+
 **Verdict: APPROVED. All three open asks RULED — none changes code.** Commits `afb4bbc` (commit 1,
 comment-only) · `6d23bf0` (commit 2, the coupling per ruling `a973c3f`) · `65ef548` (impl report),
 against `spec-sl-backoff-coupling.md` as amended. Review request = the implementer's handoff +
