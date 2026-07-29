@@ -71,8 +71,9 @@ Public NotInheritable Class AppUserSettings
     ' an exchange schedule changes about once a year by announcement, relayed to both repos. The
     ' round-trip constant the chase budget uses DERIVES as 2 x maker (maker entry + maker TP, the
     ' standing maker-first flow), so a schedule change is these two numbers and nothing else.
-    ' TakerFeeBps is carried for the schedule's sake: v1 reads only the maker leg. It is the input
-    ' the crossing-delta guidance (relay Rec 2, deferred to its own micro-spec) will compute from.
+    ' TakerFeeBps drives the DEFAULT COMMS the app sets on every index tick (repointed off a 2024
+    ' constant by docs/spec-fee-comms-repoint.md), and is the input the crossing-delta guidance
+    ' (relay Rec 2, deferred to its own micro-spec) will compute from.
     Public MakerFeeBps As Decimal = 1.5D
     Public TakerFeeBps As Decimal = 3.5D
 

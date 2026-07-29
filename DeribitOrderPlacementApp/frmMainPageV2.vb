@@ -349,10 +349,6 @@ Public Class frmMainPageV2
     Private marketStopThreshold As Decimal = 0D    ' mirrors txtMarketStopLoss
     Private maxSlippageATRmult As Decimal = 0D     ' mirrors txtMaxSlippageATR
 
-    ' Taker fee rate (Deribit BTC-PERPETUAL, 2024 schedule). Used in HandleIndexUpdates to set
-    ' the default comms amount (fee on the full position value).
-    Private Const TakerFeeRate As Decimal = 0.0005D
-
     ' --- Entry-chase v2 (docs/spec-entry-chase-v2.md) ---
     Private Const ChaseTickUSD As Decimal = 0.5D            ' BTC-PERPETUAL tick (matches the NoSpread branches)
 
@@ -393,11 +389,23 @@ Public Class frmMainPageV2
     ' Maker fee in bps. File-only knob (no UI): the schedule changes by exchange announcement about
     ' once a year, by relay. Nothing hardcodes the 3.0 bps round trip - it derives from this.
     Private makerFeeBpsVal As Decimal = 1.5D
+    ' Taker fee in bps, same file-only knob and same relay discipline (docs/spec-fee-comms-repoint.md).
+    ' Read on the RECEIVE thread by HandleIndexUpdates on every index tick to set the default comms,
+    ' so it is a plain field like its maker sibling - never a control read.
+    Private takerFeeBpsVal As Decimal = 3.5D
 
     ' Round-trip maker fee as a price fraction: maker entry + maker TP (the trader's standing
     ' maker-first flow, per the fee relay). Pure; OrderCheck-pinned.
     Friend Shared Function RoundTripFeePctFromMakerBps(makerFeeBps As Decimal) As Decimal
         Return 2D * makerFeeBps / 10000D
+    End Function
+
+    ' Default comms: the taker fee on the full position value, in whole dollars (the comms box has
+    ' always held a rounded dollar amount, and the derived TP / break-even trigger add it directly).
+    ' Derives from the persisted schedule so a fee announcement is one number in the settings file -
+    ' the 2024 constant this replaced was ~43% over the 2026-08-01 taker. Pure; OrderCheck-pinned.
+    Friend Shared Function DefaultCommsFromTakerBps(takerFeeBps As Decimal, indexPrice As Decimal) As Decimal
+        Return Math.Abs(Math.Round(takerFeeBps / 10000D * indexPrice, 0, MidpointRounding.AwayFromZero))
     End Function
 
     ' Stop chasing when the remaining move to the target no longer clears round-trip fees plus the
@@ -439,6 +447,7 @@ Public Class frmMainPageV2
         If userSettings Is Nothing Then Return
         minNetMovePctVal = userSettings.MinNetMovePct
         makerFeeBpsVal = userSettings.MakerFeeBps
+        takerFeeBpsVal = userSettings.TakerFeeBps
     End Sub
 
     ' Transition-race fix: True while a cancel is in flight. Auto-clears once the timeout elapses so a
@@ -1890,8 +1899,11 @@ Public Class frmMainPageV2
                 Dim indexPrice As String = json.SelectToken("params.data.price")
                 Dim comms As Decimal = Nothing
 
-                comms = TakerFeeRate * indexPrice
-                comms = Math.Abs(Math.Round(comms, 0, MidpointRounding.AwayFromZero))
+                ' Default comms from the PERSISTED taker schedule (taker_fee_bps), not a hardcoded
+                ' rate - docs/spec-fee-comms-repoint.md. Same shape as before: computed here, used
+                ' below only when the price parses (a non-numeric price throws into the Catch, as it
+                ' always has).
+                comms = DefaultCommsFromTakerBps(takerFeeBpsVal, indexPrice)
 
                 ' Update engine fields first (cross-thread fix: HandleBalanceUpdates reads indexPriceVal,
                 ' not lblIndexPrice.Text), then mirror the display via UiInvoke.

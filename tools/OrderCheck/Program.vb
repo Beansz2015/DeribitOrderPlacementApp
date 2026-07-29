@@ -443,6 +443,23 @@ Module Program
         Check("EV fees: the derivation tracks a schedule change (2.0 bps maker = 0.0004)",
               frmMainPageV2.RoundTripFeePctFromMakerBps(2D) = 0.0004D)
 
+        ' ---- Default comms (docs/spec-fee-comms-repoint.md): the TAKER leg, whole dollars ----
+        ' The comms box is set on every index tick and feeds the derived TP and the break-even
+        ' trigger, so this is the arithmetic that used to carry the 2024 constant.
+        Check("comms: 3.5 bps taker of a 64k index = 22 (the 2024 constant gave 32)",
+              frmMainPageV2.DefaultCommsFromTakerBps(3.5D, 64000D) = 22D,
+              $"got {frmMainPageV2.DefaultCommsFromTakerBps(3.5D, 64000D)}")
+        ' Repoint, not a reformulation: the retired constant was 5 bps, and feeding 5 bps back in
+        ' reproduces the old number exactly. Any drift in the formula breaks this line.
+        Check("comms: the retired 2024 rate re-derives as 5 bps (= 32 at 64k)",
+              frmMainPageV2.DefaultCommsFromTakerBps(5D, 64000D) = 32D)
+        ' Rounding is whole dollars, away from zero at the midpoint - 3.5 bps of 70k is exactly 24.5.
+        Check("comms: a .5 lands away from zero (24.5 -> 25)",
+              frmMainPageV2.DefaultCommsFromTakerBps(3.5D, 70000D) = 25D,
+              $"got {frmMainPageV2.DefaultCommsFromTakerBps(3.5D, 70000D)}")
+        ' No index yet (or an unparsed one) = 0, which the callers already treat as "no comms".
+        Check("comms: a zero index gives 0", frmMainPageV2.DefaultCommsFromTakerBps(3.5D, 0D) = 0D)
+
         ' ---- IsChaseEvExhausted (§1 / §5) ----
         ' The shipped knob is 0, and 0 is the whole ship-safety argument: the predicate returns
         ' False on its first guard, before it looks at anything else.
@@ -520,12 +537,20 @@ Module Program
                   handEdited.MinNetMovePct = 0.0005D AndAlso handEdited.TakerFeeBps = 4D AndAlso
                   frmMainPageV2.RoundTripFeePctFromMakerBps(handEdited.MakerFeeBps) = 0.0004D)
 
+            ' The repoint's acceptance 1: the comms default follows a hand-edited taker key end to
+            ' end - file bytes -> Load -> the derivation HandleIndexUpdates runs. 4 bps of 64k = 25.6.
+            Check("comms: a hand-edited taker key drives the default comms (4 bps at 64k -> 26)",
+                  frmMainPageV2.DefaultCommsFromTakerBps(handEdited.TakerFeeBps, 64000D) = 26D,
+                  $"got {frmMainPageV2.DefaultCommsFromTakerBps(handEdited.TakerFeeBps, 64000D)}")
+
             ' The ship-safe path: a file with none of the EV keys = OFF + the shipped schedule.
             File.WriteAllText(evPath, "{ ""amount"": 10 }")
             Dim bare As AppUserSettings = AppUserSettings.Load(loadMsg)
             Check("EV persistence: absent keys = 0 (OFF) + the 1.5/3.5 schedule",
                   bare.MinNetMovePct = 0D AndAlso bare.MakerFeeBps = 1.5D AndAlso bare.TakerFeeBps = 3.5D,
                   $"got {bare.MinNetMovePct} / {bare.MakerFeeBps} / {bare.TakerFeeBps}")
+            Check("comms: an absent taker key still gives the shipped 3.5 bps default (22 at 64k)",
+                  frmMainPageV2.DefaultCommsFromTakerBps(bare.TakerFeeBps, 64000D) = 22D)
         Catch ex As Exception
             Check("EV persistence fixture: no throw", False, ex.Message)
         Finally
