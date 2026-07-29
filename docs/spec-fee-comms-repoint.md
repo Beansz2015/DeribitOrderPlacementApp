@@ -1,10 +1,13 @@
 # Micro-spec — repoint the comms default off the 2024 taker constant
 
-**Status: QUEUED, owner-tick pending** (scheduling is the owner's call; recommended slot = the
-Aug-1 settings touch or immediately after N1b). Origin: EV-chase-budget spec-back §4 finding,
-ruled in `review-ev-chase-budget.md` §2. **Contract impact: NONE. Engine-seat relay: one line**
-(their §0 "fee constants deliberately duplicated per-repo" should note the order app had a third,
-older copy — now queued for repoint).
+**Status: APPROVED FOR IMPLEMENTATION 2026-07-28** (owner tick, post-N1b — the recommended slot).
+Origin: EV-chase-budget spec-back §4 finding, ruled in `review-ev-chase-budget.md` §2.
+**Contract impact: NONE. Engine-seat relay: CLOSED** (their relay record amended; the engine
+carries no analogous constant — fees entered engine code at v62, `scoring.trade_costs`).
+**Recommended implementer: Opus HIGH, fresh conversation** — the change is one site but it lives
+in `HandleIndexUpdates` on the receive path (threading rules apply; the comment discipline near
+tripwire tokens applies — this file's censuses include `TakerFeeRate → 0`). Single commit +
+gate + short impl report; standing ground rules (never push, anchors by symbol at HEAD).
 
 ## The defect
 
