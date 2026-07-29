@@ -305,7 +305,8 @@ Public Class AutoTradeSettings
         chkSessionPolicyOn.Checked = cfg.Enabled
     End Sub
 
-    ' EV chase budget §4: one-time seed of the Min Net Move box from the host's loaded settings.
+    ' EV chase budget §4: one-time seed of the Min Net Profit box (identifiers still say MinNetMove -
+    ' display-text-only rename, owner 2026-07-30) from the host's loaded settings.
     ' MUST run before the first CommitToolingConfig (see InitialiseSettings). x100 because the host
     ' holds the FRACTION and the box speaks PERCENT; invariant culture so the rendered text is the
     ' same string the invariant parse on commit reads back.
@@ -373,7 +374,7 @@ Public Class AutoTradeSettings
         ' Checked invariantly, matching the commit above (a box that commits must not warn, and a
         ' box that warns must not commit).
         If Not Decimal.TryParse(txtMinNetMove.Text, Globalization.NumberStyles.Number,
-                                Globalization.CultureInfo.InvariantCulture, d) Then problems.Add($"min net move '{txtMinNetMove.Text}'")
+                                Globalization.CultureInfo.InvariantCulture, d) Then problems.Add($"min net profit '{txtMinNetMove.Text}'")
         If _sessionPolicyProblem IsNot Nothing Then problems.Add($"session policy '{_sessionPolicyProblem}'")
 
         ' Record the warning (Nothing = none) and hand the label to its single writer, which decides

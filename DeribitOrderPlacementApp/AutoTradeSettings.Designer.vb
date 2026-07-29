@@ -129,12 +129,11 @@ Partial Class AutoTradeSettings
         '
         ' Risk-sizing UI spec §1: the "AutoTrading Section" title label (lblBacktestTitle, a legacy
         ' name from the retired backtest era) was deleted and all four groups reflowed up into its
-        ' space. ClientSize was 512x856 then, matching the host's 856 exactly - StickToHost
-        ' top-aligns this form to the host, so the matched heights gave matched bottom edges too.
-        ' EV chase budget §4 grew this form to 512x904 for the Min Net Move row, so that match no
-        ' longer holds: the settings window now overhangs the host by 48px. Cosmetic (the overhang
-        ' is dead space under lblAtrNow, nothing clips) and recorded in review-ev-chase-budget.md
-        ' §5a as an accept-or-reclaim decision - do NOT re-assert "the heights match" here.
+        ' space. ClientSize is 512x856, matching the host's 856 exactly - StickToHost top-aligns this
+        ' form to the host, so the matched heights give matched bottom edges. EV chase budget §4
+        ' briefly broke this (512x904 for the fifth Tooling row); RECLAIMED 2026-07-30 by the owner's
+        ' ruling - see grpTooling below. The match is a real constraint, not decoration: anything
+        ' added here has to earn its height inside 856 or it moves the host's bottom edge out of line.
         ' Session policy spec D5: the Inclusion Time Range row is now the third row of THIS group
         ' (breaker y28 / cooloff y74 / time y125, all unchanged in x).
         grpTradeGates.Controls.Add(Label1)
@@ -394,13 +393,17 @@ Partial Class AutoTradeSettings
         grpTooling.Controls.Add(lblMinNetMoveCap)
         grpTooling.Controls.Add(txtMinNetMove)
         grpTooling.Controls.Add(lblMinNetMoveUnit)
-        grpTooling.Controls.Add(lblAtrNow)
         grpTooling.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
         grpTooling.ForeColor = SystemColors.ButtonFace
         grpTooling.Location = New Point(18, 556)
         grpTooling.Name = "grpTooling"
-        ' EV chase budget §4: +48 for the Min Net Move row (the form's ClientSize grows to match).
-        grpTooling.Size = New Size(482, 318)
+        ' EV chase budget §4 first grew this to 318 for the fifth row, which broke the host height
+        ' match. RECLAIMED (owner ruling 2026-07-30): back inside the original envelope by tightening
+        ' the row pitch 48 -> 46 (the pitch grpTradeGates already uses) and lifting lblAtrNow OUT of
+        ' this group into the strip below it. The boxes themselves could NOT shrink - a single-line
+        ' TextBox clamps its height to the font, so 42 is fixed at Calibri 14pt, and five of them
+        ' plus a 26px readout will not fit 270 at any pitch. Five rows now end at 256; 10px margin.
+        grpTooling.Size = New Size(482, 266)
         grpTooling.TabIndex = 4
         grpTooling.TabStop = False
         grpTooling.Text = "Tooling"
@@ -447,7 +450,7 @@ Partial Class AutoTradeSettings
         lblAtrFallbackCap.AutoSize = True
         lblAtrFallbackCap.Font = New Font("Calibri", 14F)
         lblAtrFallbackCap.ForeColor = SystemColors.ControlLight
-        lblAtrFallbackCap.Location = New Point(11, 82)
+        lblAtrFallbackCap.Location = New Point(11, 80)
         lblAtrFallbackCap.Name = "lblAtrFallbackCap"
         lblAtrFallbackCap.Size = New Size(178, 35)
         lblAtrFallbackCap.TabIndex = 0
@@ -460,7 +463,7 @@ Partial Class AutoTradeSettings
         txtAtrFallback.BorderStyle = BorderStyle.FixedSingle
         txtAtrFallback.Font = New Font("Calibri", 14F)
         txtAtrFallback.ForeColor = Color.White
-        txtAtrFallback.Location = New Point(330, 78)
+        txtAtrFallback.Location = New Point(330, 76)
         txtAtrFallback.Name = "txtAtrFallback"
         txtAtrFallback.Size = New Size(64, 42)
         txtAtrFallback.TabIndex = 2
@@ -472,7 +475,7 @@ Partial Class AutoTradeSettings
         lblAtrFallbackUnit.AutoSize = True
         lblAtrFallbackUnit.Font = New Font("Calibri", 10F)
         lblAtrFallbackUnit.ForeColor = SystemColors.ControlLight
-        lblAtrFallbackUnit.Location = New Point(400, 86)
+        lblAtrFallbackUnit.Location = New Point(400, 84)
         lblAtrFallbackUnit.Name = "lblAtrFallbackUnit"
         lblAtrFallbackUnit.Size = New Size(50, 24)
         lblAtrFallbackUnit.TabIndex = 0
@@ -487,7 +490,7 @@ Partial Class AutoTradeSettings
         lblRiskPerTradeCap.AutoSize = True
         lblRiskPerTradeCap.Font = New Font("Calibri", 14F)
         lblRiskPerTradeCap.ForeColor = SystemColors.ControlLight
-        lblRiskPerTradeCap.Location = New Point(11, 130)
+        lblRiskPerTradeCap.Location = New Point(11, 126)
         lblRiskPerTradeCap.Name = "lblRiskPerTradeCap"
         lblRiskPerTradeCap.Size = New Size(178, 35)
         lblRiskPerTradeCap.TabIndex = 0
@@ -500,7 +503,7 @@ Partial Class AutoTradeSettings
         txtRiskPerTrade.BorderStyle = BorderStyle.FixedSingle
         txtRiskPerTrade.Font = New Font("Calibri", 14F)
         txtRiskPerTrade.ForeColor = Color.White
-        txtRiskPerTrade.Location = New Point(330, 126)
+        txtRiskPerTrade.Location = New Point(330, 122)
         txtRiskPerTrade.Name = "txtRiskPerTrade"
         txtRiskPerTrade.Size = New Size(64, 42)
         txtRiskPerTrade.TabIndex = 3
@@ -512,7 +515,7 @@ Partial Class AutoTradeSettings
         lblRiskPerTradeUnit.AutoSize = True
         lblRiskPerTradeUnit.Font = New Font("Calibri", 10F)
         lblRiskPerTradeUnit.ForeColor = SystemColors.ControlLight
-        lblRiskPerTradeUnit.Location = New Point(400, 134)
+        lblRiskPerTradeUnit.Location = New Point(400, 130)
         lblRiskPerTradeUnit.Name = "lblRiskPerTradeUnit"
         lblRiskPerTradeUnit.Size = New Size(50, 24)
         lblRiskPerTradeUnit.TabIndex = 0
@@ -523,7 +526,7 @@ Partial Class AutoTradeSettings
         lblMaxSizeCap.AutoSize = True
         lblMaxSizeCap.Font = New Font("Calibri", 14F)
         lblMaxSizeCap.ForeColor = SystemColors.ControlLight
-        lblMaxSizeCap.Location = New Point(11, 178)
+        lblMaxSizeCap.Location = New Point(11, 172)
         lblMaxSizeCap.Name = "lblMaxSizeCap"
         lblMaxSizeCap.Size = New Size(178, 35)
         lblMaxSizeCap.TabIndex = 0
@@ -536,7 +539,7 @@ Partial Class AutoTradeSettings
         txtMaxSize.BorderStyle = BorderStyle.FixedSingle
         txtMaxSize.Font = New Font("Calibri", 14F)
         txtMaxSize.ForeColor = Color.White
-        txtMaxSize.Location = New Point(330, 174)
+        txtMaxSize.Location = New Point(330, 168)
         txtMaxSize.Name = "txtMaxSize"
         txtMaxSize.Size = New Size(64, 42)
         txtMaxSize.TabIndex = 4
@@ -548,7 +551,7 @@ Partial Class AutoTradeSettings
         lblMaxSizeUnit.AutoSize = True
         lblMaxSizeUnit.Font = New Font("Calibri", 10F)
         lblMaxSizeUnit.ForeColor = SystemColors.ControlLight
-        lblMaxSizeUnit.Location = New Point(400, 182)
+        lblMaxSizeUnit.Location = New Point(400, 176)
         lblMaxSizeUnit.Name = "lblMaxSizeUnit"
         lblMaxSizeUnit.Size = New Size(50, 24)
         lblMaxSizeUnit.TabIndex = 0
@@ -565,9 +568,9 @@ Partial Class AutoTradeSettings
         btnRiskSize.Cursor = Cursors.Hand
         btnRiskSize.Font = New Font("Calibri", 14F, FontStyle.Bold)
         btnRiskSize.ForeColor = SystemColors.ControlText
-        btnRiskSize.Location = New Point(200, 126)
+        btnRiskSize.Location = New Point(200, 122)
         btnRiskSize.Name = "btnRiskSize"
-        btnRiskSize.Size = New Size(120, 90)
+        btnRiskSize.Size = New Size(120, 88)
         btnRiskSize.TabIndex = 5
         btnRiskSize.Text = "SIZE"
         AutoTradingToolTip.SetToolTip(btnRiskSize, "Risk-based size: risk_per_trade_usd x best price / stop distance" & vbCrLf & "(manual SL if set, else Trig. P.), floored to a 10-USD multiple and" & vbCrLf & "clamped to max_size_usd. Both keys live in orderapp-settings.json.")
@@ -585,12 +588,17 @@ Partial Class AutoTradeSettings
         lblMinNetMoveCap.AutoSize = True
         lblMinNetMoveCap.Font = New Font("Calibri", 14F)
         lblMinNetMoveCap.ForeColor = SystemColors.ControlLight
-        lblMinNetMoveCap.Location = New Point(11, 226)
+        lblMinNetMoveCap.Location = New Point(11, 218)
         lblMinNetMoveCap.Name = "lblMinNetMoveCap"
         lblMinNetMoveCap.Size = New Size(178, 35)
         lblMinNetMoveCap.TabIndex = 0
-        lblMinNetMoveCap.Text = "Min Net Move:"
-        AutoTradingToolTip.SetToolTip(lblMinNetMoveCap, "EV chase budget: stop chasing an entry once the move still left to" & vbCrLf & "the take-profit no longer covers round-trip fees PLUS this much" & vbCrLf & "net move. The chase is then abandoned with 'EV floor' instead of" & vbCrLf & "running on to the ATR slippage cap." & vbCrLf & "UNIT: PERCENT of price. 0.05 here = 0.05% = 5 bps." & vbCrLf & "0 (the default) turns it OFF - behaviour is then exactly as before." & vbCrLf & "Only applies while a TP is in force (bridge trades always have one;" & vbCrLf & "manual OFFSET trades keep the ATR cap alone)." & vbCrLf & "Persists as min_net_move_pct (a FRACTION: 0.0005) in" & vbCrLf & "orderapp-settings.json, alongside the maker/taker fee bps keys.")
+        ' Caption RENAMED to "Min Net Profit:" by owner ruling 2026-07-30. DISPLAY TEXT ONLY - every
+        ' identifier behind it deliberately still says MinNetMove (lblMinNetMoveCap, txtMinNetMove,
+        ' minNetMovePctVal, MinNetMovePct, SetMinNetMovePct, SeedMinNetMoveFromHost) and so does the
+        ' persisted key min_net_move_pct and the harness AccessibleName. If you grepped one spelling
+        ' and found nothing, try the other - they are the same knob.
+        lblMinNetMoveCap.Text = "Min Net Profit:"
+        AutoTradingToolTip.SetToolTip(lblMinNetMoveCap, "EV chase budget: stop chasing an entry once the move still left to" & vbCrLf & "the take-profit no longer covers round-trip fees PLUS this much" & vbCrLf & "net profit. The chase is then abandoned with 'EV floor' instead of" & vbCrLf & "running on to the ATR slippage cap." & vbCrLf & "UNIT: PERCENT of price. 0.05 here = 0.05% = 5 bps." & vbCrLf & "0 (the default) turns it OFF - behaviour is then exactly as before." & vbCrLf & "Only applies while a TP is in force (bridge trades always have one;" & vbCrLf & "manual OFFSET trades keep the ATR cap alone)." & vbCrLf & "Persists as min_net_move_pct (a FRACTION: 0.0005) in" & vbCrLf & "orderapp-settings.json, alongside the maker/taker fee bps keys.")
         '
         ' txtMinNetMove
         '
@@ -598,7 +606,7 @@ Partial Class AutoTradeSettings
         txtMinNetMove.BorderStyle = BorderStyle.FixedSingle
         txtMinNetMove.Font = New Font("Calibri", 14F)
         txtMinNetMove.ForeColor = Color.White
-        txtMinNetMove.Location = New Point(330, 222)
+        txtMinNetMove.Location = New Point(330, 214)
         txtMinNetMove.Name = "txtMinNetMove"
         txtMinNetMove.Size = New Size(64, 42)
         txtMinNetMove.TabIndex = 6
@@ -610,7 +618,7 @@ Partial Class AutoTradeSettings
         lblMinNetMoveUnit.AutoSize = True
         lblMinNetMoveUnit.Font = New Font("Calibri", 10F)
         lblMinNetMoveUnit.ForeColor = SystemColors.ControlLight
-        lblMinNetMoveUnit.Location = New Point(400, 230)
+        lblMinNetMoveUnit.Location = New Point(400, 222)
         lblMinNetMoveUnit.Name = "lblMinNetMoveUnit"
         lblMinNetMoveUnit.Size = New Size(50, 24)
         lblMinNetMoveUnit.TabIndex = 0
@@ -621,11 +629,19 @@ Partial Class AutoTradeSettings
         ' Live readout: FrmIndicators is retired, so its ATR display is gone - this is now the only
         ' place the effective ATR is visible, and it is what proves the headless indicator engine is
         ' actually running. Ticks once a second while this form is open.
+        '
+        ' PARENT CHANGED 2026-07-30 (48px reclaim): this label now belongs to the FORM, not to
+        ' grpTooling, and sits in the strip below that group - so its Location is form-relative
+        ' (x 29 = the group's x 18 + the old in-group x 11; the column is unchanged on screen).
+        ' It is a status readout rather than a knob, so reading as a status line under the group is
+        ' the natural place for it, and it is the only 26+px that could leave the group: the five
+        ' knob rows are 42px single-line TextBoxes whose height is font-clamped and unshrinkable.
+        ' RefreshAtrReadout / the tooltip are unaffected - only the parent and the origin moved.
         lblAtrNow.Font = New Font("Calibri", 11F, FontStyle.Bold)
         lblAtrNow.ForeColor = SystemColors.ControlLight
-        lblAtrNow.Location = New Point(11, 274)
+        lblAtrNow.Location = New Point(29, 826)
         lblAtrNow.Name = "lblAtrNow"
-        lblAtrNow.Size = New Size(460, 30)
+        lblAtrNow.Size = New Size(460, 26)
         lblAtrNow.TabIndex = 0
         lblAtrNow.Text = "Current ATR: -"
         ' §1: lblToolingNote's priority line moved into this tooltip (APPENDED - the original
@@ -637,7 +653,11 @@ Partial Class AutoTradeSettings
         AutoScaleDimensions = New SizeF(10F, 25F)
         AutoScaleMode = AutoScaleMode.Font
         BackColor = SystemColors.ActiveCaptionText
-        ClientSize = New Size(512, 904)
+        ' Back to the host's 856 (frmMainPageV2 is 1080x856) - StickToHost top-aligns the two, so
+        ' matched heights mean matched bottom edges again. grpTooling ends at 556+266 = 822;
+        ' lblAtrNow occupies 826..852; 4px to the form edge.
+        ClientSize = New Size(512, 856)
+        Controls.Add(lblAtrNow)
         Controls.Add(grpTooling)
         Controls.Add(grpSignalBridge)
         Controls.Add(grpTradeGates)

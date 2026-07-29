@@ -178,3 +178,27 @@ both are implementer misses from the EV pass, not defects in the shipped behavio
 
    Recommend **accept** unless the owner wants the matched bottom edges back; raising it rather
    than silently keeping the growth.
+
+   **OWNER RULED 2026-07-30: RECLAIM.** Done — the form is back to `512x856` and the host's bottom
+   edge lines up again. **The recommendation above ("tighten the five row pitches 48 → ~44") was
+   WRONG and is corrected here**: the knob rows are single-line `TextBox`es, whose height WinForms
+   clamps to the font, so 42px at Calibri 14pt is not adjustable. Fitting five of them plus the
+   26px readout inside 270 needs `4×pitch + gap + margin ≤ 172`, which fails even at pitch 42
+   (boxes touching). Pitch can reclaim ~8px, never 48.
+
+   What actually worked: pitch 48 → **46** (the value `grpTradeGates` already uses, so it is a
+   proven spacing on this form, not a guess) **plus lifting `lblAtrNow` out of `grpTooling` onto
+   the form**, into the strip below it. Final geometry: rows at 30/76/122/168/214 (last box ends
+   256), `grpTooling` 482x**266** (10px margin), `btnRiskSize` 122..210 still spanning rows 3–4
+   exactly, `lblAtrNow` at form-relative (29, 826), 460x26, ending 4px above the form edge,
+   `ClientSize` **512x856**. `lblAtrNow` is a status readout rather than a knob, so a status line
+   under the group is a defensible home for it — but it IS a change to the grouping and wants an
+   eyeball on the next screenshot.
+
+3. **Caption renamed `Min Net Move:` → `Min Net Profit:`** (owner, 2026-07-30). **Display text
+   only**, by instruction: `lblMinNetMoveCap`, `txtMinNetMove`, `minNetMovePctVal`, `MinNetMovePct`,
+   `SetMinNetMovePct`, `SeedMinNetMoveFromHost`, the persisted `min_net_move_pct` key and the
+   harness `AccessibleName` are all unchanged. The gate-config warning line now reads
+   `min net profit '<text>'`, and the caption tooltip's one "net move" became "net profit"; the
+   example-json comment and spec §4 record the split. **Standing note for future seats: the label
+   and the identifiers deliberately disagree — grepping one spelling will miss the other.**

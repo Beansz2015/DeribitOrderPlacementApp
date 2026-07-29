@@ -90,7 +90,9 @@ EV-exhaustion is a property of an ongoing chase, not of initial placement.
   a fee block `maker_fee_bps = 1.5` / `taker_fee_bps = 3.5` (keys documented in the example json;
   the round-trip constant derives as 2 × maker — no hardcoded 3.0 left behind when the schedule
   next changes). All on item A's atomic path.
-- `AutoTradeSettings` Tooling: one box `txtMinNetMove` (caption `Min Net Move:`, unit `%` — value
+- `AutoTradeSettings` Tooling: one box `txtMinNetMove` (caption **`Min Net Profit:`** — renamed from
+  `Min Net Move:` by owner ruling 2026-07-30, **display text only**: the control name, the field, the
+  `min_net_move_pct` key and the harness AccessibleName all still say MinNetMove — unit `%` — value
   entered as a percent, e.g. `0.05` = 5 bps; parse invariant, ÷100 to the pct fraction — state the
   unit in the tooltip AND the impl report, this is the classic knob-unit trap) + seed-before-commit
   (sixth application) + commit-push like the breaker; keep-last-good on garbage. Fee bps are
