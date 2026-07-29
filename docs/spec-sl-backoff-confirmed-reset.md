@@ -1,5 +1,26 @@
 # Micro-spec — move the SL-backoff success-reset to a CONFIRMED success (N1c)
 
+> **COORDINATOR REVIEW 2026-07-30: APPROVED code-side.** Gate EXECUTED by the reviewer: GATE
+> PASSED, OrderCheck **153/153**. Both flagged attack points survived scrutiny:
+> **(1) The positive-test-vs-else-arm reading is CORRECT** — the reviewer walked the three-branch
+> discriminator (:2991 flip-adopt / :3008 genuine-manual / else ignore): the ordinary success
+> reaches the ignore branch via the price-unchanged short-circuit (first condition of the ElseIf
+> fails before the set is consulted), and the positive `IsRecentlyCommandedSLPrice` test still
+> catches it because the send recorded exactly that price. The flip echo (branch 1) and a genuine
+> manual edit (branch 2) correctly never reset. **(2) Only 223350 feeds the set — verified:**
+> `RecordCommandedSLPrice` has exactly ONE recording site (the single triggered-SL send point,
+> which both the chase and the emergency Force path route through); the manual button
+> deliberately does not record (its echo is the manual-edit branch's business, pre-existing).
+> Both comment corrections are accurate (they update the framing THIS spec falsifies).
+> **One residual named by the reviewer, ACCEPTED:** the mirror of the spec's un-reset residual —
+> a lagging echo of an OLDER confirmed edit can clear a counter a NEWER rejection just
+> incremented (over-reset). Bounded and self-correcting (the next rejection re-increments; socket
+> ordering makes the window marginal); same class, no action. Commit 2 endorsed as implemented —
+> the diagnostic reads the delay back OUT of the stamp so it cannot disagree with the gate; the
+> `sent` reword is the honest one; thread classes verified (UI-thread reset write joins the same
+> accepted lock-free class). Censuses re-run independently, all holding. **Remaining: acceptance
+> 3, the owner runtime pass — which IS the long-owed SL-backoff runtime record.**
+
 **Status: IMPLEMENTED 2026-07-30** — commits `a960f07` (commit 1) + `9d3b9f5` (commit 2), gate
 executed at each and at final HEAD: **GATE PASSED, OrderCheck 146 → 153**. Report:
 `docs/impl-report-sl-backoff-confirmed-reset.md`. Acceptances 1, 2 and 4 CLOSED in the report
