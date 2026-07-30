@@ -10,9 +10,13 @@ owner is deliberately conserving Fable budget for an engine-seat task.
 
 ## 1. State at handover (verify: `git rev-parse HEAD origin/master`; never trust the text)
 
-- **origin/master = `3018c1d` · HEAD = `cf48686`, 7 ahead** (3 N1c commits, 3 Tooling-visual
-  commits, the N1c review). Owner pushes. **Gate at HEAD: GATE PASSED, OrderCheck 153/153** —
-  execute it yourself before believing anything.
+- **origin/master = `3018c1d` · HEAD is 9 ahead** — 3 N1c commits, 3 Tooling-visual commits, the
+  N1c review, this doc, and this correction. Owner pushes. **Do not read a HEAD sha off this
+  bullet**: the original said `cf48686`/7-ahead, which was already one short the moment this doc
+  committed itself, and any later docs commit shifts it again. The §1 header's rule applies to
+  this line first — `git rev-parse` it. (Last verified `64861bf` = 8 ahead, Opus seat, 2026-07-30,
+  before this correction.) **Gate at HEAD: GATE PASSED, OrderCheck 153/153** — execute it yourself
+  before believing anything.
 - Landed + reviewed since H-4 §8 was written: **N1c confirmed-reset** (`a960f07`+`9d3b9f5`,
   review in `spec-sl-backoff-confirmed-reset.md`'s header block — the SL backoff now genuinely
   escalates 666 ms → 5 s and resets only on the exchange-confirmed commanded-price echo; only id
