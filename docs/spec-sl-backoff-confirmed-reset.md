@@ -1,5 +1,19 @@
 # Micro-spec — move the SL-backoff success-reset to a CONFIRMED success (N1c)
 
+> **CLOSED 2026-07-31 — acceptance 3 PASSED on the owner's testnet run (trade #99, SHORT 10).**
+> Record: `docs/runtime-record-sl-backoff-2026-07-31.md`. The backoff climbed **0.7 → 1.3 → 2.7 s**
+> on three consecutive `11044 not_open_order` rejections of a web-UI-cancelled SL — the ladder that
+> was structurally impossible before this spec (the optimistic reset oscillated the counter 0↔1).
+> `SL update rate limited` printed for the first time in the app's history, **with no pump**: the
+> triggered-SL chase reached counter 2 on its own, so the corrected N1b acceptance 2 is satisfied
+> by this run rather than left outstanding. The M.SL cap then fired **exactly once and on
+> threshold** — derived anchor 64809.00 (first post-trigger reposition, per the owner-#67 settle)
+> + M.SL 30 = 64839.00 vs a 64839.49 fill on a market buy lifting a 0.50 spread, i.e. **one spread
+> of slippage, ~1 s into a 2.7 s backoff window**. That is the N1 hoist proven load-bearing under a
+> genuinely reachable backoff for the first time. NOT covered by the run and left on fixture
+> evidence: the 5.0 s cap step (the cap fired before a 4th failure — correct behaviour, not worth
+> another trade), the healing path, and both accepted residuals. **This closes the N1b/N1c arc.**
+>
 > **COORDINATOR REVIEW 2026-07-30: APPROVED code-side.** Gate EXECUTED by the reviewer: GATE
 > PASSED, OrderCheck **153/153**. Both flagged attack points survived scrutiny:
 > **(1) The positive-test-vs-else-arm reading is CORRECT** — the reviewer walked the three-branch
