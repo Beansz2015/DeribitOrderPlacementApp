@@ -2041,6 +2041,19 @@ Public Class frmMainPageV2
     ' full-emergency market-stop stays OUTSIDE this flag - it must never be blocked by an in-flight chase.
     Private isSLRepositioning As Integer = 0
 
+    ' Single-flight (docs/spec-placement-single-flight.md): 0 = idle, 1 = a user-actuated placement is
+    ' awaiting. ONE latch shared by all six placement buttons (btnLimit/btnNoSpread/btnTrail/btnMarket
+    ' entries + btnReduceLimit/btnReduceMarket exits) - two DIFFERENT placement buttons pressed inside
+    ' the same window is the same hazard as one pressed twice, so a per-button latch would leave that
+    ' open. Origin: docs/investigation-triple-placement-2026-08-01.md - the buttons stay enabled across
+    ' the await, so N actuations from ANY source (double-click, UIA, input replay) produced N orders at
+    ' one cached BestPrice. Every take is paired with a Finally release: a leaked latch would silently
+    ' disable placement for the whole session, which is worse than the defect being fixed.
+    ' Deliberately NOT taken by the automated paths: the bridge act path (PlaceAutomatedOrder) is
+    ' already serialised, and the emergency stop reaches SendReduceMarketOrderAsync directly - it must
+    ' never be blocked by an in-flight manual placement.
+    Private isPlacingOrder As Integer = 0
+
     ' #6: throttle for hot-path parse warnings so a held-down blank field can't spam the log
     Private lastParseWarn As DateTime = DateTime.MinValue
     Private Sub WarnParseThrottled(message As String)
@@ -5920,6 +5933,7 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnLimit_Click(sender As Object, e As EventArgs) Handles btnLimit.Click
+        If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
@@ -5933,12 +5947,15 @@ Public Class frmMainPageV2
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in btnLimit_Click: {ex.Message}", Color.Red)
+        Finally
+            Interlocked.Exchange(isPlacingOrder, 0)
         End Try
     End Sub
 
 
 
     Private Async Sub btnNoSpread_Click(sender As Object, e As EventArgs) Handles btnNoSpread.Click
+        If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
@@ -5952,6 +5969,8 @@ Public Class frmMainPageV2
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in btnNoSpread_Click: {ex.Message}", Color.Red)
+        Finally
+            Interlocked.Exchange(isPlacingOrder, 0)
         End Try
 
     End Sub
@@ -5970,6 +5989,7 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnMarket_Click(sender As Object, e As EventArgs) Handles btnMarket.Click
+        If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
@@ -5983,11 +6003,14 @@ Public Class frmMainPageV2
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in btnMarket_Click: {ex.Message}", Color.Red)
+        Finally
+            Interlocked.Exchange(isPlacingOrder, 0)
         End Try
 
     End Sub
 
     Private Async Sub btnReduceLimit_Click(sender As Object, e As EventArgs) Handles btnReduceLimit.Click
+        If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
         Try
             ' Position model: reduce the ACTUAL position. Direction from the position sign (a
             ' wrong TradeMode used to produce a silently-rejected reduce-only order); amount =
@@ -6011,6 +6034,8 @@ Public Class frmMainPageV2
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in btnReduceLimit_Click: {ex.Message}", Color.Red)
+        Finally
+            Interlocked.Exchange(isPlacingOrder, 0)
         End Try
     End Sub
 
@@ -6055,10 +6080,15 @@ Public Class frmMainPageV2
     End Function
 
     Private Async Sub btnReduceMarket_Click(sender As Object, e As EventArgs) Handles btnReduceMarket.Click
+        ' Only the BUTTON is latched. The emergency/flatten callers reach SendReduceMarketOrderAsync
+        ' directly and are deliberately unaffected.
+        If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
         Try
             Await SendReduceMarketOrderAsync()
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in btnReduceMarket_Click: {ex.Message}", Color.Red)
+        Finally
+            Interlocked.Exchange(isPlacingOrder, 0)
         End Try
     End Sub
 
@@ -6246,6 +6276,7 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnTrail_Click(sender As Object, e As EventArgs) Handles btnTrail.Click
+        If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
@@ -6259,6 +6290,8 @@ Public Class frmMainPageV2
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in btnTrail_Click: {ex.Message}", Color.Red)
+        Finally
+            Interlocked.Exchange(isPlacingOrder, 0)
         End Try
 
     End Sub
