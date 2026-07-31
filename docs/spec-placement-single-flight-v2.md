@@ -1,6 +1,7 @@
 # Micro-spec v2 — placement debounce (supersedes the single-flight-only approach)
 
-**Status: WRITTEN 2026-08-01, OWNER RULING NEEDED on §2 before implementation.**
+**Status: OWNER-TICKED 2026-08-01, §2 RULED — `PlacementDebounceMs = 500`. Ready for a fresh
+Opus-HIGH implementer seat; it is the head of the queue (live exposure on LIVE).**
 Supersedes `spec-placement-single-flight.md` as the fix of record; that spec's output
 (`569a834`, `1773c94`) is **KEPT, not reverted** — see `review-placement-single-flight.md` §4.
 **Implementer: Opus HIGH, fresh conversation, own pass** (order-placement path). Ships ON.
@@ -18,7 +19,13 @@ before the next is dispatched. Mutual exclusion cannot exclude events that never
 
 The defect is a **rate** problem, not an **overlap** problem.
 
-## §2 — THE OWNER RULING NEEDED: the debounce window
+## §2 — The debounce window: **RULED 500 ms** (owner, 2026-08-01)
+
+> **RULING: `PlacementDebounceMs = 500`** — the Windows default double-click time, which is the
+> natural Schelling point: it is exactly the threshold below which the OS itself considers two
+> clicks to be one gesture rather than two intents. Do not "tune" this number without a new ruling;
+> if it ever needs to change, change it as a named constant with a comment pointing here, and note
+> that a value below ~300 ms stops catching real double-clicks. The reasoning that produced it:
 
 Reject a placement actuation arriving within `PlacementDebounceMs` of the previously **admitted**
 one. The window is a genuine trade-off and is the owner's call:
@@ -30,12 +37,10 @@ one. The window is a genuine trade-off and is the owner's call:
   workflow a deliberate second placement within half a second is implausible — but it is the owner's
   hand-feel, not mine.
 
-**Coordinator recommendation: 500 ms.** It covers the whole realistic double-click range with
-margin, and is far below any plausible deliberate re-placement. A stuck or repeating button is
-covered as long as the stamp is taken on admission only (below).
+A stuck or repeating button is covered as long as the stamp is taken on admission only (below).
 
-Alternatives if 500 ms feels intrusive: 300 ms catches most double-clicks and is nearly invisible;
-750 ms+ is belt-and-braces at the cost of noticeably blocking rapid manual work.
+*(Alternatives considered and not taken: 300 ms is nearly invisible but catches fewer real
+double-clicks; 750 ms+ is belt-and-braces at the cost of noticeably blocking rapid manual work.)*
 
 ## §3 — The change
 
