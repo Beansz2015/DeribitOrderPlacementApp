@@ -62,7 +62,16 @@ unobservable observables — verify what is IN FORCE, including that an acceptan
 can exist). Owner is the only pusher; engine repo read-only; owner-rejected list stays rejected;
 spec defects escalate BEFORE implementing; rulings get folded back into specs.
 
-## 5. FABLE-RESERVE LIST (route these back to the Fable seat before ~Aug 2; all else is yours)
+## 5. FABLE-RESERVE LIST — **DISSOLVED 2026-08-01: Fable is off the table (98% usage).**
+
+**Nothing routes to Fable. The Opus seat handles everything below without escalation, including
+the two classes it was told to reserve.** One such item has already been handled on that basis:
+the 2026-08-01 triple-placement investigation overturned the Fable-era "leans harness-side"
+premise (reserve class 1) — see `investigation-triple-placement-2026-08-01.md`. The list is kept
+below only as a record of what the classes WERE, since the rationale for treating them carefully
+(they touch settled rulings) survives the seat's disappearance — escalate them to the OWNER instead.
+
+<details><summary>The original list (historical)</summary>
 
 1. **Any spec-back that CONTRADICTS recorded state** — a claim that a prior Fable ruling,
    review premise, or acceptance is wrong (the escalation-defect class). Fable holds the
@@ -75,6 +84,8 @@ spec defects escalate BEFORE implementing; rulings get folded back into specs.
    agreed rationale for every field.
 Everything else — N2 review, runtime-record write-ups, routine spec-backs, relays — the Opus
 seat handles without escalation.
+
+</details>
 
 ## 6. First acts for the incoming Opus seat
 

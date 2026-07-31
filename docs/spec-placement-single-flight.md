@@ -1,6 +1,7 @@
 # Micro-spec — single-flight guard on the placement handlers
 
-**Status: WRITTEN 2026-08-01, owner tick pending.** Origin:
+**Status: OWNER-TICKED 2026-08-01 — NEXT, ahead of N2** (it is live exposure on LIVE, so it jumps
+the queue; EV §6.3 follows it). Awaiting a fresh Opus-HIGH implementer seat. Origin:
 `docs/investigation-triple-placement-2026-08-01.md` §3/§4 — the triple placement is reproduced and
 explained. **Implementer: Opus HIGH, fresh conversation, own pass** (order-placement path). Ships
 ON — this is a defect fix, not an opt-in feature, so there is no knob.
