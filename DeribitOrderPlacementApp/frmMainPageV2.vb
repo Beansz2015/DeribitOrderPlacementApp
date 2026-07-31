@@ -5095,29 +5095,12 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Sub ButtonDisabler()
-        btnLimit.Enabled = False
-        btnNoSpread.Enabled = False
-        btnTrail.Enabled = False
-        btnMarket.Enabled = False
-
-        btnReduceMarket.Enabled = True
-        btnReduceLimit.Enabled = True
-        btnCancelAllOpen.Enabled = True
-
-    End Sub
-
-    Private Sub ButtonEnabler()
-        btnLimit.Enabled = True
-        btnNoSpread.Enabled = True
-        btnTrail.Enabled = True
-        btnMarket.Enabled = True
-
-        btnReduceMarket.Enabled = False
-        btnReduceLimit.Enabled = False
-        btnCancelAllOpen.Enabled = False
-
-    End Sub
+    ' ButtonDisabler()/ButtonEnabler() lived here: a never-called pair carried over from the retired
+    ' frmMainPage (no call site since the initial import; they were the ONLY .Enabled writes on any
+    ' placement button in the codebase). Deleted with the single-flight guard that supersedes them -
+    ' docs/spec-placement-single-flight.md §2 explicitly rules OUT wiring them up, because they also
+    ' flip btnReduce*/btnCancelAllOpen, which is a position-state lifecycle that does not exist yet.
+    ' Left as dead code they read as a ready-made fix and invite exactly that mistake.
 
     ' Position-model close P/L (docs/spec-position-model.md). Basis = exchange average entry
     ' (positionAvgEntry, retained through the flat echo); side = the closing fill's OWN direction
