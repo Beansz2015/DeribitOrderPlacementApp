@@ -1,7 +1,13 @@
 # Micro-spec v2 — placement debounce (supersedes the single-flight-only approach)
 
-**Status: OWNER-TICKED 2026-08-01, §2 RULED — `PlacementDebounceMs = 500`. Ready for a fresh
-Opus-HIGH implementer seat; it is the head of the queue (live exposure on LIVE).**
+> **DONE + CLOSED 2026-08-01 — implemented (`550d673`), reviewed and runtime-ACCEPTED
+> (`review-placement-debounce.md`).** All four acceptances passed, run by the reviewer on the
+> harness: the burst that gave 3 entries + reduce of 30 under v1 now gives **1 entry + reduce of
+> 10**; legitimate sequential placement, the leak case and the emergency exclusion all hold; gate
+> 153/153; censuses as specced. **The LIVE multi-order exposure is CLOSED.** One optional
+> owner-mouse check remains (a physical double-click), non-blocking.
+
+**Status: IMPLEMENTED + REVIEWED + ACCEPTED 2026-08-01.** §2 RULED — `PlacementDebounceMs = 500`.
 Supersedes `spec-placement-single-flight.md` as the fix of record; that spec's output
 (`569a834`, `1773c94`) is **KEPT, not reverted** — see `review-placement-single-flight.md` §4.
 **Implementer: Opus HIGH, fresh conversation, own pass** (order-placement path). Ships ON.
