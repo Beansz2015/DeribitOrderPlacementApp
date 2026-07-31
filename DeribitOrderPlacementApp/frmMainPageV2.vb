@@ -2054,6 +2054,28 @@ Public Class frmMainPageV2
     ' never be blocked by an in-flight manual placement.
     Private isPlacingOrder As Integer = 0
 
+    ' Debounce (docs/spec-placement-single-flight-v2.md): the latch above is necessary but NOT
+    ' sufficient. Acceptance 2 showed the duplicate actuations are dispatched SEQUENTIALLY by the
+    ' message pump - each handler runs to completion, releasing in its Finally, before the next
+    ' queued click is dispatched - so mutual exclusion never sees them coincide. Three actuations in
+    ' 26 ms still produced three entries with the latch verifiably in the running binary. It is a
+    ' RATE problem, not an overlap problem, so the guard has to be time-based.
+    ' 500 ms is the Windows default double-click time: the threshold below which the OS itself
+    ' treats two clicks as one gesture rather than two intents (owner ruling, v2 §2 - do not
+    ' re-tune without a new ruling, and note that below ~300 ms it stops catching real
+    ' double-clicks). The cost is that a deliberate second placement inside the window is silently
+    ' dropped; the owner ruled that trade acceptable for this workflow.
+    ' Stamped on ADMISSION ONLY, never on rejection: had a rejected actuation refreshed the stamp,
+    ' a stuck or repeating button would extend the lockout for as long as the input persisted.
+    ' Stamping only what we admit bounds the lockout at exactly one window.
+    ' ONE shared stamp for all six buttons, mirroring the shared latch - two DIFFERENT placement
+    ' buttons inside the window is the same hazard as one pressed twice.
+    ' Deliberately NOT applied inside SendReduceMarketOrderAsync or ExecuteOrderAsync, only in the
+    ' six handlers: an emergency reduce arriving just after a manual placement must never be
+    ' swallowed. That would be a far worse defect than the one this fixes.
+    Private Const PlacementDebounceMs As Integer = 500
+    Private lastPlacementAdmittedUtc As DateTime = DateTime.MinValue
+
     ' #6: throttle for hot-path parse warnings so a held-down blank field can't spam the log
     Private lastParseWarn As DateTime = DateTime.MinValue
     Private Sub WarnParseThrottled(message As String)
@@ -5916,7 +5938,9 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnLimit_Click(sender As Object, e As EventArgs) Handles btnLimit.Click
+        If (DateTime.UtcNow - lastPlacementAdmittedUtc).TotalMilliseconds < PlacementDebounceMs Then Return   ' duplicate actuation
         If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
+        lastPlacementAdmittedUtc = DateTime.UtcNow
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
@@ -5938,7 +5962,9 @@ Public Class frmMainPageV2
 
 
     Private Async Sub btnNoSpread_Click(sender As Object, e As EventArgs) Handles btnNoSpread.Click
+        If (DateTime.UtcNow - lastPlacementAdmittedUtc).TotalMilliseconds < PlacementDebounceMs Then Return   ' duplicate actuation
         If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
+        lastPlacementAdmittedUtc = DateTime.UtcNow
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
@@ -5972,7 +5998,9 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnMarket_Click(sender As Object, e As EventArgs) Handles btnMarket.Click
+        If (DateTime.UtcNow - lastPlacementAdmittedUtc).TotalMilliseconds < PlacementDebounceMs Then Return   ' duplicate actuation
         If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
+        lastPlacementAdmittedUtc = DateTime.UtcNow
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
@@ -5993,7 +6021,9 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnReduceLimit_Click(sender As Object, e As EventArgs) Handles btnReduceLimit.Click
+        If (DateTime.UtcNow - lastPlacementAdmittedUtc).TotalMilliseconds < PlacementDebounceMs Then Return   ' duplicate actuation
         If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
+        lastPlacementAdmittedUtc = DateTime.UtcNow
         Try
             ' Position model: reduce the ACTUAL position. Direction from the position sign (a
             ' wrong TradeMode used to produce a silently-rejected reduce-only order); amount =
@@ -6064,8 +6094,10 @@ Public Class frmMainPageV2
 
     Private Async Sub btnReduceMarket_Click(sender As Object, e As EventArgs) Handles btnReduceMarket.Click
         ' Only the BUTTON is latched. The emergency/flatten callers reach SendReduceMarketOrderAsync
-        ' directly and are deliberately unaffected.
+        ' directly and are deliberately unaffected - by the debounce below as well as by the latch.
+        If (DateTime.UtcNow - lastPlacementAdmittedUtc).TotalMilliseconds < PlacementDebounceMs Then Return   ' duplicate actuation
         If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
+        lastPlacementAdmittedUtc = DateTime.UtcNow
         Try
             Await SendReduceMarketOrderAsync()
         Catch ex As Exception
@@ -6259,7 +6291,9 @@ Public Class frmMainPageV2
     End Sub
 
     Private Async Sub btnTrail_Click(sender As Object, e As EventArgs) Handles btnTrail.Click
+        If (DateTime.UtcNow - lastPlacementAdmittedUtc).TotalMilliseconds < PlacementDebounceMs Then Return   ' duplicate actuation
         If Interlocked.Exchange(isPlacingOrder, 1) = 1 Then Return   ' a placement is already in flight
+        lastPlacementAdmittedUtc = DateTime.UtcNow
         Try
             ' Get margin estimation before placing order
             btnEstimateMargins_Click(Nothing, Nothing) ' Call the estimation function
