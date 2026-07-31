@@ -1,5 +1,20 @@
 # Investigation — the triple placement (WATCH protocol closed), 2026-08-01
 
+> **⚠ CORRECTION 2026-08-01 (same day), from `review-placement-single-flight.md`.**
+> §3/§4 below say N actuations produce N ***concurrent*** `ExecuteOrderAsync` calls. **The
+> "concurrent" part is WRONG.** The evidence gathered here supports ***multiplicity*** — three
+> orders, one cached price, three log lines, reduce of 30 — every part of which is equally explained
+> by three *sequential* complete executions. It was inference presented as mechanism.
+> The v1 fix specced against it (an `Interlocked` single-flight latch) **failed its acceptance with
+> the defect fully intact**: had any two invocations overlapped, the latch would have blocked one;
+> three orders landed, so **none overlapped**. The UI message pump dispatches queued clicks strictly
+> sequentially, each handler completing and releasing before the next is dispatched.
+> **Everything else in this record stands** — the harness exoneration (53/53), the dead
+> `ButtonDisabler`/`ButtonEnabler` finding, the absence of any re-entrancy guard, and the
+> reproduction itself. The defect is real and the diagnosis of *where* it lives is right; only the
+> *why* was wrong. The fix of record is now `spec-placement-single-flight-v2.md` (a time-based
+> debounce — it is a rate problem, not an overlap problem).
+
 **Owner-authorised.** The `ROADMAP-2026-08.md` §5 WATCH protocol named its own exit — *"protocol
 until investigated … that session becomes the investigation"* — and this is that session. Driven by
 the coordinator (Opus seat) on the harness-launched **AnyCPU Debug** bin, TESTNET, min size. The

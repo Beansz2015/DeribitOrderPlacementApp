@@ -1,7 +1,13 @@
 # Micro-spec — single-flight guard on the placement handlers
 
-**Status: OWNER-TICKED 2026-08-01 — NEXT, ahead of N2** (it is live exposure on LIVE, so it jumps
-the queue; EV §6.3 follows it). Awaiting a fresh Opus-HIGH implementer seat. Origin:
+> **⚠ SUPERSEDED 2026-08-01 by `spec-placement-single-flight-v2.md`.** Implemented faithfully
+> (`569a834`, `1773c94`) and the code is KEPT — but **acceptance 2 FAILED and this spec's premise
+> was wrong**: the actuations are sequential, not concurrent, so a mutual-exclusion latch cannot
+> help. See `review-placement-single-flight.md`. Read v2 for the fix of record; read this only for
+> the latch that remains in the code.
+
+**Status: IMPLEMENTED 2026-08-01 (`569a834` + `1773c94`), acceptances 1/3/4 PASSED, ACCEPTANCE 2
+FAILED — the defect is not fixed by this spec.** Origin:
 `docs/investigation-triple-placement-2026-08-01.md` §3/§4 — the triple placement is reproduced and
 explained. **Implementer: Opus HIGH, fresh conversation, own pass** (order-placement path). Ships
 ON — this is a defect fix, not an opt-in feature, so there is no knob.

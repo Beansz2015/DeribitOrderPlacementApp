@@ -24,7 +24,12 @@ param(
     [Parameter(Mandatory=$true, Position=0)] [string]$NamePattern,
     [Parameter(Mandatory=$true, Position=1)] [string]$ExpectPattern,
     [int]$ExpectCount = 1,
-    [int]$SettleSeconds = 5
+    [int]$SettleSeconds = 5,
+    # Passed through to click-PLACES-ORDER.ps1. The point of a burst is that ExpectCount stays 1
+    # while Actuations is 3: N actuations must still yield ONE order once the single-flight guard
+    # is in (spec-placement-single-flight.md §4.2). Pre-fix the same call reports observed=3.
+    [ValidateRange(1,5)]
+    [int]$Actuations = 1
 )
 
 $ErrorActionPreference = 'Continue'
@@ -42,7 +47,7 @@ function Count-In([string]$text, [string]$pattern) { ([regex]::Matches($text, $p
 $before = Read-AppLog
 $baseline = Count-In $before $ExpectPattern
 
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $toolsDir 'click-PLACES-ORDER.ps1') $NamePattern
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $toolsDir 'click-PLACES-ORDER.ps1') $NamePattern -Actuations $Actuations
 $clickExit = $LASTEXITCODE
 if ($clickExit -ne 0) { exit $clickExit }
 
