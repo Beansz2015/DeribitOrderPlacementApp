@@ -1,5 +1,9 @@
 # HANDOVER-3 — DeribitOrderPlacementApp coordinator seat (written 2026-07-19; **window EXTENDED 2026-07-20**)
 
+> 🛑 **SUPERSEDED — HISTORY ONLY.** `HANDOVER-6.md` is the self-contained entry point. **The one
+> section still worth citing is §12, the ntfy server-side poll recipe** (retention ~12 h; the PS 5.1
+> `byte[]` trap is in memory `winforms-harness-quirks`). Everything else is stale.
+
 > **AMENDMENT 2026-07-20:** the Fable window is extended to ~**2026-08-02** (owner's Max plan end; the owner then downgrades to Pro, where Fable is credit-only). **This doc stays the standing checkpoint** — state/queue/invariants current as written — and gets its final refresh at the actual ~Aug-2 handoff. Post-handoff seat = Opus high; credit-Fable reserved for the highest-stakes reviews only.
 
 **For:** the Opus coordinator taking over. Auto-memory loads each session (the index is detailed and current — trust it as the state ledger); THIS doc is the task-focused complement and **supersedes `HANDOVER-2.md`** (kept for history; its §3–§4 methodology/invariants remain binding and are EXTENDED here, not replaced). The Fable-era docs trail is complete — every claim below has a doc behind it.

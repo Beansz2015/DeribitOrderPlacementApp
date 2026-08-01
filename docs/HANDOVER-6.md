@@ -1,176 +1,169 @@
-# HANDOVER-6 — DeribitOrderPlacementApp coordinator seat (written 2026-08-01, audited + corrected 2026-08-02)
+# HANDOVER-6 — DeribitOrderPlacementApp coordinator seat
 
-**Supersedes `HANDOVER-5.md` as the standing checkpoint.** H-4 §4 (invariants), §5 (runtime
-bite-list) and §6 (methodology + seat rules) **remain binding and are NOT restated here** — read
-them. H-5 is superseded except as history; its **§5 Fable-reserve list is DISSOLVED** (Fable is off
-the table at 98% usage — nothing routes to a second model seat; items touching settled rulings
-escalate to the OWNER, who is the arbiter). Memory's `era-state-checkpoint` is the live ledger.
+**This is the entry point and it is SELF-CONTAINED.** Read this, then verify it. You do **not**
+need `HANDOVER-3/4/5` — their live content is folded in below and ⚠ **two of H-4 §5's "binding"
+runtime facts were later reversed**, so reading them as binding is now a hazard. They are history:
+`ARCHIVE-closed-milestones.md`. (The one exception: H-3 §12 is still the ntfy server-side poll
+recipe.)
 
-## 1. State (verify: `git rev-parse HEAD origin/master`; never trust this text)
+**Where things live — one canonical home each, deliberately not duplicated:**
 
-- **origin/master `234131a` — the owner PUSHED 2026-08-02 01:38 +0800** (reflog `update by push`),
-  which took the tree from 19-ahead to level. HEAD is now this docs commit, i.e. 1+ ahead: a docs
-  commit can never state its own sha, so `git rev-parse` rather than trusting the number.
-- **Gate at HEAD: GATE PASSED, OrderCheck 173/173** (153 before N2). Execute it yourself.
-  Every commit above the last gated one (`2308122`) is **docs-only** — verified with
-  `git log --name-only 2308122..HEAD`, no `.vb`/`.vbproj` touched — so the 173/173 carries.
-- **Censuses, `frmMainPageV2.vb`-scoped** (a repo-wide grep inflates several and reads as drift):
+| Need | Read |
+|---|---|
+| Live state, open items, queue | **this doc** §1–§3, and memory `era-state-checkpoint` |
+| Invariants · runtime bite-list · seat rules | **this doc** §5–§7 |
+| Settled rulings / do-not-re-propose | memory `standing-rulings-in-force` |
+| VB · UIA · PowerShell · census traps | memory `winforms-harness-quirks` |
+| Anything CLOSED | `ARCHIVE-closed-milestones.md` (index → the real doc chain) |
+| Consumer behaviour (frozen) | `integration-contract-verdictengine.md` — §8 is the binding C1 spec |
+
+## 1. State — verify it, never trust this text
+
+`git rev-parse HEAD origin/master` · `tools/checks/verify-gate.ps1` · re-run the censuses.
+A docs commit can never state its own sha, so any number here is at least one short on arrival.
+
+- **origin/master `234131a`** (owner pushed 2026-08-02 01:38 +0800; owner is the only pusher).
+  HEAD is ahead by the docs commits since.
+- **Gate: GATE PASSED, OrderCheck 173/173** at `2308122`. Everything above it is **docs-only**
+  (`git log --name-only 2308122..HEAD` — no `.vb`/`.vbproj`), so it carries.
+- **Censuses, `frmMainPageV2.vb`-scoped** — a repo-wide grep inflates several and reads as drift:
   `emergencyFired` 10 · `IsATRSlippageExcessive` 8 · `NextSlBackoff` 2 · `RecordCommandedSLPrice` 3
   · `slUpdateFailures = 0` 1 · `TakerFeeRate` 0 · `isPlacingOrder` 13 ·
-  `lastPlacementAdmittedUtc` 13 · `placedOrderSizeUsd` 18.
+  `lastPlacementAdmittedUtc` 13 · `placedOrderSizeUsd` 18. **These are OCCURRENCE counts (68 total
+  across 64 lines)** — a count-mode grep returns 64 and reads as four missing.
 
-## 2. Closed this era (do not re-open; the reasoning is in the named docs)
+## 2. Open — ALL owner-side. Nothing is in flight; no implementer seat is running.
 
-- **N1b/N1c SL-backoff arc** — runtime-accepted, trade #99. `runtime-record-sl-backoff-2026-07-31.md`.
-- **EV chase budget — CLOSED END-TO-END**, both the manual arm and the bridge-act leg
-  (`runtime-record-ev-chase-budget-2026-08-01.md`). Disposition cardinality held: exactly one row
-  per payload, the abort adding none.
-- **Triple-placement WATCH — INVESTIGATED and CLOSED**
-  (`investigation-triple-placement-2026-08-01.md`). The harness was exonerated (53/53 single
-  invokes → one order); the defect was app-side. **Harness-driven placement is now permitted** on a
-  TESTNET-titled, harness-launched session, through `tools/place-and-verify.ps1`.
-- **SF/SF2 placement multi-order — CLOSED.** A 500 ms debounce (the Windows default double-click
-  time, owner-ruled — do not re-tune without a ruling) ahead of the v1 single-flight latch.
-  ⚠ **The emergency exclusion is what to protect in any future change there:** the debounce lives in
-  the six handlers ONLY; `FlattenPositionAsync` and the two emergency sites reach
-  `SendReduceMarketOrderAsync` directly and must stay that way.
+**Everything below gates the same thing: ticking `Risk-size` to enable N2.** The three sizing
+inputs must be set **together**, because they compose.
 
-## 2b. ✅ RESOLVED 2026-08-02 — the owner's x64 bin is CURRENT (was stale; the rule survives)
+1. **🚨 `risk_per_trade_usd` / `max_size_usd` = 25 / 500 — the live footgun.** A realistic $200 stop
+   computes ~7875 and caps to 500, so **every signal gets a flat 500** and N2 is "on" while doing
+   nothing risk-shaped. Fix before ticking, not after.
+2. **Circuit breaker `$10`** — gates the BRIDGE path; could stop a session fast at risk-sized
+   notionals. Set deliberately.
+3. **🚨 Session policy is ENABLED, and the third bucket is the one that bites.** Configured:
+   `LONDON = MEDIUM | CONFIRMED | 0.5`, `ASIA = HIGH,MEDIUM | any | 0.75`. The multiplier applies
+   **on top of** the risk size, exactly once. **`NY` (UTC ≥ 13:00) has NO entry, and an absent key
+   is not a refusal** — `RuleFor` (`SessionPolicy.vb:143`) falls back to `DefaultRule()` (`:56`) =
+   **`HIGH,MEDIUM | any | 1.0`**. So NY is at once the **least restricted** bucket and the
+   **largest**: full size, **2× LONDON, 1.33× ASIA**. Owner runs UTC+8 ⇒ **NY is local
+   21:00–07:59**, so the biggest, least-gated notional lands overnight.
+4. **Journal rows `#95` and `#100`** — testnet-era, named in no deletion list. The x64 `trades.db`
+   holds 91 live rows; after `#89` only these two remain. `#100` postdates N1c's #99 and appears in
+   no doc. Owner's call, not a defect. *(The named list — #90–#93 / #96–#98 / #99 — is fully
+   cleared.)*
+5. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
+6. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
+   instrument is UIA-driven, so a human double-click is still unobserved).
 
-**The owner rebuilt it.** Verified 2026-08-02: `bin\x64\Debug\…\DeribitOrderPlacementApp.dll` is
-dated **2026-08-02 01:33** and contains **all four** era symbols — `RiskSizedBase` (N2),
-`placedOrderSizeUsd` (N2b), `isPlacingOrder` (SF), `lastPlacementAdmittedUtc` (SF2). The placement
-debounce **is** in the owner's app and the `Risk-size` checkbox **exists**. That bin's
-`orderapp-settings.json` was rewritten at 01:35, so the rebuilt app was launched and closed
-normally (`FormClosing` persistence) — the build was exercised, not merely produced.
+## 3. Queue
 
-**Environment verified from config, which is stronger than reading the title:** that bin's
-`secrets.json` reads `Environment = testnet` and is byte-identical (SHA-256) to project source, so
-the bin is on **testnet**. ⚠ Note the mechanism this section used to assert — "the rebuild copies
-`secrets.json`" — is **not decidable from timestamps**: MSBuild `PreserveNewest` stamps the copy
-with the *source's* mtime, so a copy and a skipped copy look identical afterwards. **Check the
-`Environment` key, not the file date.**
+**N2 enable (owner) → C1 emitter build → `ROADMAP-2026-08.md` §5 backlog.**
 
-**The standing rule survives its instance:** after ANY x64 rebuild, re-read `Environment` **and**
-the window title before clicking Connect — it has bitten in both directions (`— LIVE` unexpectedly,
-2026-07-27). And: **do not assume a runtime observation on the harness bin says anything about the
-owner's bin** — separate settings file, DB and journal.
+- N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
+  the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.
+- **C1 emitter has NOT started** — only `proposal-…` + `ack-…` exist, no spec, no impl report.
+  Contract **§8 is the binding spec**; phase-2 actionable exits stay fenced behind a separate
+  signal-schema-v2 amendment — **never parse `hold_status`**.
 
-## 3. N2 + N2b — BOTH CLOSED 2026-08-01. Nothing is in flight.
+## 4. The owner's x64 bin — CURRENT as of 2026-08-02 01:33
 
-**N2b: all five runtime acceptances PASSED**
-(`runtime-record-chase-preserve-placed-size-2026-08-01.md`). The instrument that failed N2's 3b now
-gives **reduce 310, not 10**. Also passed: manual regression (10); the owner-vetoed mid-chase box
-edit restored (place 10, retype 20, get 20); no stale size leaking to a later manual order; and the
-**pre-existing half** — box 40 with a `0.5` mult held 20 through a reposition, the first observation
-of the session-policy `size_mult` surviving a chase.
+All four era symbols present (`RiskSizedBase`, `placedOrderSizeUsd`, `isPlacingOrder`,
+`lastPlacementAdmittedUtc`); `secrets.json` reads `Environment = testnet`, byte-identical to source.
 
-**N2 is code-APPROVED and UNBLOCKED, and ships DISABLED.** The owner enables it by ticking
-`Risk-size`, which **exists in their bin as of the 2026-08-02 rebuild** (§2b) — the rebuild
-precondition this line used to carry is DONE. What is *not* done is §4's knob pairing, which is the
-real precondition now.
+⚠ **Check the `Environment` key, not the file date.** "Did the rebuild overwrite `secrets.json`?"
+is **not decidable from timestamps** — MSBuild `PreserveNewest` stamps the copy with the *source's*
+mtime, so a copy and a skipped copy look identical afterwards. **After ANY x64 rebuild, re-read
+`Environment` AND the window title before clicking Connect** — this has bitten in both directions.
+**The gate does NOT build the x64 bin** (AnyCPU only), and **a harness-bin observation says nothing
+about the owner's bin** — separate settings file, DB and journal.
 
-Chains, if the reasoning is ever needed: `spec-risk-sized-bridge-trades.md` +
-`spec-back-risk-sized-bridge-defects.md` (five defects, all upheld) + `review-…`; and
-`spec-chase-preserve-placed-size.md` + its spec-back (D1 REJECTED / D2 UPHELD / D3 accepted) +
-`review-…` + the runtime record.
+## 5. Runtime facts that bite — SUPERSEDES H-4 §5 (two of which were reversed)
 
-**Three runtime traps this era paid for — reuse them:**
-- **A placement log line is NOT evidence of position size.** N2's 3b failed with a correct
-  `Buy limit order placed For 310` and an actual position of 10. The **reduce** is exchange-derived
-  and is the authority.
-- **Divergence tests need the Amount box ABOVE the min-10 clamp.** At box 10 a `0.5` mult clamps
-  back to 10 and there is nothing to observe — that clamp is what hid the N2b defect for weeks.
-- **ATRSlip must be CHECKED** or the bridge refuses to START in Live mode and neither chase-abort
-  arm evaluates.
+1. **The payload must LAND while the bridge is STARTED.** Evaluation is file-change-only; START
+   does not re-evaluate the on-disk payload; the staleness tick can only *stop*. Engine stopped ⇒
+   write twice (write → START → write); that double write is a harness artefact, not production.
+   Freshness = `2.5 × exec_resolution_min`. Mode/ARM/Started reset every app start.
+2. **🚨 Bridge payload tests: STOP the engine → run → `restore-payload.ps1` → RESTART the engine.**
+   *(H-4 §5's "never stop the engine" is INVERTED — owner ruling 2026-08-01.)* Two footguns, both
+   hit for real: forgetting to restart (nothing warns you no signals are arriving), and — engine
+   stopped — `write-payload.ps1` defaulting to the **LIVE** payload path, clobbering
+   `C:\Dev\DeribitBridge\verdict_signal.json`. Its first-write backup plus `restore-payload.ps1` is
+   the only safety net: **restore is mandatory, not cleanup.**
+3. **Harness-driven placement IS permitted** on a TESTNET-titled, harness-launched session, through
+   `tools/place-and-verify.ps1` only. *(H-4 §5's "owner mouse clicks only" is SUPERSEDED — the
+   harness was exonerated 53/53.)* The owner still drives every **trade decision, ARM and START**.
+4. **🚨 `FormClosing` persists all 11 geometry fields unconditionally** — a runtime test that
+   tightens geometry clobbers the owner's real trading values on exit, in the same file that holds
+   the session policy and the breaker. Back up, restore, then VERIFY by relaunching and reading a
+   box back.
+5. **ATRSlip must be CHECKED** or NEITHER chase-abort arm evaluates — both sit under that one
+   switch (`If(maxSlippageATRchecked, ChaseAbortReason(...), Nothing)`). Unchecked yields a silent
+   null that reads like a pass. Runbooks have omitted it twice.
+6. **Entry is reference-only** — the app enters at top-of-book, so a far `-Entry` cannot make a
+   bridge entry rest (it fills in ~1 s). `rejected: position open` is UNREACHABLE (gate 4.6 reads
+   the same `positionSizeUSD` as placement, so it stops at `refused: not_flat` first). The
+   deterministic post-staging rejection is **`cancel pending`** — a 4-second window from Cancel All.
+7. **Fill price ≠ trigger price** on the emergency path — the cap trips, then CancelOrder + the
+   market reduce are two more WS round-trips. A gap is not a late cap.
+8. **The real `bridge-dispositions.log` is in the x64 bin** (the owner's VS profile). The AnyCPU bin
+   has the harness's own copy — accidental but useful isolation.
+9. Worktree gate runs need SHORT paths (`SQLite.Interop.dll` 0x800700CE).
 
-**Harness payload timing (cost two runs today):** with the engine stopped, freshness is
-`2.5 × exec_resolution_min` and `write-payload.ps1` emits `1` — a 2.5-minute window, shorter than a
-round-trip through a human pressing START, after which `[BRIDGE] auto-STOP: stale payload` fires.
-Patch `exec_resolution_min` to 15 in the payload before START (~37 min) and the race disappears.
-Worth a `write-payload.ps1` parameter if it recurs.
+## 6. Invariants — folded from H-4 §4, corrected
 
-## 4. Owner-side open — AUDITED 2026-08-02 against the bin, the settings file and the journal
+1. **Session policy** is evaluated AFTER the whole contract-§4.4 chain; gates the PINNED confidence
+   enum (STRONG/WEAK are input aliases) + `verdict_context` as opaque stable identifiers;
+   `refused: policy(SESSION/dim)`; disabled ⇒ structurally silent. Buckets are **UTC**
+   (ASIA <08, LONDON 08–12:59, NY ≥13) while the Inclusion window stays **UTC+8 local** — two
+   clocks, deliberate. An unconfigured bucket ⇒ `DefaultRule()`, not a refusal (§2.3).
+2. **`size_mult` / `EffectiveSizeUsd`: unity passes through UNTOUCHED.** Floor + min-10 clamp only
+   on real reductions, applied EXACTLY once at the act/would-act site; `refused: size` reads raw.
+   `sizeUsdOverride = 0` ⇒ byte-identical legacy paths.
+3. **Disposition file cardinality is FROZEN: one row per payload, written at consumption.**
+   Post-`acted` outcomes (chase aborts) live in the host-log cancel REASON, never a second row.
+   The append is unconditional in every mode/state; the host log stays filtered.
+4. **The SF2 debounce lives in the six placement handlers ONLY.** `FlattenPositionAsync` and the two
+   emergency sites reach `SendReduceMarketOrderAsync` directly and **must stay that way** — the
+   emergency exclusion is the thing to protect in any future change there.
+5. **Notifier** is fire-and-forget / fail-silent / self-rate-limited (urgent bypasses), inert
+   without `ntfy_url`; the topic URL is a **credential** — never logged or echoed.
+6. **Signal-tag lifecycle:** pending at bridge act → promoted at entry fill → cleared in BOTH cancel
+   teardowns AND on definitive placement refusals (`TimedOut` carve-out: the tag survives) →
+   recorded + cleared at close. Columns are TEXT.
+7. **Persisted gate config = breaker + session policy only** (+ the standing item-A set). Cooloff,
+   window and tiers reset per start; Mode/ARM/Started never persist.
+8. **All four reposition slippage gates measure the OWN-SIDE quote**; ATR fallback period = 7,
+   mirroring the engine. The four gates grep as `ChaseAbortReason`.
+9. **The loss-cap anchor** `emergencyBaseline` moves only on adopt / manual edit / restore — NEVER
+   the chase. Post-trigger, `placedStopLossPrice` is the chase reference. Deliberately divergent.
 
-**Four items this list carried were already DONE when it was written.** Cleared, with the evidence:
+## 7. Methodology + seat rules
 
-| Was listed open | Verdict | Evidence |
-|---|---|---|
-| x64 rebuild + title re-check | **DONE** | dll 2026-08-02 01:33, four symbols present, `Environment = testnet` (§2b) |
-| push (22+ ahead) | **DONE** | reflog `update by push` 2026-08-02 01:38 +0800; 0 ahead at audit |
-| testnet journal rows #90–#93 / #96–#98 / #99 | **DONE** | queried the x64 `trades.db`: **none** survive |
-| EV bridge-act leg *(carried in memory, not here)* | **DONE** | closed end-to-end 2026-08-01; §2 already had this right |
+Spec → fresh implementer seat → impl report → **coordinator review = verify the actual code AND
+execute the gate AND re-run the censuses AND an adversarial pass**. Owner is the only pusher;
+single branch; one implementer at a time; docs tracked and committed with the work; the engine repo
+(`C:\Dev\DeribitVerdictEngine`) is **READ-ONLY** and cross-app decisions go through the owner.
+**Spec defects escalate to the owner BEFORE implementing**; rulings fold back into the specs so
+future greps aren't stale. **Safety boundary: seats never place trades or arm the bridge** — the
+owner drives every trade, ARM and START. There is **no second model seat** (Fable dissolved);
+items touching a settled ruling go to the OWNER, who is the arbiter.
 
-**Still genuinely open:**
+**The lessons that keep earning:**
 
-- **`risk_per_trade_usd` / `max_size_usd` = 25 / 500 — unchanged, and this is the live footgun.**
-  They must be set **together**: at 25/500 a realistic $200 stop computes ~7875 and caps to 500, so
-  every signal gets a flat 500 rather than risk-based sizing. **N2 would be "on" and doing nothing
-  risk-shaped.** Fix this before ticking `Risk-size`, not after.
-- **Circuit breaker `$10`** (verified in the bin) — gates the BRIDGE path and could stop a session
-  quickly at risk-sized notionals. Set deliberately before enabling N2.
-- **Session policy is ENABLED in the owner's bin** (`session_policy.enabled = True`;
-  `LONDON = MEDIUM | CONFIRMED | 0.5`, `ASIA = HIGH,MEDIUM | any | 0.75`). Not an open item — but
-  material to N2, because that multiplier applies **on top of** the risk size, exactly once. With
-  N2 on, a LONDON signal is half the computed size and an ASIA signal three-quarters. Factor it in
-  when setting the knobs above, or the delivered size will surprise.
-
-  🚨 **AND THE THIRD BUCKET IS THE ONE THAT BITES: `NY` (UTC ≥ 13:00) HAS NO ENTRY AT ALL, AND AN
-  ABSENT KEY IS NOT A REFUSAL.** `SessionPolicyConfig.RuleFor` (`SessionPolicy.vb:143`) falls back
-  to `SessionPolicyRule.DefaultRule()` (`:56`) = **`HIGH,MEDIUM | any | 1.0`** — deliberate, and
-  documented in the code as *"that session is unrestricted relative to today"*. So NY is
-  simultaneously the **least restricted** bucket (both tiers, any context, where LONDON takes
-  MEDIUM+CONFIRMED only) **and the largest** — full size, i.e. **2× a LONDON signal and 1.33× an
-  ASIA one**. The owner runs UTC+8, so **NY is their local 21:00–07:59**: overnight is when the
-  biggest, least-gated notional lands. Verified from `SessionPolicy.vb` + the settings JSON, not
-  from prose.
-
-  **Structural cause, and it is a third one — an unconfigured default is invisible to BOTH a queue
-  audit and an artefact read.** The settings JSON contains exactly two session keys, so reading the
-  artefact honestly and carefully still yields "two sessions" and you never think to ask what the
-  third does. Nothing is stale here and nothing is owed — the gap is that the *absence* carries
-  behaviour. **When config is a partial map, enumerate the domain, not the keys.**
-- **Two journal rows the deletion list never named: `#95` and `#100`.** The x64 journal holds **91
-  live rows**; after `#89` only these two remain. `#95` = 2026-07-27 19:33 UTC (TakeLimitProfit
-  long, the 07-27/28 emergency-hoist session, adjacent to the deleted #96–#98); `#100` =
-  2026-07-31 15:24 UTC (StopLossOrder long 62490 → 62475.5) — **later than** N1c's trade #99 and
-  recorded in no doc. Both are testnet-era. Whether they go is the owner's call, not a defect.
-- AWS §9 migration · the size ladder.
-- Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
-  instrument is UIA-driven, so a human double-click is still unobserved).
-
-## 5. Queue — re-verified 2026-08-02
-
-**N2 enable (owner) → C1 emitter build** (contract §8 is the binding spec; phase-2 actionable exits
-stay fenced) → backlog `ROADMAP-2026-08.md` §5. **No implementer seat is in flight.**
-
-Verified rather than assumed: `risk_size_bridge_trades = False` in the owner's bin, so **N2 is still
-off** and the queue head is real — but it is now *actionable*, which it was not while §2b stood.
-C1 has **not** started: only `proposal-c1-v2-feedback-file.md` + `ack-…` exist, no spec or impl
-report. `ROADMAP-2026-08.md` §5's backlog is intact and unscheduled — spot-checked
-`set-textbox -Exact`, still absent from `tools/set-textbox.ps1`, so that row is correctly open.
-
-**Three stale-open claims elsewhere were corrected in the same pass** (they read as work owed and
-were not): ROADMAP §3's EV row said the fee-comms repoint's *"coordinator review is all that
-remains"* — it closed 2026-07-30 in `fd2604e`, appended to `spec-fee-comms-repoint.md` rather than
-a standalone `review-…md`, which is exactly why it kept reading as open; ROADMAP §5's WATCH
-paragraph still warned the LIVE multi-order exposure was open "until `spec-placement-single-flight.md`
-lands"; and §7's amended sequence still listed SF and EV as pending.
-
-⚠ **Method note for the next audit — a doc is not evidence about a doc.** Every clear above came
-from the artefact (reflog, dll symbols, `trades.db`, the settings JSON, the tools script), never
-from another `.md` asserting it. Two of the four had *already* been closed and re-copied forward as
-open across a handover boundary, which is how they survived.
-
-## 6. Methodology notes this era earned (the expensive ones)
-
-1. **An acceptance must test the DEFECT, not the fix's theory of it.** SF v1 was a correct
-   implementation of a wrong mechanism and read as convincing until the runtime pass contradicted it.
-2. **Verify the change is in force before believing a runtime result** — check the running assembly
-   for the new symbol. Both SF reviews did; it is what made the v1 failure trustworthy.
-3. **Statement ORDER cannot be checked from a unified diff.** Added lines either side of unchanged
-   context read in the wrong order. Open the file.
-4. **Escalate spec defects before implementing.** Three seats did it this era and were right five,
-   two and two times respectively. The one rejected item (N2b D1) was rejected because *one
-   conjunct's reachability was proved and the rest of the gate assumed* — a reusable trap.
+1. **Verify what is IN FORCE — including that an acceptance's instrument can EXIST.** Twice an
+   acceptance named an observable unreachable in the code as shipped; each spawned a follow-up spec.
+2. **An acceptance must test the DEFECT, not the fix's theory of it.** SF v1 was a correct
+   implementation of a wrong mechanism and read as convincing until runtime contradicted it.
+3. **Statement ORDER cannot be checked from a unified diff.** Open the file.
+4. **Prove every conjunct or claim nothing** (the N2b D1 trap).
 5. **Prose moves censuses.** Run them even for comment-only commits.
+6. **A doc is not evidence about a doc — and the staleness is RECURSIVE.** The 2026-08-02 audit
+   cleared four already-done items, then left two more in the file it had just corrected. Treat
+   "I just fixed this file" as no evidence about that file. Four structural causes, each with a real
+   instance here: a review that lands somewhere unusual reads as owed forever · a precondition
+   sentence outlives its precondition (no queue-level check catches it) · a satisfied state that was
+   never an open item is invisible to a queue audit · **an unconfigured default is invisible to both
+   a queue audit and an artefact read** — so **when config is a partial map, enumerate the DOMAIN,
+   not the keys.**

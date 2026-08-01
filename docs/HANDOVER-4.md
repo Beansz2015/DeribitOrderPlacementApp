@@ -1,5 +1,13 @@
 # HANDOVER-4 — DeribitOrderPlacementApp coordinator seat (written 2026-07-28)
 
+> 🛑 **SUPERSEDED — HISTORY ONLY. DO NOT READ THIS AS BINDING.** `HANDOVER-6.md` is the
+> self-contained entry point; §4's invariants and §6's seat rules were folded into it (corrected)
+> and are canonical there. ⚠ **Two of §5's runtime facts were later REVERSED:** "trade-placing
+> steps: OWNER mouse clicks only" (harness placement is now permitted via
+> `tools/place-and-verify.ps1`) and "never stop the engine" for payload tests (**inverted** — STOP
+> the engine → run → `restore-payload.ps1` → RESTART). §4.4's `emergencyFired` census and its
+> "backoff unreachable" note are also stale. See `ARCHIVE-closed-milestones.md`.
+
 **Supersedes `HANDOVER-3.md` as the standing checkpoint** (H-3 §4–§5 invariants/methodology remain
 binding and are EXTENDED here; H-2 likewise per H-3). Written at the Jul-28 Fable→Fable rotation;
 **the ~Aug-2 Fable→Opus transition needs only a light delta on this doc**, not a rewrite. Memory's

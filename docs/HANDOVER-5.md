@@ -1,5 +1,9 @@
 # HANDOVER-5 — DeribitOrderPlacementApp coordinator seat (written 2026-07-30, Fable→Opus)
 
+> 🛑 **SUPERSEDED — HISTORY ONLY.** `HANDOVER-6.md` is the self-contained entry point. §5's
+> Fable-reserve list is **DISSOLVED** — nothing routes to a second model seat; items touching a
+> settled ruling go to the OWNER. See `ARCHIVE-closed-milestones.md`.
+
 **Supersedes `HANDOVER-4.md` as the standing checkpoint.** H-4 §1 (read-first map), §4 (invariants,
 incl. the emergencyFired census + disposition-cardinality freeze), §5 (runtime bite-list), §6
 (methodology + seat rules) and its §8 delta **remain binding and are NOT restated here** — read
