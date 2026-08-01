@@ -1,5 +1,29 @@
 # Spec-back — N2 risk-sized bridge trades: five defects in `spec-risk-sized-bridge-trades.md`
 
+> ## COORDINATOR RULING 2026-08-01: **ALL FIVE UPHELD. Proceed.**
+>
+> Each claim was re-verified against the code at `677a635` before ruling — none taken on the
+> report's word. The spec is **amended in place**, so a future reader is not walked into the same
+> traps. Rulings, in the report's order:
+>
+> | | Ruling |
+> |---|---|
+> | **§1** | **UPHELD.** `rawSize` stays bound to `SizeUsd`; the risk size enters as a separate `baseSize`; the `sizeUsdOverride` elision keeps comparing against the **box**. Confirmed at the site: `If(effectiveSize <> rawSize, effectiveSize, 0D)` with `If sizeUsdOverride > 0D Then amount = sizeUsdOverride`. **Addition:** the clamp check *and its log text* both take `baseSize` — it is the value actually clamped, and when disabled `baseSize = rawSize`, so the line stays character-for-character today's. |
+> | **§2** | **UPHELD.** Mirror the button exactly: `maxUsd > 0` guard + step-floored cap. Confirmed both divergences (`max <= 0` ⇒ collapse to 10; `505` ⇒ off-step order, `-32602`). Parity is the anchor; `Math.Min` is a second, differently-behaved cap. |
+> | **§3** | **UPHELD.** Fail-safe covers `dist <= 0` **and** `p.Entry <= 0` **and** `RiskPerTradeUsd <= 0`. Confirmed the levels gate is `StopLevel <= 0 OrElse Target <= 0` with `Entry` absent, and `ParsePayload` defaults it to `0D`. **The alternative is RULED AGAINST:** do not add `p.Entry <= 0D` to `refused: levels` — it changes a frozen disposition-token gate and would alter the soak stream. You were right not to propose it as the default. |
+> | **§4** | **UPHELD. "Untouched" = BEHAVIOUR.** Repoint `ApplyRiskBasedSize` at the shared `(riskUsd, maxSizeUsd, refPrice, dist)` seam. Confirmed the button's distance is `If(manualSLval > 0D, Math.Abs(refPrice - manualSLval), triggerDistance)` — no stop price exists in offset mode, so an `(entry, stop)` seam could only be a second copy. Below-10 policy stays per-caller. The button's diff must be exactly two arithmetic lines → one call, guards and all three refusal messages untouched. |
+> | **§5** | **UPHELD, and placement RULED: `SIGNAL BRIDGE`, right of Tiers, caption `Risk-size`.** Your measurement is corroborated by the era's own record — the EV reclaim already spent the only spare height in `grpTooling` (that is why `lblAtrNow` was lifted onto the form). Taking your recommendation, and on the merits rather than as a fallback: it is a bridge behaviour and belongs in the bridge group's checkbox column. Owner can veto at the screenshot check. |
+> | **§6.1** | Acceptance 3 amended as you suggest, and a **new acceptance 3b added**: a LIVE-mode leg is now REQUIRED. Log-only structurally cannot catch the §1 class of defect, so proving it needs a real placement checked against the exchange, not the log. |
+> | **§6.2** | Use the brief's filename, `docs/impl-report-risk-sized-bridge-trades.md`. Spec's Commits line corrected. |
+> | **§6.3** | Fixture arithmetic **re-computed independently and adopted verbatim** — all six rows check out. Two regression pins added for defect §2 (`max = 505` ⇒ 500, and `max = 0` ⇒ no cap, NOT 10). |
+>
+> **Assessment of the escalation itself:** §1 is the find of the era so far. A literal implementation
+> would have printed the risk size and placed the Amount box, on the default configuration, with
+> Log-only mode structurally unable to reveal it — the soak would have looked perfect. That is the
+> third time this era a plausible static derivation has been wrong, and the first time it was caught
+> *before* any code was written rather than by a runtime acceptance. Raising it cost one document;
+> not raising it would have cost a live mis-sized trade.
+
 **For:** the owner + orchestrator. **From:** the N2 implementer seat (Opus HIGH), 2026-08-01.
 **Status:** **no code changed. Nothing implemented.** Raised under the standing rule (H-4 §6 /
 H-5 §4): spec defects escalate BEFORE implementing rather than being coded around.
