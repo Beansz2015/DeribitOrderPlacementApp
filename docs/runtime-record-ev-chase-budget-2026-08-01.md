@@ -139,13 +139,28 @@ already on disk at START is never read, which is why the acting payload had to b
 START. It also confirms the contract's *"the disposition FILE append is unconditional in every
 mode/state"* clause — even an interlock refusal gets its row, while the host log stays filtered.
 
-**Tooling change made to get here, flagged for the record:** `write-payload.ps1`'s kill rule refused
-on the *engine process*, which made the standing isolated-harness protocol unusable exactly when it
-is most useful — with the engine up. The refusal is now **path-aware**: unchanged (exit 3) when the
-write targets the engine's own `verdict_signal.json`, and permitted with an explicit note when it
-targets an isolated path the engine cannot touch. Both branches were tested before use: the engine's
-path still refuses, the scratch path proceeds. The hazard the rule guards is a property of the file,
-not of the engine being alive.
+**Tooling change made to get here, then REVERTED by owner ruling — read this before proposing it
+again.** `write-payload.ps1`'s kill rule refuses on the *engine process*, which made the
+isolated-harness protocol unusable with the engine up. It was made path-aware for this run (refuse
+only when the target is the engine's own `verdict_signal.json`), and both branches were tested. The
+owner then **ruled it back to blunt**: a safety gate that is easy to reason about beats one that is
+precise but conditional — *"is the engine running?"* is checkable at a glance, *"could these two
+paths ever collide?"* is not, and being wrong means the harness racing the live emitter for the file
+the owner actually trades from.
+
+**So the protocol for any bridge payload test is: STOP the engine → run → `restore-payload.ps1` →
+RESTART the engine.** Two footguns, both hit for real on 2026-08-01:
+
+1. **Forgetting to restart** — a stopped engine means no signals reach the bridge and *nothing warns
+   you*. The refusal message now shouts this.
+2. **With the engine stopped, `write-payload.ps1` writes to the LIVE payload path by default** (no
+   `bridge.json` ⇒ the built-in default). The coordinator did exactly this while re-testing the
+   reverted gate — assuming the engine was still up — and overwrote
+   `C:\Dev\DeribitBridge\verdict_signal.json` with a harness payload. The script's automatic
+   first-write backup made it a non-event and `restore-payload.ps1` put the genuine engine payload
+   back (verified: `signal_id 7 / NO TRADE / app DeribitVerdictEngine`). **That backup/restore pair
+   is the only thing standing between this protocol and clobbering the live payload — treat
+   `restore-payload.ps1` as a mandatory step, not a cleanup nicety.**
 
 ## Residual
 

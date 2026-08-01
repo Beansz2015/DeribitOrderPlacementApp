@@ -38,9 +38,19 @@ param(
 
 . "$PSScriptRoot\harness-common.ps1"
 
-# NOTE: the kill rule now lives BELOW, after the payload path is resolved - it has to know WHICH
-# file we are about to write before it can decide whether we would be fighting the emitter.
-# See the block headed "Kill rule".
+# Kill rule: never fight the live emitter. DELIBERATELY BLUNT - it refuses on the engine PROCESS,
+# not on whether the resolved payload path happens to be isolated from it (owner ruling 2026-08-01,
+# after a path-aware variant was tried and reverted). A safety gate that is easy to reason about
+# beats one that is precise but conditional: "is the engine running?" is checkable at a glance,
+# "would these two paths ever collide?" is not, and the cost of being wrong is the harness racing
+# the live emitter for the file the owner actually trades from.
+# The consequence is accepted: bridge payload tests REQUIRE the engine stopped. See the refusal
+# message - and note the restart, which is the half that actually bites.
+$engine = Get-Process -Name "DeribitVerdictEngine" -ErrorAction SilentlyContinue
+if ($engine) {
+    Write-Error "REFUSED: DeribitVerdictEngine is running (PID $($engine.Id -join ', ')) - it overwrites the payload every run interval. STOP THE ENGINE first (spec-ui-test-harness.md section 9.4/9.5 protocol), then re-run. *** AND REMEMBER TO RESTART IT WHEN THE TEST IS DONE *** - a stopped engine means no signals reach the bridge and nothing warns you about it."
+    exit 3
+}
 
 # Resolve the bin the app reads bridge.json from: the RUNNING app's exe dir when up, else
 # -BinDir, else the Debug bin.
@@ -66,26 +76,6 @@ if (Test-Path $bridgeCfg) {
         exit 2
     }
 }
-# Kill rule: never fight the live emitter - made PATH-AWARE 2026-08-01 (EV 6.3 bridge-act leg).
-# The rule exists because the engine rewrites ITS payload every run interval, so a harness write
-# to that same file is a race the harness always loses. That hazard is a property of the FILE, not
-# of the engine merely being alive: when the running bin's bridge.json points somewhere else, the
-# two never touch the same path and there is nothing to fight. Refusing on the process alone also
-# contradicted the standing isolated-harness protocol (give the harness bin its own bridge.json and
-# a scratch payload path, so consumer-side tests never interrupt the live stream) - that protocol
-# was unusable with the engine up, which is precisely when it is worth having.
-# The refusal is UNCHANGED for the case it was written for: the engine's own path.
-$defaultEnginePath = "C:\Dev\DeribitBridge\verdict_signal.json"
-$isEnginePath = ([System.IO.Path]::GetFullPath($payloadPath) -ieq [System.IO.Path]::GetFullPath($defaultEnginePath))
-$engine = Get-Process -Name "DeribitVerdictEngine" -ErrorAction SilentlyContinue
-if ($engine -and $isEnginePath) {
-    Write-Error "REFUSED: DeribitVerdictEngine is running (PID $($engine.Id -join ', ')) and this write targets ITS payload ($payloadPath) - it overwrites that file every run interval. Either stop the engine (section 9.4/9.5 protocol), or point the running bin's bridge.json at a scratch path (the isolated-harness protocol) and re-run."
-    exit 3
-}
-if ($engine) {
-    Write-Host "NOTE: DeribitVerdictEngine is running (PID $($engine.Id -join ', ')), but this write targets an ISOLATED path, not its own - proceeding without touching the live stream."
-}
-
 $payloadDir = Split-Path $payloadPath -Parent
 if (-not (Test-Path $payloadDir)) { New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null }
 
