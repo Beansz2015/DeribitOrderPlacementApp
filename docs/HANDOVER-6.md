@@ -8,8 +8,12 @@ escalate to the OWNER, who is the arbiter). Memory's `era-state-checkpoint` is t
 
 ## 1. State (verify: `git rev-parse HEAD origin/master`; never trust this text)
 
-- **origin/master `53a2375` · HEAD `2308122`, 19 ahead, tree clean.** Owner is the only pusher.
+- **origin/master `234131a` — the owner PUSHED 2026-08-02 01:38 +0800** (reflog `update by push`),
+  which took the tree from 19-ahead to level. HEAD is now this docs commit, i.e. 1+ ahead: a docs
+  commit can never state its own sha, so `git rev-parse` rather than trusting the number.
 - **Gate at HEAD: GATE PASSED, OrderCheck 173/173** (153 before N2). Execute it yourself.
+  Every commit above the last gated one (`2308122`) is **docs-only** — verified with
+  `git log --name-only 2308122..HEAD`, no `.vb`/`.vbproj` touched — so the 173/173 carries.
 - **Censuses, `frmMainPageV2.vb`-scoped** (a repo-wide grep inflates several and reads as drift):
   `emergencyFired` 10 · `IsATRSlippageExcessive` 8 · `NextSlBackoff` 2 · `RecordCommandedSLPrice` 3
   · `slUpdateFailures = 0` 1 · `TakerFeeRate` 0 · `isPlacingOrder` 13 ·
@@ -31,22 +35,26 @@ escalate to the OWNER, who is the arbiter). Memory's `era-state-checkpoint` is t
   the six handlers ONLY; `FlattenPositionAsync` and the two emergency sites reach
   `SendReduceMarketOrderAsync` directly and must stay that way.
 
-## 2b. 🚨 THE OWNER'S x64 BIN IS STALE — nothing from 2026-08-01 is in it
+## 2b. ✅ RESOLVED 2026-08-02 — the owner's x64 bin is CURRENT (was stale; the rule survives)
 
-Checked 2026-08-01 at the end of the session: `bin\x64\Debug\…\DeribitOrderPlacementApp.dll` is
-dated **2026-07-31 23:12** and contains **none** of `RiskSizedBase` (N2), `placedOrderSizeUsd` (N2b),
-`isPlacingOrder` (SF) or `lastPlacementAdmittedUtc` (SF2). Every runtime pass this era ran on the
-**harness AnyCPU Debug** bin.
+**The owner rebuilt it.** Verified 2026-08-02: `bin\x64\Debug\…\DeribitOrderPlacementApp.dll` is
+dated **2026-08-02 01:33** and contains **all four** era symbols — `RiskSizedBase` (N2),
+`placedOrderSizeUsd` (N2b), `isPlacingOrder` (SF), `lastPlacementAdmittedUtc` (SF2). The placement
+debounce **is** in the owner's app and the `Risk-size` checkbox **exists**. That bin's
+`orderapp-settings.json` was rewritten at 01:35, so the rebuilt app was launched and closed
+normally (`FormClosing` persistence) — the build was exercised, not merely produced.
 
-**So the owner is trading on pre-SF code — the placement debounce is NOT in their app** — and
-ticking `Risk-size` there would do nothing, because the checkbox does not exist in that build.
+**Environment verified from config, which is stronger than reading the title:** that bin's
+`secrets.json` reads `Environment = testnet` and is byte-identical (SHA-256) to project source, so
+the bin is on **testnet**. ⚠ Note the mechanism this section used to assert — "the rebuild copies
+`secrets.json`" — is **not decidable from timestamps**: MSBuild `PreserveNewest` stamps the copy
+with the *source's* mtime, so a copy and a skipped copy look identical afterwards. **Check the
+`Environment` key, not the file date.**
 
-The owner must `dotnet build … -p:Platform=x64`, **then re-read the window title**: the rebuild
-copies `secrets.json` from project source, which is **testnet**, so a live app comes up
-`— TESTNET`. (The recorded trap is the reverse direction — it once came up `— LIVE` unexpectedly —
-but the mechanism is the same and it bites both ways.)
-
-**Do not assume a runtime observation on the harness bin says anything about the owner's bin.**
+**The standing rule survives its instance:** after ANY x64 rebuild, re-read `Environment` **and**
+the window title before clicking Connect — it has bitten in both directions (`— LIVE` unexpectedly,
+2026-07-27). And: **do not assume a runtime observation on the harness bin says anything about the
+owner's bin** — separate settings file, DB and journal.
 
 ## 3. N2 + N2b — BOTH CLOSED 2026-08-01. Nothing is in flight.
 
@@ -80,21 +88,56 @@ round-trip through a human pressing START, after which `[BRIDGE] auto-STOP: stal
 Patch `exec_resolution_min` to 15 in the payload before START (~37 min) and the race disappears.
 Worth a `write-payload.ps1` parameter if it recurs.
 
-## 4. Owner-side open
+## 4. Owner-side open — AUDITED 2026-08-02 against the bin, the settings file and the journal
 
-**x64 rebuild + title re-check (§2b) — this gates everything else** · push (22+ ahead) · circuit
-breaker is `$10` in the owner's bin, which gates the BRIDGE path and could stop a session quickly at
-risk-sized notionals — set deliberately before enabling N2 · `risk_per_trade_usd` / `max_size_usd`
-must be set **together**: at 25/500 a realistic $200 stop computes ~7875 and caps to 500, so every
-signal gets a flat 500 rather than risk-based sizing · testnet journal rows #90–#93 / #96–#98 / #99
-to delete · AWS §9 migration · the size ladder · one optional non-blocking check: a physical
-owner-mouse double-click on `Mkt. BUY` (the SF2 burst instrument is UIA-driven, so a human
-double-click is still unobserved).
+**Four items this list carried were already DONE when it was written.** Cleared, with the evidence:
 
-## 5. Queue
+| Was listed open | Verdict | Evidence |
+|---|---|---|
+| x64 rebuild + title re-check | **DONE** | dll 2026-08-02 01:33, four symbols present, `Environment = testnet` (§2b) |
+| push (22+ ahead) | **DONE** | reflog `update by push` 2026-08-02 01:38 +0800; 0 ahead at audit |
+| testnet journal rows #90–#93 / #96–#98 / #99 | **DONE** | queried the x64 `trades.db`: **none** survive |
+| EV bridge-act leg *(carried in memory, not here)* | **DONE** | closed end-to-end 2026-08-01; §2 already had this right |
+
+**Still genuinely open:**
+
+- **`risk_per_trade_usd` / `max_size_usd` = 25 / 500 — unchanged, and this is the live footgun.**
+  They must be set **together**: at 25/500 a realistic $200 stop computes ~7875 and caps to 500, so
+  every signal gets a flat 500 rather than risk-based sizing. **N2 would be "on" and doing nothing
+  risk-shaped.** Fix this before ticking `Risk-size`, not after.
+- **Circuit breaker `$10`** (verified in the bin) — gates the BRIDGE path and could stop a session
+  quickly at risk-sized notionals. Set deliberately before enabling N2.
+- **Two journal rows the deletion list never named: `#95` and `#100`.** The x64 journal holds **91
+  live rows**; after `#89` only these two remain. `#95` = 2026-07-27 19:33 UTC (TakeLimitProfit
+  long, the 07-27/28 emergency-hoist session, adjacent to the deleted #96–#98); `#100` =
+  2026-07-31 15:24 UTC (StopLossOrder long 62490 → 62475.5) — **later than** N1c's trade #99 and
+  recorded in no doc. Both are testnet-era. Whether they go is the owner's call, not a defect.
+- AWS §9 migration · the size ladder.
+- Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
+  instrument is UIA-driven, so a human double-click is still unobserved).
+
+## 5. Queue — re-verified 2026-08-02
 
 **N2 enable (owner) → C1 emitter build** (contract §8 is the binding spec; phase-2 actionable exits
 stay fenced) → backlog `ROADMAP-2026-08.md` §5. **No implementer seat is in flight.**
+
+Verified rather than assumed: `risk_size_bridge_trades = False` in the owner's bin, so **N2 is still
+off** and the queue head is real — but it is now *actionable*, which it was not while §2b stood.
+C1 has **not** started: only `proposal-c1-v2-feedback-file.md` + `ack-…` exist, no spec or impl
+report. `ROADMAP-2026-08.md` §5's backlog is intact and unscheduled — spot-checked
+`set-textbox -Exact`, still absent from `tools/set-textbox.ps1`, so that row is correctly open.
+
+**Three stale-open claims elsewhere were corrected in the same pass** (they read as work owed and
+were not): ROADMAP §3's EV row said the fee-comms repoint's *"coordinator review is all that
+remains"* — it closed 2026-07-30 in `fd2604e`, appended to `spec-fee-comms-repoint.md` rather than
+a standalone `review-…md`, which is exactly why it kept reading as open; ROADMAP §5's WATCH
+paragraph still warned the LIVE multi-order exposure was open "until `spec-placement-single-flight.md`
+lands"; and §7's amended sequence still listed SF and EV as pending.
+
+⚠ **Method note for the next audit — a doc is not evidence about a doc.** Every clear above came
+from the artefact (reflog, dll symbols, `trades.db`, the settings JSON, the tools script), never
+from another `.md` asserting it. Two of the four had *already* been closed and re-copied forward as
+open across a handover boundary, which is how they survived.
 
 ## 6. Methodology notes this era earned (the expensive ones)
 
