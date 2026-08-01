@@ -403,9 +403,10 @@ Public Class frmMainPageV2
     ' field, same lifecycle as legAnchorPrice above: seeded at both placement sends, cleared wherever a
     ' working entry ceases to exist. 0 keeps sizeUsdOverride's established meaning - "nothing retained,
     ' use the box" - deliberately NOT a second sentinel.
-    ' Set UNCONDITIONALLY at each placement (not only when overridden): the placement then IS a clear,
-    ' so a manual order can never inherit a previous act's size even if some exotic path skipped every
-    ' teardown. For a manual placement it equals the box, which is acceptance 3's sanctioned value.
+    ' WRITTEN unconditionally at each placement - the placement is therefore itself a clear, so a manual
+    ' order can never inherit a previous act's size even if some exotic path skipped every teardown.
+    ' The VALUE is conditional (owner veto 2026-08-01): only an OVERRIDE-sourced size is retained; a
+    ' manual placement writes 0 so that a mid-chase Amount-box edit still resizes the resting order.
     ' Written on the UI thread at placement, read on the receive thread by the chase - the same
     ' accepted Decimal torn-read class as placedPrice/legAnchorPrice, which share this exact lifecycle.
     Private placedOrderSizeUsd As Decimal = 0D              ' 0 = nothing retained; the chase reads the box
@@ -3939,12 +3940,21 @@ Public Class frmMainPageV2
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
             emergencyFired = False                ' N1: a fresh order re-establishes a clean emergency context too
-            ' N2b: retain the size actually SENT (this is `amount` after the sizeUsdOverride fold above,
-            ' and it is the value in all three payload legs), so the chase re-sends it instead of the
-            ' Amount box. Seeded HERE, beside the sibling placement seeds and AFTER the send, rather than
-            ' at the override fold: every early Return between the two (bad quote, ATR-slippage abort,
+            ' N2b: retain the size actually SENT - but ONLY when it came from an OVERRIDE (owner veto
+            ' 2026-08-01; spec §2 as amended). The distinction the fix needs is WHERE the placed size
+            ' came from, not whether one was retained. A manual placement writes 0, so its chase falls
+            ' back to the Amount box and editing that box while the order rests STILL resizes the
+            ' resting order - a control the owner uses deliberately, because the chase can walk the entry
+            ' closer to the TP and they resize in that moment. A resting BRIDGE entry deliberately does
+            ' NOT follow a box edit: that is the fix. Cancel it to intervene.
+            ' The WRITE stays unconditional, and that is load-bearing: it is what makes a placement
+            ' itself a clear, so a stale size from a previous act can never survive into a later manual
+            ' order even through a missed teardown. Only the VALUE is conditional - do not weaken this
+            ' to a conditional write.
+            ' Seeded HERE, beside the sibling placement seeds and AFTER the send, rather than at the
+            ' override fold: every early Return between the two (bad quote, ATR-slippage abort,
             ' unsupported type) would otherwise leave a size retained for an order that was never placed.
-            placedOrderSizeUsd = amount
+            placedOrderSizeUsd = If(sizeUsdOverride > 0D, amount, 0D)
 
             ' Entry-chase v2 §4: the legs' geometry is anchored to this placement price. Bound the
             ' geometry error so a chased entry can never overrun its own TP:
