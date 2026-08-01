@@ -1,6 +1,6 @@
 # Micro-spec — the entry chase must preserve the PLACED size (N2b)
 
-**Status: WRITTEN 2026-08-01, owner tick pending. BLOCKS N2** (`spec-risk-sized-bridge-trades.md`)
+**Status: OWNER-TICKED 2026-08-01 — NEXT, awaiting a fresh Opus-HIGH seat. BLOCKS N2** (`spec-risk-sized-bridge-trades.md`)
 and, less visibly, the session-policy `size_mult` feature that has been silently broken since it
 shipped. Origin: `review-risk-sized-bridge-trades.md` §2/§3 — acceptance 3b failed with the risk
 size placed correctly and then reverted. **Implementer: Opus HIGH, fresh conversation, own pass**
