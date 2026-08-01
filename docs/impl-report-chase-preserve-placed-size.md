@@ -352,18 +352,25 @@ forbidden, `chkRiskSizeBridge` / `chkSessionPolicyOn` carry harness `AccessibleN
 generic `click-button.ps1` refuses it via `trade-buttons.txt`). The extra cost is the payload
 choreography, and it is the part that bites:
 
-1. **STOP the engine first** — `write-payload.ps1` refuses while a `DeribitVerdictEngine` process
+1. **ATRSlip must be CHECKED**, or `TryStart` refuses outright: `SignalBridge.vb:279`–`:299` gates
+   START on mode = Live **and** local ARM **and** a fresh payload **and** engine ARM **and** the
+   slippage-cap checkbox. An unchecked box also means neither chase-abort arm is evaluated.
+2. **STOP the engine first** — `write-payload.ps1` refuses while a `DeribitVerdictEngine` process
    is running (deliberately blunt, owner-ruled; do not re-propose a path-aware variant).
-2. `write-payload.ps1 -Direction LONG -Entry 63000 -Stop 62800 -Target …`
-3. Evaluation is **file-change-only** and START does not re-evaluate what is already on disk, so
-   with the engine stopped the payload must be written **twice**: write → START → write.
-4. `restore-payload.ps1` afterwards, then **restart the engine**. Treat the restore as mandatory,
+3. `write-payload.ps1 -Direction LONG -Entry 63000 -Stop 62800 -Target …`
+4. **Write the payload TWICE: write → START → write.** Both halves are forced by the code, which is
+   why this is easy to get wrong: `TryStart` refuses unless `IsFreshNow` (`:286`), so a payload must
+   *already* be on disk for START to succeed — and evaluation is **file-change-only**, so START does
+   not act on what is already there. The first write unblocks START; the second one is the act.
+5. `restore-payload.ps1` afterwards, then **restart the engine**. Treat the restore as mandatory,
    not cleanup — with the engine stopped, `write-payload` defaults to the LIVE payload path.
 
-**Recent precedent for who drives what:** the coordinator seat drove all four SF2 acceptances and
-the EV §6.3 manual arm on the harness itself; for N2's runtime legs the owner drove Mode/ARM/START
-while the coordinator drove the rest. **This seat drives none of it** — implementer seats place no
-trades and arm no bridge, which is a seat rule and is unaffected by the WATCH amendment.
+**Who drives what.** `HANDOVER-6.md` §3.2 settles it and matches what I found in the scripts: the
+reviewing seat runs these on the harness itself, and **the owner is needed only for bridge
+Mode/ARM/START on the bridge legs**. Precedent: the coordinator drove all four SF2 acceptances and
+the EV §6.3 manual arm on the harness; for N2's runtime legs the owner drove Mode/ARM/START while
+the coordinator drove the rest. **This seat drives none of it** — implementer seats place no trades
+and arm no bridge, which is a seat rule and is unaffected by the WATCH amendment.
 
 Related: `spec-chase-preserve-placed-size.md` (as amended) · `review-chase-preserve-placed-size.md`
 (the rulings + the veto) · `spec-back-chase-preserve-placed-size.md` (the escalation, now all
