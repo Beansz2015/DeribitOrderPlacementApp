@@ -3256,7 +3256,14 @@ Public Class frmMainPageV2
                                         ' chase and order reference) and the DB record are untouched.
                                         Dim entryShownPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(), 0D)
                                         If entryShownPrice <= 0D Then entryShownPrice = placedPrice
-                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${entryShownPrice:F2}", Color.LimeGreen)
+                                        ' N2b §3: print the size that actually ENTERED, not the Amount-box mirror. The
+                                        ' echo's own amount is the fill's own size - the same message the price above is
+                                        ' read from, and the same token ApplyCloseFill uses for the close's size. Falls
+                                        ' back to the retained placed size, then the box. (The OpenPositions clear of
+                                        ' placedOrderSizeUsd runs after this loop, so the fallback is still live here.)
+                                        Dim entryShownSize As Decimal = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
+                                        If entryShownSize <= 0D Then entryShownSize = If(placedOrderSizeUsd > 0D, placedOrderSizeUsd, orderAmountVal)
+                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {entryShownSize} @ ${entryShownPrice:F2}", Color.LimeGreen)
                                         Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
@@ -3298,7 +3305,12 @@ Public Class frmMainPageV2
                                         ' branch (display/log-line only).
                                         Dim trailShownPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(), 0D)
                                         If trailShownPrice <= 0D Then trailShownPrice = placedPrice
-                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {orderAmountVal} @ ${trailShownPrice:F2}", Color.LimeGreen)
+                                        ' N2b §3: same treatment as the EntryLimitOrder sibling. A trailing bracket is
+                                        ' always placed at the box, so this reads identically to before in practice -
+                                        ' it is here so the two "Position entered:" lines cannot drift apart.
+                                        Dim trailShownSize As Decimal = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
+                                        If trailShownSize <= 0D Then trailShownSize = If(placedOrderSizeUsd > 0D, placedOrderSizeUsd, orderAmountVal)
+                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {trailShownSize} @ ${trailShownPrice:F2}", Color.LimeGreen)
                                         Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
