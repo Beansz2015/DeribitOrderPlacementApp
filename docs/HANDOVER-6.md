@@ -114,6 +114,22 @@ Worth a `write-payload.ps1` parameter if it recurs.
   material to N2, because that multiplier applies **on top of** the risk size, exactly once. With
   N2 on, a LONDON signal is half the computed size and an ASIA signal three-quarters. Factor it in
   when setting the knobs above, or the delivered size will surprise.
+
+  🚨 **AND THE THIRD BUCKET IS THE ONE THAT BITES: `NY` (UTC ≥ 13:00) HAS NO ENTRY AT ALL, AND AN
+  ABSENT KEY IS NOT A REFUSAL.** `SessionPolicyConfig.RuleFor` (`SessionPolicy.vb:143`) falls back
+  to `SessionPolicyRule.DefaultRule()` (`:56`) = **`HIGH,MEDIUM | any | 1.0`** — deliberate, and
+  documented in the code as *"that session is unrestricted relative to today"*. So NY is
+  simultaneously the **least restricted** bucket (both tiers, any context, where LONDON takes
+  MEDIUM+CONFIRMED only) **and the largest** — full size, i.e. **2× a LONDON signal and 1.33× an
+  ASIA one**. The owner runs UTC+8, so **NY is their local 21:00–07:59**: overnight is when the
+  biggest, least-gated notional lands. Verified from `SessionPolicy.vb` + the settings JSON, not
+  from prose.
+
+  **Structural cause, and it is a third one — an unconfigured default is invisible to BOTH a queue
+  audit and an artefact read.** The settings JSON contains exactly two session keys, so reading the
+  artefact honestly and carefully still yields "two sessions" and you never think to ask what the
+  third does. Nothing is stale here and nothing is owed — the gap is that the *absence* carries
+  behaviour. **When config is a partial map, enumerate the domain, not the keys.**
 - **Two journal rows the deletion list never named: `#95` and `#100`.** The x64 journal holds **91
   live rows**; after `#89` only these two remain. `#95` = 2026-07-27 19:33 UTC (TakeLimitProfit
   long, the 07-27/28 emergency-hoist session, adjacent to the deleted #96–#98); `#100` =
