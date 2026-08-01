@@ -1,4 +1,4 @@
-# HANDOVER-6 — DeribitOrderPlacementApp coordinator seat (written 2026-08-01)
+# HANDOVER-6 — DeribitOrderPlacementApp coordinator seat (written 2026-08-01, audited + corrected 2026-08-02)
 
 **Supersedes `HANDOVER-5.md` as the standing checkpoint.** H-4 §4 (invariants), §5 (runtime
 bite-list) and §6 (methodology + seat rules) **remain binding and are NOT restated here** — read
@@ -66,7 +66,9 @@ edit restored (place 10, retype 20, get 20); no stale size leaking to a later ma
 of the session-policy `size_mult` surviving a chase.
 
 **N2 is code-APPROVED and UNBLOCKED, and ships DISABLED.** The owner enables it by ticking
-`Risk-size` — *after* the x64 rebuild in §2b, without which the checkbox does not exist in their app.
+`Risk-size`, which **exists in their bin as of the 2026-08-02 rebuild** (§2b) — the rebuild
+precondition this line used to carry is DONE. What is *not* done is §4's knob pairing, which is the
+real precondition now.
 
 Chains, if the reasoning is ever needed: `spec-risk-sized-bridge-trades.md` +
 `spec-back-risk-sized-bridge-defects.md` (five defects, all upheld) + `review-…`; and
@@ -107,6 +109,11 @@ Worth a `write-payload.ps1` parameter if it recurs.
   risk-shaped.** Fix this before ticking `Risk-size`, not after.
 - **Circuit breaker `$10`** (verified in the bin) — gates the BRIDGE path and could stop a session
   quickly at risk-sized notionals. Set deliberately before enabling N2.
+- **Session policy is ENABLED in the owner's bin** (`session_policy.enabled = True`;
+  `LONDON = MEDIUM | CONFIRMED | 0.5`, `ASIA = HIGH,MEDIUM | any | 0.75`). Not an open item — but
+  material to N2, because that multiplier applies **on top of** the risk size, exactly once. With
+  N2 on, a LONDON signal is half the computed size and an ASIA signal three-quarters. Factor it in
+  when setting the knobs above, or the delivered size will surprise.
 - **Two journal rows the deletion list never named: `#95` and `#100`.** The x64 journal holds **91
   live rows**; after `#89` only these two remain. `#95` = 2026-07-27 19:33 UTC (TakeLimitProfit
   long, the 07-27/28 emergency-hoist session, adjacent to the deleted #96–#98); `#100` =
