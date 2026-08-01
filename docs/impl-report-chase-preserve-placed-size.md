@@ -1,5 +1,22 @@
 # Impl report — the entry chase preserves the PLACED size (N2b)
 
+> ## AMENDED 2026-08-01 after the coordinator rulings + owner veto
+> (`review-chase-preserve-placed-size.md`; spec amended in place). Corrected **in place** below, so
+> nothing here reads as current when it is not. Three changes:
+>
+> - **OWNER VETO — the set is now value-conditional** (`e2c66b9`). §1(a)'s unconditional
+>   `= amount` is gone. See §1(a) as rewritten; the acceptance-4 argument in §3 is **unaffected**,
+>   because the *write* stays unconditional and that is the half it rests on.
+> - **D1 REJECTED — my error.** `ReanchorTPToFillAsync` cannot run on a bridge entry: the staging
+>   gate's fourth conjunct is `manualTPval <= 0D` and a bridge act always sets a manual TP. I quoted
+>   the full four-conjunct gate, proved **one** conjunct's reachability, and generalised it to the
+>   whole gate. §7's "N2 must NOT be enabled until this is ruled" is **void**, and §8's TP-leg
+>   observation is **dropped**. Nothing to fix, no commit.
+> - **D2 UPHELD and implemented** (`5fc5b16`); **D3 accepted** as argued.
+>
+> New commits: `e2c66b9` (veto) · `5fc5b16` (D2 restore seed). Gate at each: **GATE PASSED,
+> OrderCheck 173/173**. Censuses re-run — §6 below carries the amended new line.
+
 **Spec:** `spec-chase-preserve-placed-size.md` (owner-ticked 2026-08-01).
 **Origin:** `review-risk-sized-bridge-trades.md` §2/§3 — N2's acceptance 3b failed with the risk
 size placed correctly and then reverted by the first reposition.
@@ -11,10 +28,12 @@ executed by me → **GATE PASSED, OrderCheck 173/173**; all seven §4.6 censuses
 
 | | |
 |---|---|
-| `8370541` | **Spec-back** — two box-mirror sites outside §2's scope, raised BEFORE implementing. **Two rulings still outstanding**; see §7. |
+| `8370541` | **Spec-back** — two box-mirror sites outside §2's scope, raised BEFORE implementing. **All three now ruled**; see §7. |
 | `82005d0` | §2 — `placedOrderSizeUsd`: declaration, set site, both chase reads, five clears. |
 | `9b04972` | §3 — both `Position entered:` lines print the size that entered. |
-| *(this doc)* | impl report |
+| `fdb6160` | impl report (this doc; amended below after the rulings) |
+| `e2c66b9` | **OWNER VETO** — the retained size is value-conditional; the write is not. |
+| `5fc5b16` | **D2 UPHELD** — the id-778 restore seeds the placed size. |
 
 Gate executed at each commit and at final HEAD: **GATE PASSED, OrderCheck 173/173** every time.
 
@@ -27,29 +46,48 @@ One field, `placedOrderSizeUsd As Decimal = 0D`, declared beside `legAnchorPrice
 | role | site | note |
 |---|---|---|
 | decl | `:411` | order-context field block |
-| **set** | `ExecuteOrderAsync :3947` | `= amount`, the value all three payload legs carry, after the `sizeUsdOverride` fold |
-| **read** | `UpdateLimitOrderWithOTOCOAsync :4237` | full-bracket re-anchor |
-| **read** | `UpdateEntryOrderOnlyAsync :4322` | the arm `EntryOnlyChase` (default ON) actually takes — the one 3b ran through |
-| clear | fill/`OpenPositions` transition `:3422` | |
-| clear | `CancelOrderAsync :4007` | nuclear teardown |
-| clear | `CancelWorkingEntryCoreAsync :4101` | scoped teardown |
-| clear | `StopLossForTrailingOrderAsync :4860` | placement seed |
-| clear | `CompletePositionClose :5250` | |
+| **set** | `ExecuteOrderAsync :3957` | `If(sizeUsdOverride > 0D, amount, 0D)` — **amended by the veto**, see (a) |
+| **read** | `UpdateLimitOrderWithOTOCOAsync :4247` | full-bracket re-anchor |
+| **read** | `UpdateEntryOrderOnlyAsync :4332` | the arm `EntryOnlyChase` (default ON) actually takes — the one 3b ran through |
+| **restore seed** | `HandleOpenOrdersSnapshot :5576` | **D2**, single-writer (`If placedOrderSizeUsd = 0D`) |
+| clear | fill/`OpenPositions` transition `:3423` | |
+| clear | `CancelOrderAsync :4017` | nuclear teardown |
+| clear | `CancelWorkingEntryCoreAsync :4111` | scoped teardown |
+| clear | `StopLossForTrailingOrderAsync :4870` | placement seed |
+| clear | `CompletePositionClose :5260` | |
 
 Both reads are the spec's exact form, `If placedOrderSizeUsd > 0D Then amount = placedOrderSizeUsd`,
 placed after the existing `orderAmountVal` read so the `amount <= 0D` guard below is unchanged.
 
-**Two deliberate choices, both flagged for the reviewer:**
+**Three deliberate choices, all flagged for the reviewer:**
 
-**(a) The set is UNCONDITIONAL, not only-when-overridden.** §2 says the field must record *"exactly
-what was sent"*, and acceptance 3 sanctions either `0` **or** box-equal for a manual placement. I
-took box-equal, because it makes **the placement itself a clear**: a manual order cannot inherit a
-previous act's size even by a path that escaped all five teardowns. That is acceptance 4's exact
-risk, and the conditional variant would have *created* it — with only-when-overridden, a manual
-placement after a 310-lot act would not write the field at all, so a single missed clear anywhere
-would put 310 on the manual order. See §3 for the full argument.
+**(a) The WRITE is unconditional; the VALUE is conditional.** ⚠️ **Amended by the owner veto.** My
+first version wrote `= amount` unconditionally, and that was wrong for a trading reason I did not
+know: a mid-chase Amount-box edit is a *deliberate control*. The chase can walk the entry closer to
+the TP, shrinking the entry→TP distance, and the owner resizes in that moment. My unconditional set
+removed it — and both my §5 and the review's first pass had it as inseparable from the fix. **It is
+not.** The distinction the fix actually needs is **where the placed size came from**, not whether
+one was retained:
 
-**(b) The clear at the fill is at the `OpenPositions` transition (`:3422`), not at the two
+```vb
+placedOrderSizeUsd = If(sizeUsdOverride > 0D, amount, 0D)
+```
+
+- **override > 0** (bridge / risk-sized) ⇒ retained; the chase re-sends it. The defect stays fixed.
+- **override = 0** (manual) ⇒ `0`; the chase falls back to the box, so a typed Amount still resizes
+  the resting order.
+
+**The write staying unconditional is the load-bearing half**, and it is why §3's acceptance-4
+argument survives the veto verbatim: a manual placement is *still* itself a clear, so a stale size
+from a previous act cannot survive into one. Only the value changes. The site comment says so
+explicitly, so a later reader does not "simplify" it into a conditional write.
+
+Edge case, confirmed with the reviewer, no code needed: when a risk-sized size happens to **equal**
+the Amount box, N2's act site already passes `sizeUsdOverride = 0`, so the field is `0` and the
+chase reads the box — that same number. And the consequence the owner should hold: **a resting
+*bridge* entry deliberately does NOT follow a box edit.** Cancel it to intervene.
+
+**(b) The clear at the fill is at the `OpenPositions` transition (`:3423`), not at the two
 per-label filled echoes.** That is the single site where the working-entry id context dies —
 it sits with `CurrentOpenOrderId/CurrentTPOrderId/CurrentSLOrderId = Nothing` — and it covers
 **both** entry labels, since `EntryLimitOrder` and `EntryTrailingOrder` fills both set
@@ -67,21 +105,24 @@ matches them."* Enumerated from the code at final HEAD, not from memory:
 
 | event | `cancelPending` | `emergencyFired` | `placedOrderSizeUsd` | match? |
 |---|---|---|---|---|
-| `ExecuteOrderAsync` placement seed | `= False` `:3940` | `= False` `:3941` | **`= amount` `:3947`** | ✅ same seed block |
-| trailing placement seed | `= False` `:4852` | `= False` `:4853` | **`= 0D` `:4860`** | ✅ same seed block |
-| nuclear teardown (`CancelOrderAsync`) | `= True` `:4012` | *(deliberately not)* | **`= 0D` `:4007`** | ✅ beside `legAnchorPrice :4005` |
-| scoped teardown (`CancelWorkingEntryCoreAsync`) | `= True` `:4093` | *(deliberately not)* | **`= 0D` `:4101`** | ✅ beside `legAnchorPrice :4099` |
-| `CompletePositionClose` | *(via the nuclear cancel it calls)* | `= False` `:5246` | **`= 0D` `:5250`** | ✅ beside `legAnchorPrice :5248` |
-| fill / `OpenPositions` transition | — | — | **`= 0D` `:3422`** | spec-named; see below |
+| `ExecuteOrderAsync` placement seed | `= False` `:3941` | `= False` `:3942` | **`If(override>0, amount, 0D)` `:3957`** | ✅ same seed block |
+| trailing placement seed | `= False` `:4862` | `= False` `:4863` | **`= 0D` `:4870`** | ✅ same seed block |
+| nuclear teardown (`CancelOrderAsync`) | `= True` `:4022` | *(deliberately not)* | **`= 0D` `:4017`** | ✅ beside `legAnchorPrice :4015` |
+| scoped teardown (`CancelWorkingEntryCoreAsync`) | `= True` `:4103` | *(deliberately not)* | **`= 0D` `:4111`** | ✅ beside `legAnchorPrice :4109` |
+| `CompletePositionClose` | *(via the nuclear cancel it calls)* | `= False` `:5256` | **`= 0D` `:5260`** | ✅ beside `legAnchorPrice :5258` |
+| fill / `OpenPositions` transition | — | — | **`= 0D` `:3423`** | spec-named; see below |
+
+The veto did not disturb any of this: it changed the **value** written at the one set site, not the
+site list. Every clear is still a clear.
 
 **The three `cancelPending` reset sites I did NOT match, and why each is already covered:**
 
 | site | why no clear is needed |
 |---|---|
-| `IsCancelPending()` 4-s self-clear `:495` | A timeout on the cancel *gate*. No order lifecycle event; the working entry's existence is unchanged by it. |
-| raced-abort repair `:1642` | Reached only from the id-31 `not_open_order` response, i.e. *the scoped cancel lost and the entry filled*. `CancelWorkingEntryCoreAsync` already ran and cleared at `:4101`, so the field is provably `0` on arrival. |
-| exchange-confirmed `cancelled` echo `:3357` | Every cancel the app issues goes through one of the two teardowns, both of which clear. The echo only re-opens the gate. |
-| `TrailingStopLossOrderAsync` cancel-all `:4931` | Fires with a position open, so the fill clear at `:3422` has already run. `legAnchorPrice` is deliberately not cleared here either — the trailing transition needs its context — and this field follows it. |
+| `IsCancelPending()` 4-s self-clear `:496` | A timeout on the cancel *gate*. No order lifecycle event; the working entry's existence is unchanged by it. |
+| raced-abort repair `:1643` | Reached only from the id-31 `not_open_order` response, i.e. *the scoped cancel lost and the entry filled*. `CancelWorkingEntryCoreAsync` already ran and cleared at `:4111`, so the field is provably `0` on arrival. |
+| exchange-confirmed `cancelled` echo `:3358` | Every cancel the app issues goes through one of the two teardowns, both of which clear. The echo only re-opens the gate. |
+| `TrailingStopLossOrderAsync` cancel-all `:4941` | Fires with a position open, so the fill clear at `:3423` has already run. `legAnchorPrice` is deliberately not cleared here either — the trailing transition needs its context — and this field follows it. |
 
 **Why the fill transition has no sibling:** `cancelPending` has nothing to do at a fill, and
 `emergencyFired` must *survive* the fill — that is the whole point of the N1 latch. This field is
@@ -97,18 +138,21 @@ structural rather than an enumeration I could have got wrong:
 siblings, with the four non-matching sibling sites shown to be already covered.
 
 **Leg 2 — even if leg 1 had a hole, the manual placement overwrites it before any chase can read
-it.** There is no path to a manual entry order that does not run `ExecuteOrderAsync :3947`, and that
-line is unconditional. So the value a chase can read is always *this* order's own size.
+it.** There is no path to a manual entry order that does not run `ExecuteOrderAsync :3957`, and that
+**write** is unconditional — the veto changed only the value written, so this leg is untouched. A
+manual placement writes `0`, which is the strongest possible overwrite: the chase then reads the
+box. So the value a chase can read is always *this* order's own size.
 
-Leg 2 needs one ordering check, because `:3947` sits **after** `Await SendWebSocketMessageAsync`.
+Leg 2 needs one ordering check, because `:3957` sits **after** `Await SendWebSocketMessageAsync`.
 Could a chase edit fire in that window and read a stale value?
 
-- The chase gate (`:2185`) requires all three of `CurrentOpenOrderId` / `CurrentTPOrderId` /
+- The chase gate (`:2186`) requires all three of `CurrentOpenOrderId` / `CurrentTPOrderId` /
   `CurrentSLOrderId` to be non-`Nothing`.
-- **Every site that installs an id** — `:2996`, `:3149`, `:3162`, `:3215`, `:3228`, `:3238` — runs
+- **Every site that installs an id** — `:2997`, `:3150`, `:3163`, `:3216`, `:3229`, `:3239` — runs
   **inside a `Me.Invoke` lambda**, and the UI thread is held by `ExecuteOrderAsync` itself for the
   whole window. So ids cannot go `Nothing` → non-`Nothing` inside it. (The one receive-thread
-  assigner, the id-778 restore at `:5552`, is a connect-time snapshot.)
+  assigner, the id-778 restore at `:5562`, is a connect-time snapshot — and it is now also where D2's
+  seed lives, under the same single-writer rule.)
 - Therefore either the ids were already `Nothing` — the chase cannot fire at all — or they belong to
   a **previous** working entry, whose own placement set the field to *its* size, which is the
   correct value to re-send to it.
@@ -128,7 +172,13 @@ because of leg 2:
 2. **A working entry cancelled externally** (Deribit web UI). The `cancelled` echo branch has no
    `EntryLimitOrder` case, so `CurrentOpenOrderId` is not nulled and the field is not cleared —
    pre-existing behaviour, shared with `placedPrice` and `legAnchorPrice`. A chase edit on the dead
-   id returns `already_closed`, which `:1609` already downgrades to a gray benign line.
+   id returns `already_closed`, which `:1610` already downgrades to a gray benign line.
+
+**A third residual, new with the veto and accepted by the reviewer:** on a *manual* entry the
+resting order now keeps its placed size, while `ReanchorTPToFillAsync` still reads the live box. If
+the owner edits the box mid-chase, entry and re-anchored TP leg can differ. Manual-only,
+self-inflicted, and strictly smaller than the pre-N2b behaviour it replaces. Recorded, not fixed —
+if it ever matters it is its own micro-spec.
 
 ## 4. §3 — which value `Position entered:` now prints, and why
 
@@ -138,33 +188,39 @@ size* and to say why; I took a third that is strictly better than either, and he
 
 - **Not `positionSizeUSD` (the position model).** It is the **total** position, so it would
   misreport an add as if the whole book had just entered; and it is seeded on the receive thread
-  from the position channel (`:2908`) and the id-777 snapshot (`:5637`), neither of which is ordered
+  from the position channel (`:2909`) and the id-777 snapshot (`:5657`), neither of which is ordered
   against *this* order echo — so it can legitimately still be `0` at this line.
 - **Not the retained placed size alone.** It is what was *sent*, which is the very thing the review
   warned against treating as evidence of what was *held*. It is right for the chase (that is what
   the chase is re-sending) but it is not the fill.
 - **The echo's own `amount` is the fill's own size.** It comes from the same message
   `entryShownPrice` is already read from two lines above, it is the token `ApplyCloseFill` already
-  uses for the *close's* size (`:5212`), and on an `order_state = "filled"` echo it is by definition
+  uses for the *close's* size (`:5222`), and on an `order_state = "filled"` echo it is by definition
   the amount that filled. Same read shape as the existing `average_price` pair, so the two lines
   read as one idiom.
 
 The `EntryTrailingOrder` sibling gets identical treatment. In practice it reads the same as before —
 a trailing bracket is always placed at the box — and it is changed so the two lines cannot drift.
 
-**Fallback ordering verified:** the `OpenPositions` clear at `:3422` runs *after* the per-order loop
-(`Next` at `:3372`), so `placedOrderSizeUsd` is still live at both log lines.
+**Fallback ordering verified:** the `OpenPositions` clear at `:3423` runs *after* the per-order loop
+(`Next` at `:3373`), so `placedOrderSizeUsd` is still live at both log lines.
 
-## 5. Behaviour deltas beyond the defect
+## 5. Behaviour deltas beyond the defect — **NONE on the manual path (veto applied)**
 
-1. **Editing the Amount box while an order rests no longer resizes that resting order mid-chase.**
-   Before, every reposition re-read the box, so typing a new number silently resized the live order.
-   Now the resting order keeps the size it was placed at until it fills or is cancelled. This is a
-   real change to *manual* behaviour and is a direct consequence of §2's design, not an addition to
-   it. I judge it strictly better — the box is the input for the *next* order — but it is the
-   owner's to veto, and acceptance 3 does not exercise it.
-2. **Nothing else.** With `placedOrderSizeUsd = 0` every touched expression is character-for-character
-   its previous self. The trailing path is byte-identical by construction (§1c).
+My first version had one: *editing the Amount box while an order rests no longer resizes that
+resting order.* **The owner vetoed it and was right** — that edit is a deliberate control, used when
+the chase walks the entry closer to the TP. The value-conditional set (§1a) restores it in full:
+a manual placement leaves the field `0`, so every manual chase edit reads the live box exactly as
+before. New acceptance **3b** pins it.
+
+So the manual path is now **byte-identical** to pre-N2b behaviour, and the trailing path is
+byte-identical by construction (§1c). The only intended change is on the bridge path: a resting
+**bridge** entry keeps its placed size and does not follow a box edit. Cancel it to intervene.
+
+**What I got wrong here, since it is the reusable part:** I reasoned about the delta purely from the
+code ("the box is the input for the *next* order") and judged it an improvement. It was a control
+the owner uses on purpose. I did flag it rather than bury it, which is what let the veto happen —
+but a behaviour change on a hot manual path deserved to be asked about, not assessed.
 
 ## 6. Censuses (re-run by me, scoped to `frmMainPageV2.vb`)
 
@@ -174,44 +230,62 @@ a trailing bracket is always placed at the box — and it is changed so the two 
 `RecordCommandedSLPrice` **3** · `slUpdateFailures = 0` **1** · `isPlacingOrder` **13** ·
 `lastPlacementAdmittedUtc` **13**
 
-§4.6's new line: **`placedOrderSizeUsd` = 12 raw** = 11 code + 1 comment mention, i.e.
-**1 decl + 1 set + 2 chase reads + 5 clears + 2 display fallback reads (§3)**. The spec predicted
-"1 decl + 1 set + 2 chase reads + the clear sites"; the two extras are §3's fallbacks, which the
-spec's census line was written before §3's value was chosen.
+§4.6's new line **as amended** — `1 decl + 1 set + 2 chase reads + 1 restore seed + the clear sites
++ 2 display reads` — measured: **`placedOrderSizeUsd` = 15 raw grep** = **14 code-carrying lines +
+1 comment mention**, being **12 constructs**:
+
+| construct | count | lines |
+|---|---|---|
+| decl | 1 | `:412` |
+| set | 1 | `:3957` |
+| chase reads | **2** (not 3 — D3) | `:4247`, `:4332` |
+| restore seed (D2) | 1 | `:5576`–`:5577` *(a 2-line `If` block — this is why 12 constructs occupy 14 lines)* |
+| clears | 5 | `:3423`, `:4017`, `:4111`, `:4870`, `:5260` |
+| display fallback reads (§3) | 2 | `:3266`, `:3313` |
 
 ⚠️ **Grep trap, flagged so a reviewer is not misled:** `orderAmountVal` reads **26**, up from **24**
 at `a6e3af1` — but **no read was added or removed**. The two log lines gave up their `orderAmountVal`
-and the two new §3 fallback lines took it back (net zero); the `+2` is entirely **comment**
-mentions added by the §2 commit. Same comment-only-movement trap the handover flags. A repo-wide
-grep inflates it further (the docs discuss it); the number above is `frmMainPageV2.vb`-scoped.
+and the two §3 fallback lines took it back (net zero); the `+2` is entirely **comment** mentions.
+**Independently confirmed by the reviewer**: code-carrying lines are **16 before and 16 after**;
+comment lines went 8 → 10. Still 16 code / 10 comment after the veto and D2 commits. Same
+comment-only-movement trap the handover flags. A repo-wide grep inflates it further (the docs
+discuss it); the number above is `frmMainPageV2.vb`-scoped.
 
-## 7. ⚠️ Outstanding — two rulings, and what they mean for N2
+## 7. The three escalated items — all RULED, none outstanding
 
 Raised in `spec-back-chase-preserve-placed-size.md` (`8370541`) before any code was written, per the
-standing rule. **Neither is implemented.** Both are the same defect class as N2b, at sites §2's
-scope fence excludes.
+standing rule. Rulings in `review-chase-preserve-placed-size.md`; spec amended in place.
 
-- **D1 — `ReanchorTPToFillAsync :4352` resizes the POSITION's take-profit leg to the Amount box.**
-  Fires on essentially every chased bridge entry (its `:3285` gate is effectively always true under
-  `EntryOnlyChase`, which deliberately does not advance `legAnchorPrice`). A 310-lot position would
-  carry a 10-lot TP leg. **My recommendation: N2 must NOT be enabled until this is ruled**, because
-  a risk-sized position with a box-sized TP leg is a worse outcome than the defect N2b fixes.
-  Proposed fix is one line copying the restore-hardening precedent at `:4507`; it does **not** use
-  the new field, which §2's own fill-transition clear kills before that echo arrives.
-- **D2 — the id-778 restore (`:5552`) does not restore the entry's amount**, so the defect survives
-  a restart: the first post-restart reposition resizes a restored 310-lot entry to the box.
-  Proposed fix is a two-line single-writer seed. **Known hole until ruled.**
-- **D3 (informational, no ruling needed) — `UpdateStopLossForTrailingOrder :4589` is a THIRD
-  working-entry edit site** the spec does not name. I deliberately gave it no read, with a proof it
-  can never observe a non-zero field: its block is gated on `isTrailingStopLossPlaced` (`:2538`),
-  which is written at exactly one site (`:4869`) — the trailing placement seed that clears the field
-  (§1c) — and the entry and trailing chase blocks cannot both own the order context. **This is why
-  §4.6's "2 chase reads" is 2 and not 3.** If the reviewer rejects the proof, the number is 3.
+- **D1 — REJECTED. My error, and the reasoning trap is the reusable part.** I claimed
+  `ReanchorTPToFillAsync` fires on essentially every chased bridge entry. It fires on **none** of
+  them: the staging gate's fourth conjunct is `manualTPval <= 0D` — its own comment reads *"only
+  auto-offset TPs re-anchor"* — and a bridge act always sets a manual TP
+  (`SetTradeTargets(manualTP:=RoundToTick(p.Target))`, with gate 4.4 refusing `Target <= 0`).
+  **I quoted the full four-conjunct gate, proved ONE conjunct's reachability
+  (`entryFillPrice <> legAnchorPrice` under `EntryOnlyChase`, which is correct), and generalised
+  that to the whole gate.** On the manual path where the re-anchor *does* run, the position size IS
+  the box, so `orderAmountVal` is already right. **No fix, no commit.** My "N2 must NOT be enabled
+  until this is ruled" is **void** — it rested entirely on the wrong premise — and the unverified
+  OTOCO `first_hit` concern is moot, since no mismatched TP leg is ever created.
+- **D2 — UPHELD, option A. Implemented** (`5fc5b16`): the id-778 restore now seeds the field from
+  the snapshot order's `amount`, single-writer (`If placedOrderSizeUsd = 0D`), so a snapshot can
+  never overwrite a live in-process value. The restart hole is closed.
+- **D3 — accepted, and the reviewer made it stronger than I argued.** I gave
+  `UpdateStopLossForTrailingOrder` no read, on a reachability argument. The reviewer's form is
+  better: the `placedOrderSizeUsd = 0D` at `:4870` sits in the same placement seed, a few lines
+  ahead of **`:4879` — the file's only writer of `isTrailingStopLossPlaced`**, which is the sole
+  gate (`:2539`) on the trailing reposition block. So the field is `0` **by construction** on every
+  path reaching that third edit site (`:4599`), not merely by essay. **§4.6 stays at 2 chase
+  reads.**
+
+**Net on the escalation:** two of three were right and one was wrong. D2 would have shipped a hole
+only a restart could expose. D1 was wrong but flagged rather than acted on, with the unverified
+exchange behaviour explicitly not claimed.
 
 ## 8. Runtime acceptances — for the OWNER to drive (I placed no trades)
 
-Acceptance 1 (gate per commit) and 6 (censuses) are **done and reported above**. 2–5 are runtime and
-require an owner-driven placement under the triple-placement WATCH protocol.
+Acceptance 1 (gate per commit) and 6 (censuses) are **done and reported above**. 2–5 **and the new
+3b** are runtime and require an owner-driven placement under the triple-placement WATCH protocol.
 
 **Before any of them:** back up settings → **rebuild x64** (the gate is AnyCPU-only) → **re-read the
 window title for `— TESTNET`** (the x64 rebuild clobbers the bin's testnet `secrets.json`).
@@ -219,18 +293,24 @@ window title for `— TESTNET`** (the x64 rebuild clobbers the bin's testnet `se
 | # | setup | the observation that decides it |
 |---|---|---|
 | **2** — THE acceptance | TESTNET, bridge Live, N2 checkbox **ON**, session policy **OFF**, Amount box **10**, `risk_per_trade_usd = 1`, payload `entry 63000 / stop 62800` ⇒ computed **310**. Let it chase (an `Order repositioned:` line must appear), then flatten. | **The reduce must report 310, not 10.** Exchange-derived, and the authority. **Do not accept the `Buy limit order placed For 310` line as proof** — that line was already correct when 3b failed. |
-| **3** — manual regression | N2 checkbox OFF. Manual Limit BUY, box **10**, chased at least once. | Position **10**. Here `placedOrderSizeUsd` equals the box. |
+| **3** — manual regression | N2 checkbox OFF. Manual Limit BUY, box **10**, chased at least once. | Position **10**. Here `placedOrderSizeUsd` is **`0`** (the amended value-conditional set). |
+| **3b** — ⭐ **NEW, the vetoed behaviour must still work** | Manual Limit BUY, box **10**; **while it rests, type `20` into the Amount box**; let it be chased at least once. | The resting order must **resize to 20** and the position must be **20**. This is the leg that proves the set is value-conditional rather than unconditional — i.e. that the veto is actually in force. |
 | **4** — the stale-size case | A bridge act at a non-box size → flatten → then a **MANUAL** placement at the box size. | The manual order is the **box** size. This is what proves the lifecycle clears. |
-| **5** — session-policy path | A `0.5` policy line, box **above** the clamp (e.g. 40), N2 checkbox OFF so the multiplier is the only sizing input. Chase at least once. | The position holds the **reduced** size, not the box. This is the pre-existing half of the defect. |
+| **5** — session-policy path | A `0.5` policy line, box **ABOVE the clamp — e.g. 40, not 10** (see below), N2 checkbox OFF so the multiplier is the only sizing input. Chase at least once. | The position holds the **reduced** size (20), not the box. This is the pre-existing half of the defect. |
 
-**Acceptance 2 additionally gives D1 its evidence for free:** with the position at 310, note what
-the TP leg's size is on the testnet web UI after the `TP re-anchored to fill` line appears. If it
-reads 10, D1 is confirmed at runtime and N2 stays disabled pending that ruling.
+⚠️ **Acceptance 5's box must be above the clamp.** At box 10 a `0.5` mult clamps straight back up to
+10 and the divergence vanishes — that clamp is *exactly* what hid this defect for weeks, so running
+5 at box 10 would produce a confident-looking pass that proves nothing.
+
+**D1's TP-leg observation is DROPPED** from acceptance 2 — the re-anchor never runs on a bridge
+entry, so there is nothing to see. Do not spend a runtime leg on it.
 
 Teardown as usual: restore settings, verify, delete the testnet journal rows.
 
-Related: `spec-chase-preserve-placed-size.md` · `spec-back-chase-preserve-placed-size.md` (the two
-open rulings) · `review-risk-sized-bridge-trades.md` §2/§3 (the runtime evidence and the
-pre-existing attribution) · `spec-risk-sized-bridge-trades.md` (N2, which this blocks) ·
-`spec-session-policy-gate.md` §4 (`sizeUsdOverride` and the `0`-means-the-box convention this
-field reuses) · `spec-entry-chase-v2.md` §4 (`EntryOnlyChase`, `legAnchorPrice`).
+Related: `spec-chase-preserve-placed-size.md` (as amended) · `review-chase-preserve-placed-size.md`
+(the rulings + the veto) · `spec-back-chase-preserve-placed-size.md` (the escalation, now all
+ruled) · `review-risk-sized-bridge-trades.md` §2/§3 (the runtime evidence and the pre-existing
+attribution) · `spec-risk-sized-bridge-trades.md` (N2 — still gated on N2b's acceptance 2, on N2b's
+own merits, not D1's) · `spec-session-policy-gate.md` §4 (`sizeUsdOverride` and the
+`0`-means-the-box convention this field reuses) · `spec-entry-chase-v2.md` §4 (`EntryOnlyChase`,
+`legAnchorPrice`).
