@@ -119,16 +119,40 @@ Verified at the sites, not from the report.
   movement is entirely prose, exactly as claimed — a textbook instance of the standing
   "prose pollutes tripwires" trap, correctly anticipated rather than repaired after the fact.
 
-## Behaviour delta — **ACCEPTED, and the owner should know about it**
+## Behaviour delta — **OWNER VETOED 2026-08-01. The set becomes value-conditional.**
 
-Editing the Amount box while an order rests **no longer resizes that resting order** on the next
-reposition. Before N2b every reposition re-read the box, so typing a new number silently resized a
-live order.
+The delta was: editing the Amount box while an order rests no longer resizes that resting order.
 
-I judge the new behaviour clearly better — the box is the input for the *next* order, and silently
-resizing a live order because a number was typed is the kind of surprise this era has been removing.
-It is also inseparable from the fix: the whole point is that the chase re-sends what was placed.
-**But it is a real change to daily manual behaviour, so it is the owner's to veto.**
+**The owner vetoed it, with a trading reason that settles it:** a mid-chase box edit is a deliberate
+intervention — the chase can walk the entry closer to the TP, shrinking the entry→TP distance, and
+the owner resizes in that moment. Removing it takes away a control they use on purpose. My
+"silently resizing a live order is a surprise" reading was wrong: it is not a surprise to the person
+typing.
+
+**It is NOT inseparable from the fix, as the report and I both had it.** The distinction the fix
+actually needs is *where the placed size came from*, not *whether one was retained*:
+
+```vb
+' at the set site, replacing the unconditional `placedOrderSizeUsd = amount`
+placedOrderSizeUsd = If(sizeUsdOverride > 0D, amount, 0D)
+```
+
+- **Bridge / risk-sized placement** (`sizeUsdOverride > 0`) ⇒ the size is retained and the chase
+  re-sends it. N2b's defect stays fixed.
+- **Manual placement** (override `0`) ⇒ the field is `0`, the chase falls back to the box, and a
+  typed change takes effect on the next reposition exactly as it does today. **Behaviour restored.**
+
+Crucially this keeps **leg 2 of the acceptance-4 argument intact**, which was the report's whole
+reason for going unconditional: the write is *still* unconditional, so a manual placement continues
+to overwrite any stale value from a previous act. Only the value written changes. The property
+"a manual placement is itself a clear" survives verbatim.
+
+Edge case, checked: when a risk-sized size happens to *equal* the Amount box, N2's act site already
+passes `sizeUsdOverride = 0`, so the field is `0` and the chase reads the box — which is that same
+number. No divergence.
+
+**Consequence the owner should be aware of:** a resting *bridge* entry will NOT follow a box edit —
+that is the fix working as intended. To intervene on one, cancel it.
 
 ---
 

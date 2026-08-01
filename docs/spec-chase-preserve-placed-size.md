@@ -39,8 +39,20 @@ and `EffectiveSizeUsd` clamps every reduction back up to 10, so no divergence ex
 Retain the size actually placed, and have the chase re-send **that**, not the box.
 
 - A single field — suggest `placedOrderSizeUsd As Decimal = 0D` — set in `ExecuteOrderAsync` at the
-  same place the payload's amount is finalised, so it records **exactly what was sent** rather than
-  re-deriving it. `0` keeps its established meaning: *nothing overridden, use the box*.
+  same place the payload's amount is finalised. `0` keeps its established meaning: *nothing
+  overridden, use the box*.
+- **AMENDED 2026-08-01 (owner veto) — the set is value-conditional, and the write is not:**
+  ```vb
+  placedOrderSizeUsd = If(sizeUsdOverride > 0D, amount, 0D)
+  ```
+  **Retain only a size that came from an OVERRIDE.** A manual placement writes `0`, so the chase
+  falls back to the box and **editing the Amount box while an order rests still resizes that resting
+  order** — a control the owner uses deliberately, because the chase can walk the entry closer to the
+  TP and they resize in that moment. An earlier unconditional `= amount` removed it and was vetoed.
+  The **write stays unconditional**, which is what preserves the property that a manual placement is
+  itself a clear: a stale size from a previous act can never survive into it. Only the value changes.
+  A resting *bridge* entry deliberately does NOT follow a box edit — that is the fix; cancel it to
+  intervene.
 - Both chase edits take `If placedOrderSizeUsd > 0D Then amount = placedOrderSizeUsd` in place of
   the bare `orderAmountVal` read. **Same 0-means-the-box convention as `sizeUsdOverride`** — do not
   invent a second sentinel.
@@ -84,8 +96,13 @@ which value you chose** (retained placed size vs the position model's own size) 
    `Order repositioned:` line appears), then flatten. **The reduce must report 310, not 10.** The
    reduce is exchange-derived and is the authority — do not accept the log's placement line as proof.
 3. **Regression — manual placements are unaffected:** a manual Limit BUY with the box at 10, chased
-   at least once, still results in a position of 10. This is the case where `placedOrderSizeUsd`
-   must be 0 or equal to the box.
+   at least once, still results in a position of 10. Here `placedOrderSizeUsd` must be **0** (the
+   amended value-conditional set).
+3b. **AMENDED — the vetoed behaviour must still work.** Place a manual Limit BUY with the box at 10,
+   and **while it rests, type a different Amount** (e.g. 20) and let it be chased at least once. The
+   resting order must **resize to 20**, and the resulting position must be 20. This is the control
+   the owner uses when the chase shortens the entry→TP distance, and it is the leg that proves the
+   set is value-conditional rather than unconditional.
 4. **Regression — the stale-size case, which is the risk this fix introduces:** a bridge act at a
    non-box size, then flatten, then a MANUAL placement at the box size. The manual order must be the
    box size. This is what proves the lifecycle clears the field.
