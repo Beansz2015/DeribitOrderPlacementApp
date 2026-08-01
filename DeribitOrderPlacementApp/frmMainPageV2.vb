@@ -5566,6 +5566,16 @@ Public Class frmMainPageV2
                                 seeded = True
                             End If
                             If seeded AndAlso price.HasValue Then UiInvoke(Sub() txtPlacedPrice.Text = price.Value.ToString("F2"))
+                            ' N2b (spec §2 as amended, spec-back D2 UPHELD): restore the entry's AMOUNT too.
+                            ' Without this a restart with a live risk-sized entry resting leaves the field 0,
+                            ' so the first post-restart reposition resizes the order back to the Amount box -
+                            ' the very defect N2b exists to fix, surviving a restart. Same single-writer rule
+                            ' placedPrice uses just above: seed only when 0, so a snapshot can never overwrite
+                            ' a live in-process value. Seeding a trailing entry's box-sized amount is harmless
+                            ' - it equals what the chase would have used anyway.
+                            If placedOrderSizeUsd = 0D Then
+                                placedOrderSizeUsd = If(o.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
+                            End If
                             entryDesc = $"{id}@{If(price?.ToString("F2"), "?")}"
                         End If
 
