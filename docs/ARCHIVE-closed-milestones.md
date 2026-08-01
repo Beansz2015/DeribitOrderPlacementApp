@@ -45,15 +45,9 @@ server-side poll recipe — the one section of the old handovers with live refer
 | N2 | Risk-sized bridge trades | **CODE APPROVED + UNBLOCKED** 2026-08-01, **ships DISABLED** — the only milestone with an owner action left (tick `Risk-size`); see H-6 §4. Acceptances 1/3/4/5 + the §2 screenshot passed; 3b failed on the N2b defect above and was re-run green as N2b's acceptance 2. | `spec-risk-sized-bridge-trades.md` + `spec-back-risk-sized-bridge-defects.md` (five defects, all upheld) → `review-risk-sized-bridge-trades.md` |
 | C1 | v2 feedback file — **documentation phase** | **CLOSED both sides** 2026-07-29 — proposal → engine ACCEPT (+3 refinements) → ack → trader tick T1–T8. **Contract §8 is the binding spec**; engine mirror is their §10. The two implementation builds remain (ours = the emitter, still the live queue item). | `proposal-c1-v2-feedback-file.md` → `ack-c1-v2-feedback-file.md` → `integration-contract-verdictengine.md` §8 |
 
-## Retired reasoning worth one line each
+## Where the reusable lessons went (deliberately NOT duplicated here)
 
-- **Divergence tests need the Amount box ABOVE the min-10 clamp.** At box 10 a `0.5` mult clamps
-  back to 10 and there is nothing to observe — the blind spot that hid the N2b defect for weeks.
-- **A placement log line is NOT evidence of position size.** N2's 3b logged a correct
-  `Buy limit order placed For 310` against an actual position of 10. The **reduce** is
-  exchange-derived and is the authority.
-- **The N2b D1 trap:** a four-conjunct gate was quoted, **one** conjunct's reachability proved, and
-  the whole gate generalised. Prove every conjunct or claim nothing.
-- **Harness payload timing:** with the engine stopped, freshness is `2.5 × exec_resolution_min` and
-  `write-payload.ps1` emits `1` — a 2.5-minute window, shorter than a human round-trip to START.
-  Patch `exec_resolution_min` to 15 in the payload before START (~37 min) and the race disappears.
+The traps these milestones paid for are **live guidance**, so they live in the read path, not the
+archive: the placement-log/reduce-authority trap, the min-10 clamp blind spot and the harness
+payload-timing race are `HANDOVER-6.md` **§5**; the N2b D1 "prove every conjunct" trap and the rest
+of the methodology are **§7**.

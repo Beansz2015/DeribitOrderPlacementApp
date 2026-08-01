@@ -107,9 +107,19 @@ about the owner's bin** — separate settings file, DB and journal.
    deterministic post-staging rejection is **`cancel pending`** — a 4-second window from Cancel All.
 7. **Fill price ≠ trigger price** on the emergency path — the cap trips, then CancelOrder + the
    market reduce are two more WS round-trips. A gap is not a late cap.
-8. **The real `bridge-dispositions.log` is in the x64 bin** (the owner's VS profile). The AnyCPU bin
-   has the harness's own copy — accidental but useful isolation.
-9. Worktree gate runs need SHORT paths (`SQLite.Interop.dll` 0x800700CE).
+8. **🚨 A placement log line is NOT evidence of position size.** N2's acceptance 3b logged a correct
+   `Buy limit order placed For 310` against an actual position of **10**. **The reduce is
+   exchange-derived and is the authority.** This is the single most expensive trap of the era.
+9. **Divergence tests need the Amount box ABOVE the min-10 clamp** (e.g. 40). At box 10 a `0.5` mult
+   clamps back to 10 and there is nothing to observe — the blind spot that hid the N2b defect for
+   weeks. Directly relevant to any N2 acceptance.
+10. **Harness payload timing:** engine stopped ⇒ freshness is `2.5 × exec_resolution_min` and
+    `write-payload.ps1` emits `1`, a 2.5-minute window — shorter than a human round-trip to START,
+    after which `[BRIDGE] auto-STOP: stale payload` fires. **Patch `exec_resolution_min` to 15 in
+    the payload before START** (~37 min) and the race disappears. Cost two runs.
+11. **The real `bridge-dispositions.log` is in the x64 bin** (the owner's VS profile). The AnyCPU bin
+    has the harness's own copy — accidental but useful isolation.
+12. Worktree gate runs need SHORT paths (`SQLite.Interop.dll` 0x800700CE).
 
 ## 6. Invariants — folded from H-4 §4, corrected
 
