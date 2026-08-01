@@ -31,48 +31,70 @@ escalate to the OWNER, who is the arbiter). Memory's `era-state-checkpoint` is t
   the six handlers ONLY; `FlattenPositionAsync` and the two emergency sites reach
   `SendReduceMarketOrderAsync` directly and must stay that way.
 
-## 3. IN FLIGHT — N2b, and it is the only thing between here and N2 shipping
+## 2b. 🚨 THE OWNER'S x64 BIN IS STALE — nothing from 2026-08-01 is in it
 
-**N2 (risk-sized bridge trades) is code-APPROVED and ships DISABLED. It stays disabled until N2b's
-acceptance 2 passes.** N2's own acceptances 1/3/4/5 + the §2 screenshot all passed; **3b FAILED** —
-the risk size was placed correctly (310) and then reverted to the Amount box (10) by the first chase
-reposition. That is N2b. See `review-risk-sized-bridge-trades.md`.
+Checked 2026-08-01 at the end of the session: `bin\x64\Debug\…\DeribitOrderPlacementApp.dll` is
+dated **2026-07-31 23:12** and contains **none** of `RiskSizedBase` (N2), `placedOrderSizeUsd` (N2b),
+`isPlacingOrder` (SF) or `lastPlacementAdmittedUtc` (SF2). Every runtime pass this era ran on the
+**harness AnyCPU Debug** bin.
 
-**N2b is code-complete at `2308122`, awaiting REVIEW + runtime.** Chain:
-`spec-chase-preserve-placed-size.md` (amended twice) → `spec-back-…` (D1/D2/D3, ruled) →
-`review-chase-preserve-placed-size.md` (rulings + code-side APPROVED) → commits `82005d0` ·
-`9b04972` · `e2c66b9` · `5fc5b16` · report `2308122`.
+**So the owner is trading on pre-SF code — the placement debounce is NOT in their app** — and
+ticking `Risk-size` there would do nothing, because the checkbox does not exist in that build.
 
-**What the incoming seat must do:**
+The owner must `dotnet build … -p:Platform=x64`, **then re-read the window title**: the rebuild
+copies `secrets.json` from project source, which is **testnet**, so a live app comes up
+`— TESTNET`. (The recorded trap is the reverse direction — it once came up `— LIVE` unexpectedly —
+but the mechanism is the same and it bites both ways.)
 
-1. **Review `e2c66b9` and `5fc5b16`** — the two commits made after the code-side approval. I verified
-   both diffs and they are correct (`placedOrderSizeUsd = If(sizeUsdOverride > 0D, amount, 0D)`; the
-   restore seed under `placedPrice`'s single-writer rule), but the impl report amendment at
-   `2308122` has NOT been reviewed.
-2. **Drive runtime acceptances 2, 3, 3b, 4, 5** — spec §4. You can run these yourself on the harness;
-   the owner is needed only for bridge Mode/ARM/START on leg 2.
-3. Then **re-run N2's acceptance 3b** (the reduce must report 310, not 10) and N2 can be enabled.
+**Do not assume a runtime observation on the harness bin says anything about the owner's bin.**
 
-**Traps for those runs, learned today:**
-- **Acceptance 5 needs the Amount box ABOVE the clamp** (e.g. 40). At box 10 a `0.5` mult clamps back
-  to 10 and the divergence vanishes — that clamp is exactly what hid this defect for weeks.
-- **Do not accept a placement log line as evidence of position size.** N2's 3b failed precisely
-  because `Buy limit order placed For 310` and the actual position of 10 disagreed. The reduce is
-  exchange-derived and is the authority.
-- **ATRSlip must be CHECKED** or the bridge refuses to START in Live mode, and neither chase-abort
-  arm is evaluated.
+## 3. N2 + N2b — BOTH CLOSED 2026-08-01. Nothing is in flight.
+
+**N2b: all five runtime acceptances PASSED**
+(`runtime-record-chase-preserve-placed-size-2026-08-01.md`). The instrument that failed N2's 3b now
+gives **reduce 310, not 10**. Also passed: manual regression (10); the owner-vetoed mid-chase box
+edit restored (place 10, retype 20, get 20); no stale size leaking to a later manual order; and the
+**pre-existing half** — box 40 with a `0.5` mult held 20 through a reposition, the first observation
+of the session-policy `size_mult` surviving a chase.
+
+**N2 is code-APPROVED and UNBLOCKED, and ships DISABLED.** The owner enables it by ticking
+`Risk-size` — *after* the x64 rebuild in §2b, without which the checkbox does not exist in their app.
+
+Chains, if the reasoning is ever needed: `spec-risk-sized-bridge-trades.md` +
+`spec-back-risk-sized-bridge-defects.md` (five defects, all upheld) + `review-…`; and
+`spec-chase-preserve-placed-size.md` + its spec-back (D1 REJECTED / D2 UPHELD / D3 accepted) +
+`review-…` + the runtime record.
+
+**Three runtime traps this era paid for — reuse them:**
+- **A placement log line is NOT evidence of position size.** N2's 3b failed with a correct
+  `Buy limit order placed For 310` and an actual position of 10. The **reduce** is exchange-derived
+  and is the authority.
+- **Divergence tests need the Amount box ABOVE the min-10 clamp.** At box 10 a `0.5` mult clamps
+  back to 10 and there is nothing to observe — that clamp is what hid the N2b defect for weeks.
+- **ATRSlip must be CHECKED** or the bridge refuses to START in Live mode and neither chase-abort
+  arm evaluates.
+
+**Harness payload timing (cost two runs today):** with the engine stopped, freshness is
+`2.5 × exec_resolution_min` and `write-payload.ps1` emits `1` — a 2.5-minute window, shorter than a
+round-trip through a human pressing START, after which `[BRIDGE] auto-STOP: stale payload` fires.
+Patch `exec_resolution_min` to 15 in the payload before START (~37 min) and the race disappears.
+Worth a `write-payload.ps1` parameter if it recurs.
 
 ## 4. Owner-side open
 
-Push (19 ahead) · circuit breaker still at the `$1` test value in the owner's bin · testnet journal
-rows #90–#93 / #96–#98 / #99 to delete · AWS §9 migration · the size ladder · one optional
-non-blocking check: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst instrument is
-UIA-driven, so a human double-click is still unobserved).
+**x64 rebuild + title re-check (§2b) — this gates everything else** · push (22+ ahead) · circuit
+breaker is `$10` in the owner's bin, which gates the BRIDGE path and could stop a session quickly at
+risk-sized notionals — set deliberately before enabling N2 · `risk_per_trade_usd` / `max_size_usd`
+must be set **together**: at 25/500 a realistic $200 stop computes ~7875 and caps to 500, so every
+signal gets a flat 500 rather than risk-based sizing · testnet journal rows #90–#93 / #96–#98 / #99
+to delete · AWS §9 migration · the size ladder · one optional non-blocking check: a physical
+owner-mouse double-click on `Mkt. BUY` (the SF2 burst instrument is UIA-driven, so a human
+double-click is still unobserved).
 
-## 5. Queue after N2b
+## 5. Queue
 
-**N2b → N2 enable → C1 emitter build** (contract §8 is the binding spec; phase-2 actionable exits
-stay fenced) → backlog `ROADMAP-2026-08.md` §5.
+**N2 enable (owner) → C1 emitter build** (contract §8 is the binding spec; phase-2 actionable exits
+stay fenced) → backlog `ROADMAP-2026-08.md` §5. **No implementer seat is in flight.**
 
 ## 6. Methodology notes this era earned (the expensive ones)
 
