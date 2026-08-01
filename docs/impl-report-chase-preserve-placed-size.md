@@ -282,13 +282,25 @@ standing rule. Rulings in `review-chase-preserve-placed-size.md`; spec amended i
 only a restart could expose. D1 was wrong but flagged rather than acted on, with the unverified
 exchange behaviour explicitly not claimed.
 
-## 8. Runtime acceptances — for the OWNER to drive (I placed no trades)
+## 8. Runtime acceptances — NOT driven by this seat (I placed no trades, armed no bridge)
 
-Acceptance 1 (gate per commit) and 6 (censuses) are **done and reported above**. 2–5 **and the new
-3b** are runtime and require an owner-driven placement under the triple-placement WATCH protocol.
+Acceptance 1 (gate per commit) and 6 (censuses) are **done and reported above**. 2, 3, 3b, 4 and 5
+are runtime.
 
-**Before any of them:** back up settings → **rebuild x64** (the gate is AnyCPU-only) → **re-read the
-window title for `— TESTNET`** (the x64 rebuild clobbers the bin's testnet `secrets.json`).
+⚠️ **Correction to my own first draft:** it said these "require an owner-driven placement under the
+triple-placement WATCH protocol". **That is stale.** The WATCH protocol's restriction on
+harness-driven placement was **lifted 2026-08-01** (`investigation-triple-placement-2026-08-01.md`
+§5/§7.2 — the "leans harness-side" premise was overturned; the harness places one order per Invoke
+and the exposure was app-side, since fixed by the single-flight + debounce guards). It is replaced
+by a **mandatory effect assertion**: any harness-driven placement goes through
+`tools/place-and-verify.ps1`, never `click-PLACES-ORDER.ps1` directly. So **all five legs are
+harness-drivable** — see §9. What stops *me* is the seat boundary, not the protocol.
+
+**Preamble applies to the OWNER'S bin only.** Back up settings → **rebuild x64** (the gate is
+AnyCPU-only) → **re-read the window title for `— TESTNET`** (the x64 rebuild clobbers the bin's
+testnet `secrets.json`) → teardown and restore afterwards. **A harness run needs none of it**: the
+harness bin has its own settings file and journal DB, so no backup, no x64 rebuild, and no rows to
+delete from the owner's live journal.
 
 | # | setup | the observation that decides it |
 |---|---|---|
@@ -305,7 +317,53 @@ window title for `— TESTNET`** (the x64 rebuild clobbers the bin's testnet `se
 **D1's TP-leg observation is DROPPED** from acceptance 2 — the re-anchor never runs on a bridge
 entry, so there is nothing to see. Do not spend a runtime leg on it.
 
-Teardown as usual: restore settings, verify, delete the testnet journal rows.
+Teardown (owner's bin only): restore settings, verify, delete the testnet journal rows.
+
+## 9. What the harness can drive — verified against the scripts, not assumed
+
+Checked at the sites in `tools/`, because the answer changes who has to do what.
+
+**3 and 3b need no bridge at all and are fully harness-drivable**, with no engine interaction, no
+payload file, and no ARM/START:
+
+```bash
+powershell -NoProfile -File tools/launch-app.ps1
+powershell -NoProfile -File tools/set-textbox.ps1 txtAmount 10
+powershell -NoProfile -File tools/place-and-verify.ps1 btnLimit "Buy limit order placed"
+# 3b only — while the entry rests:
+powershell -NoProfile -File tools/set-textbox.ps1 txtAmount 20
+# then let a reposition land, and flatten:
+powershell -NoProfile -File tools/place-and-verify.ps1 btnReduceMarket "Reduce-only MARKET"
+powershell -NoProfile -File tools/read-log.ps1
+```
+
+**The harness is strictly BETTER than a hand for 3b.** `txtAmount.TextChanged` is wired to
+`SyncTradeInputsFromUi` (`:532`), so a bare UIA `SetValue` updates `orderAmountVal` immediately —
+**no `-CommitViaBlur` needed** (that switch exists for the AutoTradeSettings gate boxes, which
+commit on blur). The edit therefore lands at a known instant rather than at typing speed, which
+matters because the entry rests one tick inside the far side and can fill quickly. Any reposition
+*after* the edit satisfies the leg; there is no need to beat the first one (the chase throttle is
+350 ms, so several are expected).
+
+**2, 4 and 5 need a bridge act.** Every control is scriptable — `select-combo-item.ps1
+cboBridgeMode Live` and `toggle-checkbox.ps1 ARM -State on` are both TESTNET-gated rather than
+forbidden, `chkRiskSizeBridge` / `chkSessionPolicyOn` carry harness `AccessibleName`s, and
+`btnBridgeStartStop` is reachable via `click-PLACES-ORDER.ps1` (the one privileged script; the
+generic `click-button.ps1` refuses it via `trade-buttons.txt`). The extra cost is the payload
+choreography, and it is the part that bites:
+
+1. **STOP the engine first** — `write-payload.ps1` refuses while a `DeribitVerdictEngine` process
+   is running (deliberately blunt, owner-ruled; do not re-propose a path-aware variant).
+2. `write-payload.ps1 -Direction LONG -Entry 63000 -Stop 62800 -Target …`
+3. Evaluation is **file-change-only** and START does not re-evaluate what is already on disk, so
+   with the engine stopped the payload must be written **twice**: write → START → write.
+4. `restore-payload.ps1` afterwards, then **restart the engine**. Treat the restore as mandatory,
+   not cleanup — with the engine stopped, `write-payload` defaults to the LIVE payload path.
+
+**Recent precedent for who drives what:** the coordinator seat drove all four SF2 acceptances and
+the EV §6.3 manual arm on the harness itself; for N2's runtime legs the owner drove Mode/ARM/START
+while the coordinator drove the rest. **This seat drives none of it** — implementer seats place no
+trades and arm no bridge, which is a seat rule and is unaffected by the WATCH amendment.
 
 Related: `spec-chase-preserve-placed-size.md` (as amended) · `review-chase-preserve-placed-size.md`
 (the rulings + the veto) · `spec-back-chase-preserve-placed-size.md` (the escalation, now all
