@@ -955,6 +955,40 @@ Public Class SignalBridge
         Return Math.Max(10D, Math.Floor(rawSizeUsd * mult / 10D) * 10D)
     End Function
 
+    ' Risk-based size (docs/spec-risk-sized-bridge-trades.md §1/§4) - THE ONE FORMULA, shared by both
+    ' sizing callers: the manual SIZE button (frmMainPageV2.ApplyRiskBasedSize) and the bridge act
+    ' site. The body is the button's runtime-verified arithmetic, moved here verbatim; the button now
+    ' calls this instead of carrying its own copy.
+    '
+    ' SIGNATURE (spec §4, amended by ruling): it takes (refPrice, dist), NOT (entry, stop). The
+    ' button has no stop PRICE - in offset mode its distance IS the trigger distance and no stop
+    ' level exists - so an (entry, stop) seam could only ever be a SECOND COPY of this arithmetic,
+    ' which fixtures can pin but cannot bind. One function is what makes drift structurally
+    ' impossible, which is the whole point of the extraction.
+    '
+    ' THE CAP MIRRORS THE BUTTON EXACTLY, and Math.Min would lose both halves of it:
+    '   * maxSizeUsd <= 0 means NO CAP (the legitimate way to spell "uncapped" in the hand-edited
+    '     settings file). Math.Min would yield 0 and collapse every sized trade to the contract min.
+    '   * the cap is itself step-floored, so a non-step cap (505) can never emit an off-step order
+    '     size. Math.Min would emit 505 and the exchange would reject it -32602.
+    '
+    ' Returns -1 when the inputs cannot produce a size. CALLERS OWN THEIR FAIL-SAFE, and they differ:
+    ' the bridge falls back to the raw Amount box + one yellow line (never refuse a signal because
+    ' sizing math hiccuped); the button keeps its three distinct refusal messages and cannot reach
+    ' this arm at all, because its own guards precede the call.
+    '
+    ' The BELOW-10 POLICY IS DELIBERATELY NOT HERE. The two callers differ and both are ruled: the
+    ' button REFUSES and leaves txtAmount alone; the bridge CLAMPS UP to 10 (the D3 clamp-and-log
+    ' ruling EffectiveSizeUsd already follows - refusing would silently kill every signal in a
+    ' tight-stop session). This function returns the capped, step-floored size and takes no position.
+    Friend Shared Function RiskSizedBase(riskUsd As Decimal, maxSizeUsd As Decimal,
+                                         refPrice As Decimal, dist As Decimal) As Decimal
+        If riskUsd <= 0D OrElse refPrice <= 0D OrElse dist <= 0D Then Return -1D
+        Dim size As Decimal = Math.Floor(riskUsd * refPrice / dist / 10D) * 10D
+        If maxSizeUsd > 0D AndAlso size > maxSizeUsd Then size = Math.Floor(maxSizeUsd / 10D) * 10D
+        Return size
+    End Function
+
     ' True when EffectiveSizeUsd had to clamp UP to the 10-USD contract minimum (D3: clamp and log,
     ' never refuse - at live-at-min-size the Amount box IS 10, and refusing would silently kill every
     ' signal in a reduced-size session).

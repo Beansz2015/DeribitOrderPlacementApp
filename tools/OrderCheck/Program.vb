@@ -407,6 +407,57 @@ Module Program
               Not SignalBridge.EffectiveSizeWasClamped(5D, 1D) AndAlso
               SignalBridge.EffectiveSizeUsd(5D, 1D) = 5D)
 
+        ' ---- Risk-sized base: THE ONE FORMULA (docs/spec-risk-sized-bridge-trades.md §1/§4) ----
+        ' RiskSizedBase is the SIZE button's own arithmetic, extracted so the bridge act path shares
+        ' it instead of carrying a second copy. Arithmetic below was computed independently by the
+        ' implementer and re-verified by the coordinator before these fixtures were written.
+        Check("risk size: 25 over a 5000 stop at 64735 = 320 (323.675 floored to the 10-USD step)",
+              SignalBridge.RiskSizedBase(25D, 500D, 64735D, 5000D) = 320D,
+              $"got {SignalBridge.RiskSizedBase(25D, 500D, 64735D, 5000D)}")
+        Check("risk size: 404.59 floors to 400, not 410 (flooring is DOWN, always)",
+              SignalBridge.RiskSizedBase(25D, 500D, 64735D, 4000D) = 400D,
+              $"got {SignalBridge.RiskSizedBase(25D, 500D, 64735D, 4000D)}")
+        Check("risk size: a 54.62 stop wants 29,620 and the 500 cap binds",
+              SignalBridge.RiskSizedBase(25D, 500D, 64735D, 54.62D) = 500D,
+              $"got {SignalBridge.RiskSizedBase(25D, 500D, 64735D, 54.62D)}")
+        Check("risk size: a risk too small for one step returns 0 (the bridge clamps it to 10, the button refuses)",
+              SignalBridge.RiskSizedBase(0.01D, 500D, 64735D, 5000D) = 0D,
+              $"got {SignalBridge.RiskSizedBase(0.01D, 500D, 64735D, 5000D)}")
+
+        ' The two defect-§2 regression pins. Math.Min(riskSize, maxSizeUsd) - the formula the spec
+        ' originally carried - fails BOTH of these, and both are silent in production: the first
+        ' ships an off-step order size the exchange rejects -32602, the second collapses every sized
+        ' bridge trade to the contract minimum the moment the owner spells "no cap" as 0.
+        Check("risk size: a NON-STEP cap (505) is itself step-floored to 500, never emitted raw",
+              SignalBridge.RiskSizedBase(25D, 505D, 64735D, 2000D) = 500D,
+              $"got {SignalBridge.RiskSizedBase(25D, 505D, 64735D, 2000D)}")
+        Check("risk size: max_size_usd = 0 means NO CAP (320), NOT a collapse to the 10-USD minimum",
+              SignalBridge.RiskSizedBase(25D, 0D, 64735D, 5000D) = 320D,
+              $"got {SignalBridge.RiskSizedBase(25D, 0D, 64735D, 5000D)}")
+        Check("risk size: a negative max_size_usd is also 'no cap', matching the button's maxUsd > 0 guard",
+              SignalBridge.RiskSizedBase(25D, -1D, 64735D, 5000D) = 320D)
+
+        ' The -1 sentinel arm: every input the formula cannot use. dist = 0 cannot occur past
+        ' 'refused: levels', but entry CAN (the levels gate reads stop/target only) and a
+        ' hand-edited risk_per_trade_usd of 0 can too - hence the act site's fail-safe.
+        Check("risk size: dist = 0 returns the -1 sentinel, not a divide-by-zero",
+              SignalBridge.RiskSizedBase(25D, 500D, 64735D, 0D) = -1D)
+        Check("risk size: entry = 0 returns the -1 sentinel (the levels gate does NOT guard entry)",
+              SignalBridge.RiskSizedBase(25D, 500D, 0D, 5000D) = -1D)
+        Check("risk size: risk_per_trade_usd = 0 returns the -1 sentinel",
+              SignalBridge.RiskSizedBase(0D, 500D, 64735D, 5000D) = -1D)
+        Check("risk size: a negative stop distance returns the -1 sentinel",
+              SignalBridge.RiskSizedBase(25D, 500D, 64735D, -5000D) = -1D)
+
+        ' Composition: the session mult folds onto the risk-sized base as ONE chain (spec §1). This
+        ' is the fixture that proves sessionFactor is applied EXACTLY ONCE - 320 halves to 160 and
+        ' floors there; a second application would give 80.
+        Check("composed: EffectiveSizeUsd(RiskSizedBase(25,500,64735,5000), 0.5) = 160, halved ONCE",
+              SignalBridge.EffectiveSizeUsd(SignalBridge.RiskSizedBase(25D, 500D, 64735D, 5000D), 0.5D) = 160D,
+              $"got {SignalBridge.EffectiveSizeUsd(SignalBridge.RiskSizedBase(25D, 500D, 64735D, 5000D), 0.5D)}")
+        Check("composed: unity leaves a risk-sized base untouched (the passthrough ruling holds here too)",
+              SignalBridge.EffectiveSizeUsd(SignalBridge.RiskSizedBase(25D, 500D, 64735D, 5000D), 1D) = 320D)
+
         ' ---- Token classification (§9.6) ----
         ' item H's host-log filter: full stream while flat, quiet in-position. A policy refusal is a
         ' refusal like any other, so it must NOT be significant.

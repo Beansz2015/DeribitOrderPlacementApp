@@ -292,8 +292,15 @@ Public Class frmMainPageV2
                 Return
             End If
 
-            Dim size As Decimal = Math.Floor(riskUsd * refPrice / dist / 10D) * 10D
-            If maxUsd > 0D AndAlso size > maxUsd Then size = Math.Floor(maxUsd / 10D) * 10D
+            ' N2 (docs/spec-risk-sized-bridge-trades.md §4): the two arithmetic lines that used to
+            ' live here ARE the formula, and the bridge act path now needs the same one. They moved
+            ' verbatim into SignalBridge.RiskSizedBase so there is ONE formula rather than two copies
+            ' that can drift - the ruling reads "untouched" in the spec's Do-not-touch list as
+            ' BEHAVIOUR, not text. Nothing about this button changed: the guards above, all three
+            ' refusal messages, and the below-10 refusal below are exactly as they were, and the
+            ' seam's -1 arm is unreachable from here because those guards already rejected every
+            ' non-positive input it tests.
+            Dim size As Decimal = SignalBridge.RiskSizedBase(riskUsd, maxUsd, refPrice, dist)
             If size < 10D Then
                 AppendColoredText(txtLogs, $"SIZE: risk ${riskUsd:0.##} over ${dist:0.##} rounds below the 10-USD contract step - amount untouched", Color.Yellow)
                 Return
