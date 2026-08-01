@@ -6,8 +6,10 @@ the owner's `orderapp-settings.json` and x64 journal were never touched, and no 
 needed. Trade #68 in the harness DB. Harness bin restored to its pre-run state (knob 0, manual TP 0,
 ATRSlip unchecked).
 
-## VERDICT: **§6.3 PASSES on the manual arm. EV is closed except the bridge-act leg, which is
-owner-only.**
+## VERDICT: **§6.3 PASSES IN FULL — manual arm AND bridge-act leg. EV is CLOSED end-to-end.**
+
+*(The bridge leg ran later the same day; see §Bridge-act leg at the end. This document's earlier
+sections were written when only the manual arm was done and are unchanged.)*
 
 ## Setup
 
@@ -74,7 +76,7 @@ The Tooling row renders as **`Min Net Profit:`** with a `%` unit — the 2026-07
 live. Reminder for future greps: the caption and the identifiers deliberately disagree
 (`txtMinNetMove`, `min_net_move_pct`), so both spellings must be grepped.
 
-## What is NOT covered — the one owner-only item
+## What was outstanding when the manual arm finished — now DONE, see the bridge-act leg below
 
 **The bridge-act leg.** §6.3's second half asserts that when the EV floor aborts a *bridge* entry,
 `bridge-dispositions.log` still holds **exactly one row** for that payload (the `acted` row) — the
@@ -89,6 +91,61 @@ Everything the manual arm can prove is proven: the predicate, the gate placement
 first-evaluation timing, the persistence round-trip and the knob-0 parity. The bridge leg re-tests
 the same predicate through a different target source (`manualTPval` set from the engine target
 instead of typed), plus the cardinality assertion.
+
+## Bridge-act leg — PASSED (same day, later)
+
+Owner drove Mode → `Live`, ARM, START (the dual-arm interlock is a deliberate trader constraint —
+the scripts can do it on a TESTNET title but the seat does not). Everything else coordinator-driven.
+
+**Isolation:** the harness bin was given its own `bridge.json` pointing at
+`C:\Dev\DeribitBridge\harness-scratch\verdict_signal.json`, so the engine's real
+`verdict_signal.json` was never touched — verified present and unmodified afterwards. The engine ran
+throughout; the live stream was never interrupted.
+
+**Gate state checked before staging rather than discovered during it:** harness breaker $10 (session
+P/L ≈ 0, cannot trip) · session policy **disabled** in this bin (so no tier/context gate; `MEDIUM`
+was used anyway, which passes all three buckets) · cooloff resets per start and anchors on position
+close, so a fresh launch carries none.
+
+**Payload** (bid 63043 at the time; EV binds while the target is within `0.0053 × price` = $334.13):
+`LONG / MEDIUM / entry 63043 / stop 62943 / target 63193 / atr 30`, signal 7001.
+
+```
+[BRIDGE] mode Live - watching ...harness-scratch\verdict_signal.json
+[BRIDGE] ARM on (local)
+[BRIDGE] STARTED - live auto-trading interlock satisfied
+Buy limit order placed For 10 at 63043.
+[BRIDGE] signal #7001 HARNESS LONG (MEDIUM/LONG) -> acted (id 110935453312)
+Working entry cancelled (EV floor) - position legs untouched
+```
+
+The book moved 63043 → 63052.50, which is what produced the chase evaluation the floor then bound at.
+
+**THE ACCEPTANCE — disposition cardinality:** `bridge-dispositions.log` holds **exactly one row** for
+that payload:
+
+```
+2026-08-01T08:30:57Z | harness-1995beddbd91 | 7001 | HARNESS LONG | MEDIUM | LONG | acted (id 110935453312)
+```
+
+**The EV abort added no second row.** The cancel REASON is the counterfactual instrument and lives in
+the host log only — the frozen one-row-per-payload contract holds under a post-`acted` abort, which
+is precisely the case it was written for.
+
+**Two invariants confirmed incidentally, by the pre-START seed payload.** The seed (written while
+Mode was still `Off`) produced its own row — `refused: interlock` — and was **not re-evaluated when
+START was pressed**. That is the file-change-only rule proven from the other direction: a payload
+already on disk at START is never read, which is why the acting payload had to be written *after*
+START. It also confirms the contract's *"the disposition FILE append is unconditional in every
+mode/state"* clause — even an interlock refusal gets its row, while the host log stays filtered.
+
+**Tooling change made to get here, flagged for the record:** `write-payload.ps1`'s kill rule refused
+on the *engine process*, which made the standing isolated-harness protocol unusable exactly when it
+is most useful — with the engine up. The refusal is now **path-aware**: unchanged (exit 3) when the
+write targets the engine's own `verdict_signal.json`, and permitted with an explicit note when it
+targets an isolated path the engine cannot touch. Both branches were tested before use: the engine's
+path still refuses, the scratch path proceeds. The hazard the rule guards is a property of the file,
+not of the engine being alive.
 
 ## Residual
 

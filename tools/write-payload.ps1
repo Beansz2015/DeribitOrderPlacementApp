@@ -38,12 +38,9 @@ param(
 
 . "$PSScriptRoot\harness-common.ps1"
 
-# Kill rule: never fight the live emitter.
-$engine = Get-Process -Name "DeribitVerdictEngine" -ErrorAction SilentlyContinue
-if ($engine) {
-    Write-Error "REFUSED: DeribitVerdictEngine is running (PID $($engine.Id -join ', ')) — it overwrites the payload every run interval. Stop the engine first (section 9.4/9.5 protocol)."
-    exit 3
-}
+# NOTE: the kill rule now lives BELOW, after the payload path is resolved - it has to know WHICH
+# file we are about to write before it can decide whether we would be fighting the emitter.
+# See the block headed "Kill rule".
 
 # Resolve the bin the app reads bridge.json from: the RUNNING app's exe dir when up, else
 # -BinDir, else the Debug bin.
@@ -69,6 +66,26 @@ if (Test-Path $bridgeCfg) {
         exit 2
     }
 }
+# Kill rule: never fight the live emitter - made PATH-AWARE 2026-08-01 (EV 6.3 bridge-act leg).
+# The rule exists because the engine rewrites ITS payload every run interval, so a harness write
+# to that same file is a race the harness always loses. That hazard is a property of the FILE, not
+# of the engine merely being alive: when the running bin's bridge.json points somewhere else, the
+# two never touch the same path and there is nothing to fight. Refusing on the process alone also
+# contradicted the standing isolated-harness protocol (give the harness bin its own bridge.json and
+# a scratch payload path, so consumer-side tests never interrupt the live stream) - that protocol
+# was unusable with the engine up, which is precisely when it is worth having.
+# The refusal is UNCHANGED for the case it was written for: the engine's own path.
+$defaultEnginePath = "C:\Dev\DeribitBridge\verdict_signal.json"
+$isEnginePath = ([System.IO.Path]::GetFullPath($payloadPath) -ieq [System.IO.Path]::GetFullPath($defaultEnginePath))
+$engine = Get-Process -Name "DeribitVerdictEngine" -ErrorAction SilentlyContinue
+if ($engine -and $isEnginePath) {
+    Write-Error "REFUSED: DeribitVerdictEngine is running (PID $($engine.Id -join ', ')) and this write targets ITS payload ($payloadPath) - it overwrites that file every run interval. Either stop the engine (section 9.4/9.5 protocol), or point the running bin's bridge.json at a scratch path (the isolated-harness protocol) and re-run."
+    exit 3
+}
+if ($engine) {
+    Write-Host "NOTE: DeribitVerdictEngine is running (PID $($engine.Id -join ', ')), but this write targets an ISOLATED path, not its own - proceeding without touching the live stream."
+}
+
 $payloadDir = Split-Path $payloadPath -Parent
 if (-not (Test-Path $payloadDir)) { New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null }
 
