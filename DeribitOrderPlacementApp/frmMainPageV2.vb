@@ -396,6 +396,20 @@ Public Class frmMainPageV2
     ' field - same lifecycle as legAnchorPrice; reset to 0 at the order-context death sites and on consume.
     Private pendingReanchorFill As Decimal = 0D             ' 0 = no pending TP re-anchor
 
+    ' Chase-preserve-placed-size (docs/spec-chase-preserve-placed-size.md): the size ACTUALLY SENT with
+    ' the resting working entry. Before this the chase edits re-derived the amount from orderAmountVal
+    ' (the Amount-box mirror), so the first reposition rewrote a risk-sized / size_mult-reduced order
+    ' back to the box - placed 310, held 10 (review-risk-sized-bridge-trades.md §2). ORDER-context
+    ' field, same lifecycle as legAnchorPrice above: seeded at both placement sends, cleared wherever a
+    ' working entry ceases to exist. 0 keeps sizeUsdOverride's established meaning - "nothing retained,
+    ' use the box" - deliberately NOT a second sentinel.
+    ' Set UNCONDITIONALLY at each placement (not only when overridden): the placement then IS a clear,
+    ' so a manual order can never inherit a previous act's size even if some exotic path skipped every
+    ' teardown. For a manual placement it equals the box, which is acceptance 3's sanctioned value.
+    ' Written on the UI thread at placement, read on the receive thread by the chase - the same
+    ' accepted Decimal torn-read class as placedPrice/legAnchorPrice, which share this exact lifecycle.
+    Private placedOrderSizeUsd As Decimal = 0D              ' 0 = nothing retained; the chase reads the box
+
     ' --- EV chase budget (docs/spec-ev-chase-budget.md) ---
     ' Deribit's 2026-08-01 schedule (maker 1.5 bps / taker 3.5 bps) makes the tail of a chase
     ' unprofitable well before the ATR cap trips: past a point the remaining move to the target no
@@ -3388,6 +3402,12 @@ Public Class frmMainPageV2
                             CurrentOpenOrderId = Nothing
                             CurrentTPOrderId = Nothing
                             CurrentSLOrderId = Nothing
+                            ' N2b: THE fill/OpenPositions transition (spec §2). This is the single site where
+                            ' the working-entry id context dies on a fill, and it covers both entry labels
+                            ' (EntryLimitOrder and EntryTrailingOrder both set OpenPositions = True above), so
+                            ' the retained size dies with the ids it belongs to rather than at two per-label
+                            ' echoes. Without this a later MANUAL order could inherit a bridge size.
+                            placedOrderSizeUsd = 0D
                             'End If
 
                             ' No orders found, check for positions
@@ -3907,6 +3927,12 @@ Public Class frmMainPageV2
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
             emergencyFired = False                ' N1: a fresh order re-establishes a clean emergency context too
+            ' N2b: retain the size actually SENT (this is `amount` after the sizeUsdOverride fold above,
+            ' and it is the value in all three payload legs), so the chase re-sends it instead of the
+            ' Amount box. Seeded HERE, beside the sibling placement seeds and AFTER the send, rather than
+            ' at the override fold: every early Return between the two (bad quote, ATR-slippage abort,
+            ' unsupported type) would otherwise leave a size retained for an order that was never placed.
+            placedOrderSizeUsd = amount
 
             ' Entry-chase v2 §4: the legs' geometry is anchored to this placement price. Bound the
             ' geometry error so a chased entry can never overrun its own TP:
@@ -3966,6 +3992,7 @@ Public Class frmMainPageV2
         placedStopLossPrice = 0D
         legAnchorPrice = 0D          ' entry-chase v2: order context dies with placedPrice
         pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
+        placedOrderSizeUsd = 0D      ' N2b: nuclear teardown - no working entry, so no retained size
 
         ' Transition-race fix: mark the cancel in flight and drop the order context up front. Nulling the IDs
         ' plus the cancelPending gate stops any reposition/edit from firing on the just-cancelled order, and
@@ -4059,6 +4086,7 @@ Public Class frmMainPageV2
         placedPrice = 0D
         legAnchorPrice = 0D          ' entry-chase v2: order context dies with placedPrice
         pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
+        placedOrderSizeUsd = 0D      ' N2b: scoped teardown - the working entry is gone, drop its size too
         ' Q2: an aborted bridge entry (ATR-slippage abort routes here) must never tag a later trade.
         pendingSignalId = -1
         pendingSignalConfidence = ""
@@ -4190,7 +4218,11 @@ Public Class frmMainPageV2
 
             Dim newTPprice, newTrigSLprice, newSLprice As Decimal
             ' Cross-thread fix: read engine input fields, never the textboxes (runs on the receive thread).
+            ' N2b: a reposition must re-send the size the order was PLACED at, not the Amount box - the box
+            ' read here is what silently reverted every risk-sized / size_mult-reduced bridge entry. Same
+            ' 0-means-the-box convention as sizeUsdOverride, so a manual placement is byte-identical.
             Dim amount As Decimal = orderAmountVal
+            If placedOrderSizeUsd > 0D Then amount = placedOrderSizeUsd
             If amount <= 0D Then
                 ' Preserve the old "no edit on a bad amount" behaviour (Decimal.Parse used to throw on blank).
                 AppendColoredText(txtLogs, "Order amount blank/zero - skipping order update", Color.Orange)
@@ -4272,7 +4304,10 @@ Public Class frmMainPageV2
             End If
 
             ' Cross-thread fix: read engine input fields, never the textboxes (runs on the receive thread).
+            ' N2b: same placed-size preservation as the full-bracket path - this is the arm EntryOnlyChase
+            ' (default ON) actually takes, so it is the one the runtime 3b failure ran through.
             Dim amount As Decimal = orderAmountVal
+            If placedOrderSizeUsd > 0D Then amount = placedOrderSizeUsd
             If amount <= 0D Then
                 ' Preserve the old "no edit on a bad amount" behaviour (Decimal.Parse used to throw on blank).
                 AppendColoredText(txtLogs, "Order amount blank/zero - skipping order update", Color.Orange)
@@ -4804,6 +4839,13 @@ Public Class frmMainPageV2
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
             emergencyFired = False                ' N1: a fresh order re-establishes a clean emergency context too
+            ' N2b: CLEAR, not a set. This bracket is placed at `amount` = orderAmountVal (the box), so 0 -
+            ' "use the box" - is the truthful record, and it leaves the whole trailing path byte-identical
+            ' to before this change. Load-bearing: this is the ONLY site that sets isTrailingStopLossPlaced,
+            ' the sole gate on the trailing reposition block, so it guarantees no bridge size can survive
+            ' into a trailing chase - including the one trailing edit path that deliberately has no read of
+            ' this field (UpdateStopLossForTrailingOrder; see docs/spec-back-chase-preserve-placed-size.md D3).
+            placedOrderSizeUsd = 0D
 
             ' Entry-chase v2 §4: anchor the SL leg's geometry to this placement price. Same spec
             ' formula as the OTOCO placement; this bracket has no TP leg, so the takeProfitOffset
@@ -5193,6 +5235,7 @@ Public Class frmMainPageV2
         ResetCommandedSLPrices() ' reconcile: position closed - triggered-SL context is gone
         legAnchorPrice = 0D          ' entry-chase v2: order context is gone (CancelOrderAsync below also clears it)
         pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
+        placedOrderSizeUsd = 0D      ' N2b: trade over - no retained size survives into the next one
 
         PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
