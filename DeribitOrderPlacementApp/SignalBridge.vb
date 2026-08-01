@@ -109,6 +109,18 @@ Public Class SignalBridge
         End Get
     End Property
 
+    ' N2 (docs/spec-risk-sized-bridge-trades.md §2): whether bridge trades are risk-sized off the
+    ' ENGINE's own stop distance instead of the Amount box. Live-read off the settings form exactly
+    ' like TiersCsv above - a plain Boolean there, written only on the UI thread, so this single read
+    ' is safe from the FSW/timer/processing threads. No settings form (or no tick) = False = today's
+    ' Amount-box sizing, so the feature is off by construction rather than by care.
+    Private ReadOnly Property RiskSizeBridgeTrades As Boolean
+        Get
+            Dim s As AutoTradeSettings = Settings
+            Return s IsNot Nothing AndAlso s.RiskSizeBridgeTrades
+        End Get
+    End Property
+
     Private ReadOnly Property CooloffMin As Decimal
         Get
             Dim s As AutoTradeSettings = Settings
@@ -717,12 +729,26 @@ Public Class SignalBridge
             ' mult 1.0) this is the identity and the size below is byte-for-byte what it was before.
             ' When the stop-distance formula later becomes the bridge's size source, this folds in as
             ' that formula's sessionFactor term - ONE formula, never stacked hidden multipliers.
+            ' rawSize IS THE AMOUNT BOX AND MUST STAY BOUND TO IT (N2 spec §1, amended - this is the
+            ' defect the implementer seat raised before writing any code). The sizeUsdOverride
+            ' elision below compares against rawSize, and 0 there means "read the Amount box exactly
+            ' as before". Re-pointing rawSize at the risk-sized base makes the two equal at unity -
+            ' i.e. WHENEVER SESSION POLICY IS OFF, THE DEFAULT - so the override would elide to 0 and
+            ' the Amount box would be placed while the log printed the risk size. Live-only, silent,
+            ' and Log-only mode cannot see it. The risk size therefore travels as its OWN variable.
             Dim rawSize As Decimal = SizeUsd
+            Dim baseSize As Decimal = rawSize
+            ' Disabled (the shipped default) does not even compute - the branch is the byte-identity.
+            If RiskSizeBridgeTrades Then baseSize = RiskSizedBaseForPayload(p, rawSize)
             Dim sizeMult As Decimal = PolicySizeMultFor(p)
-            Dim effectiveSize As Decimal = EffectiveSizeUsd(rawSize, sizeMult)
-            If EffectiveSizeWasClamped(rawSize, sizeMult) Then
+            ' The sessionFactor fold, applied EXACTLY ONCE and only here, to whichever base is in
+            ' force. Unity passes through untouched, so with the policy off this is the identity.
+            Dim effectiveSize As Decimal = EffectiveSizeUsd(baseSize, sizeMult)
+            ' baseSize, not rawSize: it is the value actually clamped. Disabled => baseSize = rawSize
+            ' => this line is character-for-character what it was before N2.
+            If EffectiveSizeWasClamped(baseSize, sizeMult) Then
                 _log($"size_mult {sizeMult.ToString(inv)} clamped to contract min 10 " &
-                     $"(raw size {rawSize.ToString(inv)})", Color.Yellow)
+                     $"(raw size {baseSize.ToString(inv)})", Color.Yellow)
             End If
 
             If _mode = BridgeMode.Live Then
@@ -741,8 +767,11 @@ Public Class SignalBridge
                 ' placement is sent - the entry-fill echo can beat the placement ack, and the fill
                 ' is what promotes the tag onto the position.
                 _host.SetPendingSignalTag(p.SignalId, p.Confidence)
-                ' The size override is passed ONLY when the policy actually changes the size, so the
-                ' common path reaches PlaceAutomatedOrder exactly as it did before this feature.
+                ' The size override is passed ONLY when the computed size actually differs from the
+                ' AMOUNT BOX, so the common path reaches PlaceAutomatedOrder exactly as it did
+                ' before these features. The comparison is against rawSize (= the box) and MUST STAY
+                ' THAT WAY: 0 means "read the Amount box", so comparing against anything else would
+                ' silently place the box whenever the computed size happened to match the base.
                 Dim result As frmMainPageV2.PlacementResult =
                     Await _host.PlaceAutomatedOrder(If(isLong, "long", "short"), "limit",
                                                     sizeUsdOverride:=If(effectiveSize <> rawSize, effectiveSize, 0D))
@@ -953,6 +982,71 @@ Public Class SignalBridge
     Friend Shared Function EffectiveSizeUsd(rawSizeUsd As Decimal, mult As Decimal) As Decimal
         If mult = 1D Then Return rawSizeUsd
         Return Math.Max(10D, Math.Floor(rawSizeUsd * mult / 10D) * 10D)
+    End Function
+
+    ' N2 (docs/spec-risk-sized-bridge-trades.md §1): the act site's risk-sized base, wrapping the
+    ' shared seam with this caller's own fail-safe and clamp logging. Returns the size to feed the
+    ' sessionFactor fold; returns rawSize (the Amount box) unchanged whenever the formula cannot run.
+    '
+    ' FAIL-SAFE, amended by ruling to cover EVERY input the formula cannot use - dist <= 0, entry
+    ' <= 0, risk <= 0. Only dist was in the original spec, on the premise that "the levels guard has
+    ' already refused stop/target <= 0". It has - but the levels gate at 4.4 reads StopLevel and
+    ' Target ONLY; p.Entry is absent from it, and ParsePayload defaults a missing entry to 0. So a
+    ' payload with good stop/target and no entry reaches here with dist > 0, computes riskSize 0, and
+    ' would clamp to a live trade at the contract minimum with nothing in the log to say why. Adding
+    ' entry to `refused: levels` was RULED AGAINST (it changes a frozen disposition token's
+    ' behaviour and would alter the soak stream), so the guard lives here, app-side.
+    '
+    ' Never refuses a signal: a sizing hiccup falls back to the Amount box and says so out loud.
+    ' The reads of RiskPerTradeUsd/MaxSizeUsd are plain host field reads off a settings-form-owned
+    ' value - the same accepted Decimal torn-read class as LastSignalAtr, and these change only when
+    ' the owner edits a Tooling box.
+    Private Function RiskSizedBaseForPayload(p As PayloadSnapshot, rawSize As Decimal) As Decimal
+        Dim inv As CultureInfo = CultureInfo.InvariantCulture
+        Dim riskUsd As Decimal = _host.RiskPerTradeUsd
+        Dim maxUsd As Decimal = _host.MaxSizeUsd
+        Dim dist As Decimal = Math.Abs(p.Entry - p.StopLevel)
+
+        Dim capped As Decimal = RiskSizedBase(riskUsd, maxUsd, p.Entry, dist)
+        If capped < 0D Then
+            _log($"risk-size unavailable (entry {p.Entry.ToString(inv)}, stop distance {dist.ToString(inv)}, " &
+                 $"risk {riskUsd.ToString(inv)}) - using the Amount box {rawSize.ToString(inv)}", Color.Yellow)
+            Return RiskSizedOrFallback(rawSize, capped)
+        End If
+
+        Dim sized As Decimal = RiskSizedOrFallback(rawSize, capped)
+
+        ' One yellow line when the cap or the 10-floor binds, so an undersized-risk session is
+        ' visible. The uncapped value comes from the same seam with the cap switched off (0 = no
+        ' cap), so "did the cap bind" is answered by the formula rather than by a second copy of it.
+        Dim uncapped As Decimal = RiskSizedBase(riskUsd, 0D, p.Entry, dist)
+        If sized > capped Then
+            _log($"risk size {capped.ToString(inv)} clamped up to the contract min 10 " &
+                 $"(risk {riskUsd.ToString(inv)} over a {dist.ToString(inv)} stop is under one step)", Color.Yellow)
+        ElseIf capped < uncapped Then
+            _log($"risk size {uncapped.ToString(inv)} capped to {capped.ToString(inv)} " &
+                 $"by max_size_usd {maxUsd.ToString(inv)}", Color.Yellow)
+        End If
+        Return sized
+    End Function
+
+    ' The act site's base-size decision once risk sizing is ON, as a pure seam (N2 §1).
+    ' riskSized = whatever RiskSizedBase returned; -1 means the formula could not run.
+    '
+    '   * cannot compute  => the RAW AMOUNT BOX, unchanged and un-floored. That matters: the box is
+    '     the trader's own typed value and the unity-passthrough ruling says an un-reduced size stays
+    '     exactly what they typed, whatever it is. Flooring the fallback would resize a non-step
+    '     Amount (25 -> 20) the moment a payload arrived with a bad entry.
+    '   * otherwise       => clamped UP to the 10-USD contract minimum. The bridge CLAMPS where the
+    '     SIZE button REFUSES; the two policies differ deliberately (D3 clamp-and-log: at
+    '     live-at-min-size the box IS 10, and refusing would silently kill every signal), which is
+    '     exactly why the shared seam takes no position on below-10.
+    '
+    ' Disabled parity is NOT this function's job - it is the `If RiskSizeBridgeTrades` guard at the
+    ' act site, which means the disabled path never computes any of this.
+    Friend Shared Function RiskSizedOrFallback(rawSizeUsd As Decimal, riskSized As Decimal) As Decimal
+        If riskSized < 0D Then Return rawSizeUsd
+        Return Math.Max(10D, riskSized)
     End Function
 
     ' Risk-based size (docs/spec-risk-sized-bridge-trades.md §1/§4) - THE ONE FORMULA, shared by both

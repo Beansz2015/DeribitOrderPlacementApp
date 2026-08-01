@@ -458,6 +458,31 @@ Module Program
         Check("composed: unity leaves a risk-sized base untouched (the passthrough ruling holds here too)",
               SignalBridge.EffectiveSizeUsd(SignalBridge.RiskSizedBase(25D, 500D, 64735D, 5000D), 1D) = 320D)
 
+        ' ---- The act site's base-size decision (spec §1) ----
+        ' Disabled parity itself is the `If RiskSizeBridgeTrades` guard at the act site - with the
+        ' knob off baseSize IS rawSize and none of this runs, which is why the disabled path is
+        ' byte-identical by construction. What IS pinnable is the enabled path's two arms.
+        Check("act size: a -1 sentinel falls back to the raw Amount box, UNCHANGED",
+              SignalBridge.RiskSizedOrFallback(25D, -1D) = 25D)
+        Check("act size: the fallback does NOT floor a non-step Amount box (the passthrough ruling)",
+              SignalBridge.RiskSizedOrFallback(25D, -1D) = 25D AndAlso
+              SignalBridge.RiskSizedOrFallback(5D, -1D) = 5D)
+        Check("act size: a computed 320 passes through as 320",
+              SignalBridge.RiskSizedOrFallback(25D, 320D) = 320D)
+        Check("act size: a sub-step 0 CLAMPS UP to the contract min 10 (the bridge clamps; the button refuses)",
+              SignalBridge.RiskSizedOrFallback(25D, 0D) = 10D)
+        Check("act size: an exactly-10 result is left alone",
+              SignalBridge.RiskSizedOrFallback(25D, 10D) = 10D)
+        ' The full chain, end to end, as the act site runs it: seam -> fallback/clamp -> sessionFactor.
+        Check("act chain: risk-sized 320 then a LONDON 0.5 = 160 (ONE fold, not two)",
+              SignalBridge.EffectiveSizeUsd(
+                  SignalBridge.RiskSizedOrFallback(25D, SignalBridge.RiskSizedBase(25D, 500D, 64735D, 5000D)),
+                  0.5D) = 160D)
+        Check("act chain: a bad entry falls back to the box, and the session mult still applies once",
+              SignalBridge.EffectiveSizeUsd(
+                  SignalBridge.RiskSizedOrFallback(100D, SignalBridge.RiskSizedBase(25D, 500D, 0D, 5000D)),
+                  0.5D) = 50D)
+
         ' ---- Token classification (§9.6) ----
         ' item H's host-log filter: full stream while flat, quiet in-position. A policy refusal is a
         ' refusal like any other, so it must NOT be significant.

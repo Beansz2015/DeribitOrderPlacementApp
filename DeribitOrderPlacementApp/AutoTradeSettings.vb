@@ -34,6 +34,9 @@ Public Class AutoTradeSettings
     Private _windowStart As String = ""              ' blank = unrestricted
     Private _windowEnd As String = ""
     Private _tiersCsv As String = "HIGH,MEDIUM"
+    ' N2 (docs/spec-risk-sized-bridge-trades.md): ships DISABLED. Nothing writes this until §2's
+    ' checkbox lands; the bridge reads it through the property below.
+    Private _riskSizeBridgeTrades As Boolean = False
 
     ' Session policy (docs/spec-session-policy-gate.md section 3). Unlike the mirrors above this is
     ' ONE IMMUTABLE SNAPSHOT, reference-SWAPPED on commit and never mutated in place, so the bridge's
@@ -70,6 +73,16 @@ Public Class AutoTradeSettings
     Friend ReadOnly Property TiersCsv As String
         Get
             Return _tiersCsv
+        End Get
+    End Property
+    ''' <summary>N2 (docs/spec-risk-sized-bridge-trades.md §2): whether the bridge sizes each trade
+    ''' by risk over the engine's own stop distance instead of the Amount box. Plain Boolean on the
+    ''' TiersCsv pattern - a single reference-free read, safe from the bridge's FSW/timer threads.
+    ''' The checkbox that drives it arrives with §2's commit; until then this is False and the
+    ''' feature is unreachable, which is the shipped-DISABLED default either way.</summary>
+    Friend ReadOnly Property RiskSizeBridgeTrades As Boolean
+        Get
+            Return _riskSizeBridgeTrades
         End Get
     End Property
     ''' <summary>The committed session policy. Never Nothing; safe to read from any thread (the
