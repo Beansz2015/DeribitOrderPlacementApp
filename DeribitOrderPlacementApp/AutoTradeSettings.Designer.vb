@@ -43,6 +43,7 @@ Partial Class AutoTradeSettings
         lblBridgeTiersCap = New Label()
         txtBridgeTiers = New TextBox()
         chkSessionPolicyOn = New CheckBox()
+        chkRiskSizeBridge = New CheckBox()
         txtSessionPolicy = New TextBox()
         grpTooling = New GroupBox()
         lblAtrLenCap = New Label()
@@ -227,6 +228,7 @@ Partial Class AutoTradeSettings
         grpSignalBridge.Controls.Add(lblBridgeLast)
         grpSignalBridge.Controls.Add(lblBridgeTiersCap)
         grpSignalBridge.Controls.Add(txtBridgeTiers)
+        grpSignalBridge.Controls.Add(chkRiskSizeBridge)
         grpSignalBridge.Controls.Add(chkSessionPolicyOn)
         grpSignalBridge.Controls.Add(txtSessionPolicy)
         grpSignalBridge.Font = New Font("Calibri", 14F, FontStyle.Regular, GraphicsUnit.Point, CByte(0))
@@ -335,6 +337,36 @@ Partial Class AutoTradeSettings
         txtBridgeTiers.Size = New Size(230, 42)
         txtBridgeTiers.TabIndex = 4
         txtBridgeTiers.Text = "HIGH,MEDIUM"
+        '
+        ' chkRiskSizeBridge
+        '
+        ' N2 (docs/spec-risk-sized-bridge-trades.md §2). PLACEMENT AND CAPTION ARE BOTH RULED, and
+        ' both differ from the spec as originally written - see the amendment block there.
+        '
+        ' The spec first said the Tooling group, "under the Risk/Max rows". That space does not
+        ' exist: grpTooling's five rows end at 256 of 266 and lblAtrNow sits 4px under the group, so
+        ' there is ZERO vertical slack inside the pinned 512x856 - the EV reclaim already spent it
+        ' (that is why lblAtrNow was lifted onto the form). Every remaining Tooling space is a
+        ' mid-row gutter, where a checkbox reads as a modifier of ATR Length or Min Net Profit.
+        ' Measured, not estimated: a probe that constructs this form at runtime and dumps live
+        ' bounds. The caption "Risk-size bridge trades" measures 174px against gutters of 123/104/100
+        ' and fits none of them.
+        '
+        ' Here instead, and on the merits rather than as a fallback: this is a BRIDGE behaviour, so
+        ' it belongs in the bridge group's right-hand checkbox column beside ARM AUTOTRADE and
+        ' Policy - where a terse caption carrying a whole feature, with the meaning in the tooltip,
+        ' is already house style. It reuses the Risk/Max boxes but does not have to sit beside them.
+        ' Sits right of txtBridgeTiers (which ends at x=322) and inside lblBridgeStatus's proven
+        ' right edge of 471. Styled 12F like the two checkboxes it joins; it is CONFIG, not an arm.
+        chkRiskSizeBridge.AutoSize = True
+        chkRiskSizeBridge.Font = New Font("Calibri", 12F)
+        chkRiskSizeBridge.ForeColor = SystemColors.ControlLight
+        chkRiskSizeBridge.Location = New Point(340, 208)
+        chkRiskSizeBridge.Name = "chkRiskSizeBridge"
+        chkRiskSizeBridge.Size = New Size(116, 34)
+        chkRiskSizeBridge.TabIndex = 7
+        chkRiskSizeBridge.Text = "Risk-size"
+        AutoTradingToolTip.SetToolTip(chkRiskSizeBridge, "Size each BRIDGE trade by risk over the ENGINE's own stop distance," & vbCrLf & "instead of the Amount box: risk / trade x entry / |entry - stop|," & vbCrLf & "floored to the 10-USD step and capped by Max Size (both in Tooling)." & vbCrLf & "OFF = the Amount box decides the size, exactly as today." & vbCrLf & "The session multiplier applies on top EITHER WAY - one chain, never twice." & vbCrLf & "The Amount box must still be non-zero: an empty box is refused before" & vbCrLf & "sizing runs. The manual SIZE button is unaffected by this switch." & vbCrLf & "Persists as risk_size_bridge_trades in orderapp-settings.json.")
         '
         ' chkSessionPolicyOn
         '
@@ -692,6 +724,7 @@ Partial Class AutoTradeSettings
     Friend WithEvents lblBridgeStatus As Label
     Friend WithEvents lblBridgeLast As Label
     Friend WithEvents chkSessionPolicyOn As CheckBox
+    Friend WithEvents chkRiskSizeBridge As CheckBox
     Friend WithEvents txtSessionPolicy As TextBox
     Friend WithEvents lblBridgeTiersCap As Label
     Friend WithEvents txtBridgeTiers As TextBox

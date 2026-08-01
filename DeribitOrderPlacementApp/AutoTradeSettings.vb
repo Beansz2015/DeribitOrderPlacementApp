@@ -147,11 +147,17 @@ Public Class AutoTradeSettings
         SeedSessionPolicyFromHost()
         ' R1 breaker persistence: the trap's FOURTH application - seed before the first commit.
         SeedCircuitBreakerFromHost()
-        ' EV chase budget §4: the trap AGAIN (the spec calls this the sixth application; N2's is
-        ' still queued, so in the code today it is the fifth). Without this seed the first commit
-        ' below would write the Designer's "0" over a persisted, ENABLED EV floor - i.e. silently
-        ' disable the guard the owner turned on. Same position, same reason as the four above.
+        ' EV chase budget §4: the trap AGAIN, the fifth application. Without this seed the first
+        ' commit below would write the Designer's "0" over a persisted, ENABLED EV floor - i.e.
+        ' silently disable the guard the owner turned on. Same position, same reason as the four
+        ' above. (This comment used to add "N2's is still queued, so in the code today it is the
+        ' fifth" - N2 has landed as the sixth, immediately below.)
         SeedMinNetMoveFromHost()
+        ' N2 §2: the trap's SIXTH application. Without this seed the first CommitGateConfig would
+        ' write the Designer's UNTICKED box over a persisted, ENABLED risk-sizing knob - silently
+        ' reverting the owner's bridge trades to Amount-box sizing on every start, which is exactly
+        ' the class of silent size change this whole item exists to make deliberate.
+        SeedRiskSizeBridgeFromHost()
         CommitGateConfig()
         CommitToolingConfig()
         For Each tb As TextBox In {txtCooloff, txtCircuitBreaker, txtStartTime, txtEndTime,
@@ -182,11 +188,21 @@ Public Class AutoTradeSettings
         AddHandler chkSessionPolicyOn.CheckedChanged, AddressOf OnSessionPolicyToggled
         chkSessionPolicyOn.AccessibleName = chkSessionPolicyOn.Name
 
+        ' N2 §2: same wiring, same reason - AddHandler here rather than Handles, so the seed above
+        ' cannot fire a commit before the form is initialised.
+        AddHandler chkRiskSizeBridge.CheckedChanged, AddressOf OnRiskSizeBridgeToggled
+        chkRiskSizeBridge.AccessibleName = chkRiskSizeBridge.Name
+
         cboBridgeMode.AccessibleName = "cboBridgeMode"
     End Sub
 
     ' Enablement is a commit like any other - it changes what is in force immediately.
     Private Sub OnSessionPolicyToggled(sender As Object, e As EventArgs)
+        CommitGateConfig()
+    End Sub
+
+    ' N2 §2: likewise - ticking the box changes how the NEXT payload is sized, immediately.
+    Private Sub OnRiskSizeBridgeToggled(sender As Object, e As EventArgs)
         CommitGateConfig()
     End Sub
 
@@ -296,6 +312,12 @@ Public Class AutoTradeSettings
         _sessionPolicy = committed
         If _host IsNot Nothing Then _host.SetSessionPolicy(committed)
 
+        ' N2 §2: the risk-sizing knob. A checkbox cannot be half-typed, so unlike the text boxes
+        ' above there is no parse and no last-good fallback - the box IS the value. Pushed to the
+        ' host so item A's save path persists it; the bridge live-reads the mirror.
+        _riskSizeBridgeTrades = chkRiskSizeBridge.Checked
+        If _host IsNot Nothing Then _host.SetRiskSizeBridgeTrades(_riskSizeBridgeTrades)
+
         ShowGateConfigWarnings()
     End Sub
 
@@ -326,6 +348,16 @@ Public Class AutoTradeSettings
     Private Sub SeedMinNetMoveFromHost()
         If _host Is Nothing Then Return
         txtMinNetMove.Text = (_host.MinNetMovePct * 100D).ToString(Globalization.CultureInfo.InvariantCulture)
+    End Sub
+
+    ' N2 §2: one-time seed of the risk-sizing checkbox from the host's loaded settings. MUST run
+    ' before the first CommitGateConfig (see InitialiseSettings) or that commit writes the Designer's
+    ' unticked box straight over a persisted, enabled knob. The mirror is seeded alongside the box so
+    ' the bridge reads the file's value even if no commit has run yet.
+    Private Sub SeedRiskSizeBridgeFromHost()
+        If _host Is Nothing Then Return
+        _riskSizeBridgeTrades = _host.RiskSizeBridgeTrades
+        chkRiskSizeBridge.Checked = _riskSizeBridgeTrades
     End Sub
 
     ' §2: one-time seed of the risk-sizing boxes from the host's loaded settings. MUST run before

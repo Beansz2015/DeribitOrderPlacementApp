@@ -40,9 +40,16 @@ Public NotInheritable Class AppUserSettings
     Public MarketStopChecked As Boolean?
     Public MaxSlippageAtrMult As Decimal?
 
-    ' Item B (risk-based sizing) - spec defaults; the owner tunes these in the file (no UI).
+    ' Item B (risk-based sizing) - spec defaults; the owner tunes these in the Tooling boxes.
     Public RiskPerTradeUsd As Decimal = 25D
     Public MaxSizeUsd As Decimal = 500D
+
+    ' N2 (docs/spec-risk-sized-bridge-trades.md §2): whether BRIDGE trades are sized by the two keys
+    ' above over the engine's own stop distance, instead of by the flat Amount box. SHIPS DISABLED -
+    ' absent key => False => the act path is byte-identical to the pre-N2 app. It is sizing config,
+    ' not an arm: Mode/ARM/Started still never persist, and this cannot place or permit anything by
+    ' itself. The manual SIZE button is unaffected either way; it always risk-sizes on demand.
+    Public RiskSizeBridgeTrades As Boolean = False
 
     ' Item D (alerts) - all default ON; toggled per kind in the file (no UI).
     Public AlertEntryFill As Boolean = True
@@ -132,6 +139,8 @@ Public NotInheritable Class AppUserSettings
             result.RiskPerTradeUsd = If(json.SelectToken("risk_per_trade_usd")?.ToObject(Of Decimal?)(), 25D)
             result.MaxSizeUsd = If(json.SelectToken("max_size_usd")?.ToObject(Of Decimal?)(), 500D)
             result.CircuitBreakerUsd = If(json.SelectToken("circuit_breaker_usd")?.ToObject(Of Decimal?)(), 10D)
+            ' N2: absent risk_size_bridge_trades => False => bridge sizing is the Amount box, as today.
+            result.RiskSizeBridgeTrades = If(json.SelectToken("risk_size_bridge_trades")?.ToObject(Of Boolean?)(), False)
 
             ' EV chase budget: absent min_net_move_pct => 0 => the EV floor never binds (ship-safe).
             result.MinNetMovePct = If(json.SelectToken("min_net_move_pct")?.ToObject(Of Decimal?)(), 0D)
@@ -177,6 +186,7 @@ Public NotInheritable Class AppUserSettings
                 {"max_slippage_atr_mult", MaxSlippageAtrMult},
                 {"risk_per_trade_usd", RiskPerTradeUsd},
                 {"max_size_usd", MaxSizeUsd},
+                {"risk_size_bridge_trades", RiskSizeBridgeTrades},
                 {"circuit_breaker_usd", CircuitBreakerUsd},
                 {"min_net_move_pct", MinNetMovePct},
                 {"maker_fee_bps", MakerFeeBps},

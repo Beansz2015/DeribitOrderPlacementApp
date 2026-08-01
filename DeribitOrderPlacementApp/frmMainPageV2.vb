@@ -77,6 +77,21 @@ Public Class frmMainPageV2
         End Get
     End Property
 
+    ' N2 (docs/spec-risk-sized-bridge-trades.md §2) - the same arrangement as the risk keys above:
+    ' the value LIVES in userSettings, persists on item A's save path, and the settings form seeds
+    ' its checkbox from here before its first commit. A Boolean, so unlike the risk keys there is no
+    ' "non-positive keeps last good" convention - False is a real value and must be persistable.
+    Friend ReadOnly Property RiskSizeBridgeTrades As Boolean
+        Get
+            Return userSettings IsNot Nothing AndAlso userSettings.RiskSizeBridgeTrades
+        End Get
+    End Property
+
+    Friend Sub SetRiskSizeBridgeTrades(value As Boolean)
+        If userSettings Is Nothing Then userSettings = New AppUserSettings()
+        userSettings.RiskSizeBridgeTrades = value
+    End Sub
+
     ' Same convention as SetToolingValues: non-positive (= blank/garbage box) keeps the last good value.
     Friend Sub SetRiskSizingValues(riskPerTrade As Decimal, maxSize As Decimal)
         If userSettings Is Nothing Then userSettings = New AppUserSettings()
