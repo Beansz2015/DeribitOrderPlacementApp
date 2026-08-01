@@ -1,5 +1,30 @@
 # Spec-back — N2b: two box-mirror sites `spec-chase-preserve-placed-size.md` §2 does not cover
 
+> ## COORDINATOR RULING 2026-08-01 — **D1 REJECTED · D2 UPHELD · D3 accepted.**
+> Full reasoning and the code-side review: `review-chase-preserve-placed-size.md`.
+>
+> - **D1 — REJECTED, the harm cannot occur.** `ReanchorTPToFillAsync` never runs on a bridge entry.
+>   The staging gate's fourth conjunct is `manualTPval <= 0D` — its own comment says *"only
+>   auto-offset TPs re-anchor"* — and a bridge act always sets a manual TP
+>   (`SetTradeTargets(manualTP:=RoundToTick(p.Target))`, with gate 4.4 refusing `Target <= 0`).
+>   The reasoning error is worth naming: the full four-conjunct gate was quoted, one conjunct's
+>   reachability was proved (`entryFillPrice <> legAnchorPrice` under `EntryOnlyChase`), and that was
+>   generalised to the whole gate. **N2 is NOT blocked by this** — §7's recommendation is void — and
+>   acceptance 2's TP-leg observation is dropped. On the manual path where the re-anchor does run,
+>   the position size IS the box, so `orderAmountVal` is already correct.
+> - **D2 — UPHELD, option A.** Verified: the id-778 restore adopts the entry's id and price but not
+>   its amount. Implement the two-line single-writer seed in N2b. §4.6's new census line gains
+>   `+ 1 restore seed`.
+> - **D3 — accepted, and stronger than argued.** The `placedOrderSizeUsd = 0D` you placed at `:4860`
+>   sits immediately before `:4869`, the file's only writer of `isTrailingStopLossPlaced`, so the
+>   field is `0` by construction on every path reaching that third edit site. Census stays at 2 chase
+>   reads.
+>
+> **Raising all three before implementing was right, and D2 in particular would have shipped a hole
+> that only a restart could expose.** D1 was wrong, but flagged rather than acted on, with the
+> unverified exchange behaviour explicitly not claimed — which is exactly how a suspected defect
+> outside your scope should be handled.
+
 **For:** the owner + orchestrator. **From:** the N2b implementer seat (Opus HIGH), 2026-08-01.
 **Status:** raised under the standing rule (H-4 §6 / H-5 §4) — spec defects escalate BEFORE
 implementing rather than being coded around.

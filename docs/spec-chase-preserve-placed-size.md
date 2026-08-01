@@ -51,9 +51,22 @@ Retain the size actually placed, and have the chase re-send **that**, not the bo
   `cancelPending` / `emergencyFired` — enumerate their reset sites and match them, rather than
   guessing a set.
 
+- **AMENDED 2026-08-01 (spec-back D2, UPHELD): the id-778 restore must seed the field.** The
+  `Case "EntryLimitOrder", "EntryTrailingOrder"` branch of `HandleOpenOrdersSnapshot` adopts the
+  working entry's id and price but not its **amount**, so a restart with a live risk-sized entry
+  leaves the field `0` and the first post-restart reposition reintroduces this very defect. Seed it
+  there from the order's `amount`, under the **same single-writer rule `placedPrice` already uses**
+  (`If placedOrderSizeUsd = 0D Then …`) so a snapshot can never overwrite a live in-process value.
+  Seeding a trailing entry's box-sized amount is harmless — it equals what the chase would use.
+
 **Explicitly out of scope:** `ExecuteOrderAsync`'s own override semantics, the six pre-placement
 gates, `ApplyRiskBasedSize`, the N2 seam, and every SL/TP/reduce path. This is the entry-chase
 amount source and the field's lifecycle, nothing else.
+
+**Explicitly RULED OUT (spec-back D1, REJECTED):** do not touch `ReanchorTPToFillAsync`. It cannot
+run on a bridge entry — the re-anchor staging gate requires `manualTPval <= 0D` and a bridge act
+always sets a manual TP — and on the manual path where it does run, the position size IS the Amount
+box, so its `orderAmountVal` read is already correct. See `review-chase-preserve-placed-size.md` D1.
 
 ## §3 — Also fix: `Position entered:` prints the wrong number
 
@@ -81,8 +94,12 @@ which value you chose** (retained placed size vs the position model's own size) 
    its own observation.
 6. Censuses unchanged: `emergencyFired` 10 · `IsATRSlippageExcessive` 8 · `NextSlBackoff` 2 ·
    `RecordCommandedSLPrice` 3 · `slUpdateFailures = 0` 1 · `isPlacingOrder` 13 ·
-   `lastPlacementAdmittedUtc` 13. New: `placedOrderSizeUsd` = 1 decl + 1 set + 2 chase reads +
-   the clear sites.
+   `lastPlacementAdmittedUtc` 13. New (AMENDED): `placedOrderSizeUsd` = 1 decl + 1 set +
+   **2** chase reads (not 3 — the third working-entry edit site, `UpdateStopLossForTrailingOrder`,
+   provably never sees a non-zero value; spec-back D3) + **1 restore seed** (D2) + the clear sites +
+   2 display fallback reads from §3.
+7. **Acceptance 5 needs the Amount box ABOVE the clamp** (e.g. 40). At box 10 a `0.5` mult clamps
+   back up to 10 and the divergence vanishes — that clamp is exactly what hid this defect for weeks.
 
 ## §5 — Note for the reviewer
 
