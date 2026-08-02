@@ -39,7 +39,7 @@ sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
 
 | # | Item | Notes |
 |---|---|---|
-| C1 | **v2 feedback file — documentation phase CLOSED both sides; the EMITTER BUILD IS THE LIVE QUEUE ITEM.** Exchange closed (proposal → engine ACCEPT → ack → trader tick T1–T8); **contract §8 is the binding spec**, engine mirror is their §10. Remaining: two implementation builds on separate queues — **our order-app emitter** (own Opus-HIGH pass, ships OFF; **spec written 2026-08-02, `spec-c1-feedback-emitter.md`, blocked on the owner's rulings for its §0 escalations E1–E5**) and engine consumption (behind its net-EV rider). **Phase 2 (ACTIONABLE EXITS — the largest remaining P/L lever) stays FENCED** as a future signal-schema-v2 amendment with a pinned field; **never parse `hold_status`.** Gated on the phase-1 display soak. |
+| C1 | **v2 feedback file — documentation phase CLOSED both sides; the EMITTER BUILD IS THE LIVE QUEUE ITEM.** Exchange closed (proposal → engine ACCEPT → ack → trader tick T1–T8); **contract §8 is the binding spec**, engine mirror is their §10. Remaining: two implementation builds on separate queues — **our order-app emitter** (own Opus-HIGH pass, ships OFF; **spec written AND all §0 escalations RULED 2026-08-02 (`spec-c1-feedback-emitter.md`) — ready for an implementer seat, which the owner launches; contract §8.1 amended in the same pass, engine relay owed**) and engine consumption (behind its net-EV rider). **Phase 2 (ACTIONABLE EXITS — the largest remaining P/L lever) stays FENCED** as a future signal-schema-v2 amendment with a pinned field; **never parse `hold_status`.** Gated on the phase-1 display soak. |
 
 ## §5 — Hygiene backlog (anytime, unscheduled, all on record)
 

@@ -53,8 +53,13 @@ inputs must be set **together**, because they compose.
    holds 91 live rows; after `#89` only these two remain. `#100` postdates N1c's #99 and appears in
    no doc. Owner's call, not a defect. *(The named list — #90–#93 / #96–#98 / #99 — is fully
    cleared.)*
-5. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
-6. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
+5. **Engine relay owed (NEW 2026-08-02, C1/E1) — one line, cross-app.** Contract §8.1's
+   `File.Replace` wording was amended here; the engine's `signal-bridge-v1-proposal.md` §10.2
+   repeats it verbatim and needs the same correction. **A coordinated docs note, not a schema bump.**
+   Neither seat writes cross-repo, so this only moves when you carry it. Full text: contract §9's
+   2026-08-02 entry.
+6. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
+7. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
 
 ## 3. Queue
@@ -63,14 +68,17 @@ inputs must be set **together**, because they compose.
 
 - N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
   the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.
-- **C1 emitter: SPEC WRITTEN 2026-08-02 (`spec-c1-feedback-emitter.md`), not implemented.** No impl
-  report, no implementer seat. **Blocked on the owner: §0 carries FOUR open escalations** — **E1**
-  amends §8.1's wording (`File.Replace` throws when the destination is absent = the first-write
-  case) *and* the engine's §10.2 mirror, so it is a coordinated docs note both sides · **E2/E3**
-  change the code · **E5** is a policy call (may `LOG_ONLY` emit at all). **E4 (position-snapshot
-  coherence) is RESOLVED** against the engine's canonical mirror — §10.3 per-run fresh read, §10.4
-  "NO CSV column / card binding / snapshot line" ⇒ nothing records `avg_entry` in phase 1 — but its
-  **revisit trigger is binding**: re-open it before ANY consumer records the join (T7 / v2.1).
+- **C1 emitter: SPEC WRITTEN + ALL ESCALATIONS RULED 2026-08-02
+  (`spec-c1-feedback-emitter.md`) — READY FOR AN IMPLEMENTER SEAT, which the owner launches.**
+  Not implemented; no impl report. E1/E2/E3/E5 ticked, E4 resolved against the engine's mirror.
+  **Contract §8.1 is AMENDED in this repo** (`atomic (temp + atomic replace)`, logged in §9) — the
+  first change to the frozen contract since 2026-07-28, and it is wording only: no schema, field,
+  enum or behaviour change.
+  **Three obligations outlive the rulings and are why §0 was kept in full:** E1's engine relay
+  (owner, §2) · **E3 — the `size_usd` sign is still NOT ESTABLISHED**, and the tick approved the
+  approach, not the fact: prove it from a real short before writing the mapping · **E4's binding
+  revisit trigger** — re-open before ANY consumer *records* the `avg_entry` join rather than
+  re-deriving it (T7 / v2.1), because §10.3/§10.4 is what makes accepting it safe today.
   Contract **§8 stays the binding schema** — the spec implements it and never restates it. Phase-2
   actionable exits stay fenced behind a separate signal-schema-v2 amendment — **never parse
   `hold_status`**.

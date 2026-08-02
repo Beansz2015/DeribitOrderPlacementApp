@@ -22,16 +22,20 @@ the flat echo (§3.2 — read around it, never "fix" it) · the v1 signal schema
 
 ---
 
-## 🚨 §0 — Escalations: RULE ON THESE BEFORE WRITING CODE
+## ✅ §0 — Escalations: ALL RULED 2026-08-02. No open questions; implement as ruled.
 
-Per `memory: spec-defect-escalation` / H-6 §7 — **E1** changes the frozen contract's wording (and
-the engine's §10.2 mirror, which repeats it, so it is a coordinated docs note on both sides) ·
-**E2/E3** change the code · **E5** is an owner policy call the implementer must not make alone ·
-**E4 is RESOLVED** against the engine's canonical mirror and is kept because **its revisit trigger
-is binding**.
+**E1/E2/E3/E5 owner-ticked 2026-08-02; E4 resolved against the engine's canonical mirror.** The
+spec is READY FOR AN IMPLEMENTER SEAT — the owner launches it. Kept in full rather than collapsed to
+"approved", because three of the five carry obligations that outlive the ruling: **E1**'s engine
+relay, **E3**'s verify-before-you-map, and **E4**'s revisit trigger. Raising all five before any
+code was written is the standing rule working (`memory: spec-defect-escalation` / H-6 §7).
 
-**E1 — `File.Replace` vs the house atomic-write pattern.** Contract §8.1 says *"atomic (temp +
-`File.Replace`)"*. The house pattern in both existing writers is
+**E1 — ✅ RULED 2026-08-02: amend the wording, implement the house pattern.** The contract is
+**already amended** — §8.1 now reads *"atomic (temp + atomic replace)"*, logged in its §9 version
+history. ⚠ **Owner action still owed: the one-line relay to the engine seat**, whose §10.2 repeats
+the old wording; it is a coordinated docs note, not a schema bump. *(Original finding below.)*
+
+Contract §8.1 said *"atomic (temp + `File.Replace`)"*. The house pattern in both existing writers is
 `File.WriteAllText(tmp)` → `File.Move(tmp, path, overwrite:=True)`
 (`AppUserSettings.vb:207`, `SignalBridge.vb:377`). **`File.Replace` throws when the destination does
 not exist**, which is precisely the first-write case and the ships-OFF→ON transition.
@@ -44,13 +48,16 @@ replace".** Scale it honestly: `File.Replace` is *usable* with a first-write fal
 wording tidy rather than a broken contract — but the contract is frozen, so it is still the owner's
 ruling plus a one-line relay, not something the implementer quietly works around.
 
-**E2 — `executor.mode` must be an explicit MAP, not `.ToString()`.** `BridgeMode` is
+**E2 — ✅ RULED 2026-08-02: explicit map, fixture-pinned. Confirmed as specced.** `BridgeMode` is
 `Off | LogOnly | Live` (`SignalBridge.vb:36`); the pinned wire strings are `"OFF" | "LOG_ONLY" |
 "LIVE"` (§8.3). `.ToString()` emits `"LogOnly"` and silently violates the pin — and §8.3's T8
 tolerance means the **engine takes the conservative arm without erroring**, so this fails
 *invisibly*. Confirm: explicit `Select Case`, fixture-pinned.
 
-**E3 — `position.size_usd` sign is NOT ESTABLISHED.** §8.4 requires it signed and
+**E3 — ✅ RULED 2026-08-02: the obligation stands — establish it, do not assume it.** The tick
+approves the *approach*; it does not supply the fact. The sign is still **NOT ESTABLISHED** and the
+implementer must prove it from a real short before writing the mapping, and record the result in
+impl report §3 either way. §8.4 requires it signed and
 sign/direction-consistent. `positionSizeUSD` (`frmMainPageV2.vb:2796`) is only ever compared
 `<> 0D` / `= 0D` at the sites read for this spec, so whether it carries a short's sign is unproven.
 **The implementer must establish it from a real short position before writing the mapping** — and
@@ -101,12 +108,16 @@ implementing them.** The mitigation then is an **immutable snapshot object publi
 wrong. There is no single writer, so it would mean taking a lock at ~14 assignment sites, several
 in the hot receive path.)*
 
-**E5 — is `LOG_ONLY` allowed to emit at all?** §8.5 says emission is unconditional once enabled and
-§8.4 says `mode` exists to distinguish the log-only soak from live — which implies yes. Confirm
-explicitly, because a log-only executor emitting a real `position` block is exactly the case where
-the engine could act on a position the bridge did not create. *(It is the owner's own manual
-trading — T6 ticked that knowingly — but ticking it for LIVE is not the same as ticking it for a
-soak.)*
+**E5 — ✅ RULED 2026-08-02: YES, `LOG_ONLY` emits.** Emission is unconditional once enabled (§8.5);
+`mode` exists precisely to tell the soak from live (§8.4), and the emitter never gates on it.
+
+The concern raised was that a log-only executor publishes a real `position` block — the case where
+the engine could act on a position the bridge did not create. **What actually contains that is the
+rollout ladder, not mode-gating** (§8.7): OFF → emit-only with the file inspected by hand → engine
+display consumption → soak. Engine consumption ships `enabled: false`, so nothing consumes during
+emit-only; by the time it does, the ladder has cleared the step deliberately. Mode-gating would have
+bought nothing and would have made the soak unable to exercise the emitter — the exact "acceptance
+runs in a mode that cannot exercise the failure surface" trap the N2 §1 find is named for.
 
 ---
 
