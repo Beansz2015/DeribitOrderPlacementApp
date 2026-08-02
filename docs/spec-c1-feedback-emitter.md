@@ -24,17 +24,25 @@ the flat echo (§3.2 — read around it, never "fix" it) · the v1 signal schema
 
 ## 🚨 §0 — Escalations: RULE ON THESE BEFORE WRITING CODE
 
-Per `memory: spec-defect-escalation` / H-6 §7 — **E1** changes the frozen contract's wording,
-**E2/E3** change the code, **E4/E5** are owner policy calls the implementer must not make alone.
+Per `memory: spec-defect-escalation` / H-6 §7 — **E1** changes the frozen contract's wording (and
+the engine's §10.2 mirror, which repeats it, so it is a coordinated docs note on both sides) ·
+**E2/E3** change the code · **E5** is an owner policy call the implementer must not make alone ·
+**E4 is RESOLVED** against the engine's canonical mirror and is kept because **its revisit trigger
+is binding**.
 
 **E1 — `File.Replace` vs the house atomic-write pattern.** Contract §8.1 says *"atomic (temp +
 `File.Replace`)"*. The house pattern in both existing writers is
 `File.WriteAllText(tmp)` → `File.Move(tmp, path, overwrite:=True)`
 (`AppUserSettings.vb:207`, `SignalBridge.vb:377`). **`File.Replace` throws when the destination does
 not exist**, which is precisely the first-write case and the ships-OFF→ON transition.
-**Recommendation: implement the house pattern and amend §8.1's parenthetical to
-"temp + atomic replace".** It is a wording defect, not a design one — but the contract is frozen, so
-it needs the owner, and the engine seat gets a one-line relay.
+**The engine's mirror repeats it** — `signal-bridge-v1-proposal.md` §10.2 also says
+*"atomic (tmp + `File.Replace`)"* — so the correction is a **coordinated docs note on both sides**,
+the established pattern for this.
+
+**Recommendation: implement the house pattern and amend §8.1's parenthetical to "temp + atomic
+replace".** Scale it honestly: `File.Replace` is *usable* with a first-write fallback, so this is a
+wording tidy rather than a broken contract — but the contract is frozen, so it is still the owner's
+ruling plus a one-line relay, not something the implementer quietly works around.
 
 **E2 — `executor.mode` must be an explicit MAP, not `.ToString()`.** `BridgeMode` is
 `Off | LogOnly | Live` (`SignalBridge.vb:36`); the pinned wire strings are `"OFF" | "LOG_ONLY" |
@@ -48,18 +56,50 @@ sign/direction-consistent. `positionSizeUSD` (`frmMainPageV2.vb:2796`) is only e
 **The implementer must establish it from a real short position before writing the mapping** — and
 say so in the impl report §3 either way. Do not assume.
 
-**E4 — the accepted torn-read class was accepted for a DIFFERENT consumer.** The declaration
-comment at `frmMainPageV2.vb:2795` is explicit: *"Written on the receive thread; UI buttons read
-them (accepted `Decimal` torn-read class)."* A `Decimal` is 16 bytes and its read is not atomic, so
-a reader on another thread can observe a half-updated value. **That was accepted when the reader was
-a UI button — a human sees a briefly wrong number and it self-corrects on the next tick.** This
-emitter publishes the same fields into a machine-consumed file that the engine treats as
-**authoritative for position state** (§8.6: feedback-authoritative when governing), where a torn
-`size_usd` or `avg_entry` is a plausible, well-formed, wrong number with no self-correction until
-the next trigger. **Not necessarily a blocker** — the window is tiny and the heartbeat re-publishes
-— but the risk calculus changed when the consumer changed, so it is the owner's call, not the
-implementer's. Cheapest mitigation if wanted: take the snapshot of all four position fields under
-the same lock the writer uses, or re-read and discard on mismatch.
+**E4 — position-snapshot coherence. RESOLVED for phase 1; the REVISIT TRIGGER is binding.**
+
+*The issue.* The four snapshot fields are written from **two threads**. `SyncTradeInputsFromUi`
+(`frmMainPageV2.vb:515`) sets `manualTPval` from `txtManualTP.Text` — UI thread by construction —
+while `:3389` resets the same field on the **receive** thread (*"Cross-thread fix: reset engine
+fields synchronously, mirror the controls via UiInvoke"*); `positionSizeUSD` / `positionAvgEntry`
+are receive-thread only (`:2909`, `:5657`, `:5659`). The declaration comment (`:2795`) already names
+the accepted `Decimal` torn-read class — accepted because *"UI buttons read them"*, i.e. a human
+sees a briefly wrong number that self-corrects on the next tick.
+
+**Cross-field incoherence is the bigger half, not the 16-byte tear.** Even with atomic `Decimal`s,
+reading four fields one at a time can mix pre- and post-update values — `size_usd` from before a
+close with `avg_entry` from after. That is ordinary interleaving, far likelier than tearing, and it
+lands exactly where §3.2 warns.
+
+*The exposure is narrower than it first looks.* §1 snapshots on the **caller's** thread, and trigger
+(b) fires from the receive thread that just wrote those fields — so the position-change path is
+sequential and already coherent. The residual race is only the ~10 s heartbeat, UI-originated (b2)
+triggers, and the graceful-close write.
+
+*Why it is resolved.* The engine's canonical mirror settles the consequence.
+`C:\Dev\DeribitVerdictEngine\docs\signal-bridge-v1-proposal.md` **§10.3**: *"Per-run **fresh read**
+at `RunAnalysisAsync` start (no watcher)"* — the engine holds no stored copy. **§10.4**: phase 1 is
+the live-status tier ONLY — *"**NO snapshot line, NO card binding, NO CSV column, NO payload field
+changes**"*. **So nothing durably records `avg_entry` in phase 1**, and the only value that governs
+anything is `direction` → `PositionState`. A mixed snapshot is a briefly wrong number on a status
+strip, gone on the next run. *(This also settles what §8.4's "the `avg_entry` join is the slippage
+record" means — a reconstruction method for a human, not an automated write. T7 agrees: a per-signal
+achieved-entry field is a **v2.1 amendment**, not a phase-1 field.)*
+
+**Ruling taken: ACCEPT the class for phase 1, and take the free half — §4's heartbeat rule.** No
+lock and no second representation of position state: the alternative would put new code in the live
+receive path of a LIVE trading app to serve a feature that **ships OFF**, and buys nothing while no
+consumer records anything.
+
+🚨 **BINDING REVISIT TRIGGER — this ruling expires on its own terms.** The exposure returns the
+moment ANY consumer **records** the join instead of re-deriving it: a CSV column, a card binding, a
+stored achieved-entry, or the T7 / v2.1 per-signal field. **If any of those land, re-open E4 BEFORE
+implementing them.** The mitigation then is an **immutable snapshot object published by reference**
+(reference assignment is atomic, so it is coherent by construction) — not a lock.
+
+*(Withdrawn: the earlier suggestion here to "snapshot under the same lock the writer uses" was
+wrong. There is no single writer, so it would mean taking a lock at ~14 assignment sites, several
+in the hot receive path.)*
 
 **E5 — is `LOG_ONLY` allowed to emit at all?** §8.5 says emission is unconditional once enabled and
 §8.4 says `mode` exists to distinguish the log-only soak from live — which implies yes. Confirm
@@ -174,9 +214,15 @@ from that window — so the emitter must not synthesize anything to close the ga
 *(engine refinement 3.1)* · (c) ARM/START/mode/breaker transition · (d) **~10 s heartbeat** ·
 (e) a final write on graceful close.
 
-- The heartbeat exists so the engine's staleness rule (`now − generated_at_utc > 35 s` ⇒
-  `EXECUTOR STALE`) has something to measure. **Only when configured**, and it must not resurrect a
-  disposed emitter.
+- **🚨 (d) the heartbeat REPUBLISHES the last snapshot with a fresh `generated_at_utc` and
+  `feedback_id`. It does NOT read live state** (E4). Its job is the engine's staleness rule
+  (`now − generated_at_utc > 35 s` ⇒ `EXECUTOR STALE`), which is a **liveness proof, not a data
+  refresh** — every actual change to the four fields already fires (b) or (b2) *from the thread that
+  wrote it*. This removes the main coherence race at zero cost and adds no live-path code.
+  **Only when configured**, and it must not resurrect a disposed emitter.
+  ⚠ **The trade this makes:** a MISSING trigger stops being self-correcting. Today a forgotten hook
+  would be papered over by the next heartbeat within 10 s; under this rule it republishes stale data
+  indefinitely. **Fixture 8 is what makes that trade safe** — do not adopt this rule without it.
 - (e) is what makes **silence = dead executor** honest. It rides the existing shutdown path —
   ⚠ that path already persists all 11 geometry fields unconditionally (H-6 §5.4); **add to it, do
   not restructure it.**
@@ -196,6 +242,11 @@ Fixtures are the review's evidence, so pin the things that fail *silently*:
 6. **Serialization pins** — invariant culture on a decimal, ISO-8601 `Z`, zeros-never-null for a
    suppressed block, `null` for an absent object.
 7. **Coalescing seam** — pure, last-wins: three snapshots in, newest out.
+8. **🚨 Trigger completeness — the fixture that makes §4's heartbeat rule safe.** For EACH of the
+   four snapshot fields, mutating it must produce a new published snapshot. Assert per field, not in
+   aggregate: aggregate passes while three of four are wired. Under §4 (d) the heartbeat no longer
+   papers over a missing hook, so this fixture is the only thing standing between a forgotten
+   trigger and the engine reading one stale value forever.
 
 Keep the seams pure and side-effect-free, as `ShouldSend` (`RemoteNotifier.vb:103`) and
 `EffectiveSizeUsd` are — that is what makes them fixture-pinnable at all.

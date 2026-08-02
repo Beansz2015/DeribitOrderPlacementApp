@@ -64,13 +64,16 @@ inputs must be set **together**, because they compose.
 - N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
   the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.
 - **C1 emitter: SPEC WRITTEN 2026-08-02 (`spec-c1-feedback-emitter.md`), not implemented.** No impl
-  report, no implementer seat. **Blocked on the owner: §0 carries five escalations (E1–E5) that must
-  be ruled before any code** — E1 amends the frozen contract's §8.1 wording (`File.Replace` throws
-  when the destination is absent, which is the first-write case), E2/E3 change the code, E4/E5 are
-  policy calls (a torn-read class accepted for UI buttons now feeding machine-consumed telemetry;
-  whether `LOG_ONLY` emits at all). Contract **§8 stays the binding schema** — the spec implements
-  it and never restates it. Phase-2 actionable exits stay fenced behind a separate
-  signal-schema-v2 amendment — **never parse `hold_status`**.
+  report, no implementer seat. **Blocked on the owner: §0 carries FOUR open escalations** — **E1**
+  amends §8.1's wording (`File.Replace` throws when the destination is absent = the first-write
+  case) *and* the engine's §10.2 mirror, so it is a coordinated docs note both sides · **E2/E3**
+  change the code · **E5** is a policy call (may `LOG_ONLY` emit at all). **E4 (position-snapshot
+  coherence) is RESOLVED** against the engine's canonical mirror — §10.3 per-run fresh read, §10.4
+  "NO CSV column / card binding / snapshot line" ⇒ nothing records `avg_entry` in phase 1 — but its
+  **revisit trigger is binding**: re-open it before ANY consumer records the join (T7 / v2.1).
+  Contract **§8 stays the binding schema** — the spec implements it and never restates it. Phase-2
+  actionable exits stay fenced behind a separate signal-schema-v2 amendment — **never parse
+  `hold_status`**.
 
 ## 4. The owner's x64 bin — CURRENT as of 2026-08-02 01:33
 
