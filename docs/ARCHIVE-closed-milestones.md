@@ -38,12 +38,31 @@ server-side poll recipe — the one section of the old handovers with live refer
 | N1c | SL-backoff confirmed reset | **DONE + CLOSED** 2026-07-31, runtime-accepted on trade #99 (backoff climbed 0.7 → 1.3 → 2.7 s; `SL update rate limited` printed with no pump). The optimistic reset had pinned the backoff at 666 ms. | `spec-sl-backoff-confirmed-reset.md` → `impl-report-…` → `runtime-record-sl-backoff-2026-07-31.md` |
 | EV | Chase budget (EV floor) | **CLOSED END-TO-END** 2026-08-01 — manual arm AND bridge-act leg. Disposition cardinality held: exactly one row per payload, the abort adding none. Ships OFF (`min_net_move_pct = 0`). | `spec-ev-chase-budget.md` → `spec-back-…` → `review-ev-chase-budget.md` → `runtime-record-ev-chase-budget-2026-08-01.md` |
 | — | Fee-comms repoint | **CLOSED** 2026-07-30 — 2024 `TakerFeeRate` gone; comms derives from `taker_fee_bps` (32 → 22 at 64k). ⚠ Its review was appended to the **spec**, not a standalone `review-….md` — which is why it read as owed for three days. | `spec-fee-comms-repoint.md` (review is inside it, `fd2604e`) + `impl-report-fee-comms-repoint.md` |
-| WATCH | Triple-placement investigation | **CLOSED** 2026-08-01 — harness EXONERATED (53/53 single invokes → one order); the defect was app-side. Old "leans harness-side" premise was wrong. | `investigation-triple-placement-2026-08-01.md` |
+| WATCH | Triple-placement investigation | **CLOSED** 2026-08-01 — harness EXONERATED (53/53 single invokes → one order); the defect was app-side. Old "leans harness-side" premise was wrong. **⚠ Retired-sentence note below.** | `investigation-triple-placement-2026-08-01.md` |
 | SF | Placement single-flight v1 | **SUPERSEDED by SF2, code KEPT.** Failed acceptance 2 with the defect intact — the latch proves its own irrelevance (had any two overlapped, one would have been blocked). **A RATE problem, not an OVERLAP problem.** | `spec-placement-single-flight.md` → `review-placement-single-flight.md` |
 | SF2 | Placement debounce | **DONE + CLOSED** 2026-08-01 — 500 ms debounce ahead of the v1 latch. The burst that gave 3 entries + reduce 30 now gives 1 + reduce 10. | `spec-placement-single-flight-v2.md` → `review-placement-debounce.md` |
 | N2b | Chase preserve placed size | **DONE + CLOSED** 2026-08-01, all five runtime acceptances PASSED. Pre-existing defect, not an N2 regression: both chase edits re-derived `amount` from the Amount box, so session-policy `size_mult` had been silently reverted since it shipped — invisible only because live-at-min-size clamped every reduction back to 10. | `spec-chase-preserve-placed-size.md` → `spec-back-…` → `review-…` → `runtime-record-chase-preserve-placed-size-2026-08-01.md` |
 | N2 | Risk-sized bridge trades | **CODE APPROVED + UNBLOCKED** 2026-08-01, **ships DISABLED** — the only milestone with an owner action left (tick `Risk-size`); see H-6 §4. Acceptances 1/3/4/5 + the §2 screenshot passed; 3b failed on the N2b defect above and was re-run green as N2b's acceptance 2. | `spec-risk-sized-bridge-trades.md` + `spec-back-risk-sized-bridge-defects.md` (five defects, all upheld) → `review-risk-sized-bridge-trades.md` |
 | C1 | v2 feedback file — **documentation phase** | **CLOSED both sides** 2026-07-29 — proposal → engine ACCEPT (+3 refinements) → ack → trader tick T1–T8. **Contract §8 is the binding spec**; engine mirror is their §10. The two implementation builds remain (ours = the emitter, still the live queue item). | `proposal-c1-v2-feedback-file.md` → `ack-c1-v2-feedback-file.md` → `integration-contract-verdictengine.md` §8 |
+
+## Retired-sentence note — the WATCH row's live-exposure warning
+
+`ROADMAP-2026-08.md` §5 carried this warning on the triple-placement WATCH paragraph:
+
+> *"this exposure is live on LIVE — a double-click places two orders — until
+> `spec-placement-single-flight.md` lands (Opus HIGH, owner tick pending)"*
+
+**It outlived the fix by a day.** SF2 closed the exposure 2026-08-01; the sentence was cleared by
+the 2026-08-02 queue audit, and the whole WATCH paragraph moved here when §5 was reduced to the
+open hygiene items.
+
+**Recorded deliberately, because the string still exists in git history.** Anyone who greps it —
+in an old ROADMAP revision, `HANDOVER-5`, or the investigation doc — is looking at a **retired**
+claim, not a live one. The exposure is closed: SF2's 500 ms debounce, `550d673`. Owner-mouse-only
+no longer applies either; harness placement goes through `tools/place-and-verify.ps1`.
+
+*(Kept at the owner's instruction: a retired claim is safer quoted-and-labelled than silently
+deleted, because deletion is indistinguishable from "never written" to the next grep.)*
 
 ## Where the reusable lessons went (deliberately NOT duplicated here)
 
