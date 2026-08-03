@@ -176,6 +176,32 @@ future greps aren't stale. **Safety boundary: seats never place trades or arm th
 owner drives every trade, ARM and START. There is **no second model seat** (Fable dissolved);
 items touching a settled ruling go to the OWNER, who is the arbiter.
 
+### 7a. Model + effort tiering (restored from H-4 §6 — the 2026-08-02 trim dropped it)
+
+- **Opus, HIGH effort** — anything touching the **order / SL / receive / bridge / act** paths.
+  Non-negotiable: that is the LIVE trading surface, and its failure modes are silent.
+- **Sonnet, medium** — genuinely mechanical work: turnkey renames, fixture bundles, tooling scripts
+  in `tools/`, docs-only passes.
+- **Coordinator review is Opus regardless of who implemented.** The review is the adversarial pass;
+  tiering down the reviewer defeats it.
+
+### 7b. 🚨 RULING 2026-08-03 — every spec for a new implementer seat MUST close with a model + effort recommendation
+
+**Binding, and it is not satisfied by a bare tier label.** The recommendation states:
+
+1. **Model and effort** (e.g. "Opus, HIGH effort, fresh conversation").
+2. **Why — tied to what the work actually touches**, not to how large it is. A small edit in the
+   receive path outranks a large one in `tools/`.
+3. **Where the thinking should go** — name the two or three places in the spec that are subtle
+   enough to be got wrong by a competent implementer working quickly.
+4. **What would change the answer** — the conditions under which a lower tier would be right, so the
+   owner can economise deliberately rather than by guess.
+
+**Why this is a ruling and not a nicety:** the owner launches every seat and pays for it, so the
+model choice is theirs — but it depends on facts only the spec author holds, having just read the
+code. Leaving it implicit pushes a cost/risk decision onto the person with the least context about
+it. **The recommendation is advisory; the owner still picks.**
+
 **The lessons that keep earning:**
 
 1. **Verify what is IN FORCE — including that an acceptance's instrument can EXIST.** Twice an

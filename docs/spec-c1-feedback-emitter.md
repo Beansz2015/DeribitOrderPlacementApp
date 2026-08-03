@@ -6,8 +6,34 @@
 canonical for emitter behaviour and this spec never restates it — it implements it.** The engine's
 bridge-doc §10 is canonical for consumption/display and is NOT our concern.
 
-**Recommended implementer:** **Opus HIGH, fresh conversation.** New file, but it snapshots the
-position model and sits beside the receive path.
+**Recommended implementer — per H-6 §7b (advisory; the owner picks): Opus 5, HIGH effort, fresh
+conversation.**
+
+*Why, tied to what it touches rather than its size:* the new file is the easy half and Sonnet could
+write it from §3 alone — the schema is fully pinned, `RemoteNotifier.vb` is a named model, and the
+atomic write is a two-line house idiom. **The hard half is that §4's triggers must be hooked into
+`frmMainPageV2.vb`'s receive-thread echo handling** — the 6,881-line god-form on the LIVE trading
+path, whose own history is a cross-thread fix and an edit-flood storm. That is the standing
+receive-path tier, and it decides this.
+
+*Where the thinking should go — three places a competent implementer moving fast gets wrong:*
+
+1. **§3.2's flat trap.** The retention of `positionAvgEntry` is *deliberate* and close-P/L depends
+   on it. The pattern-matched move — "flat should zero the field" — edits the wrong thing and breaks
+   the close calculation. The emitter must read **around** it, never fix it.
+2. **§4's heartbeat.** The obvious implementation reads live state; the spec forbids exactly that.
+   It is counter-intuitive by design (E4).
+3. **Fixture 8 / trigger completeness.** Requires finding *every* write site across **two** writer
+   threads (~14 assignments). Under §4's heartbeat rule a missed hook is permanent, not
+   self-correcting — this is the one place where "mostly wired" is a real defect.
+
+*What would change the answer:* if the triggers turn out to be reachable through an existing
+position-change seam — so that no edit lands inside the receive-thread echo handlers — this drops to
+**Sonnet, medium**. The implementer should say so in the impl report if they find such a seam; it
+would also be worth having for its own sake. Commit 4 (fixtures) is mechanical in isolation, but
+"one implementer at a time" means it is not worth splitting.
+
+**Review is Opus regardless** (H-6 §7a) — it is the adversarial pass.
 **Target:** new `ExecutorFeedback.vb`; `SignalBridge.vb` (config key, disposition hook, mode/START
 transitions, a breaker seam); `frmMainPageV2.vb` (position/working-level change hooks, process
 GUID, graceful-close write); `tools/OrderCheck` (fixtures).
