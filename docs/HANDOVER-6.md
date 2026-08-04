@@ -53,20 +53,22 @@ inputs must be set **together**, because they compose.
    holds 91 live rows; after `#89` only these two remain. `#100` postdates N1c's #99 and appears in
    no doc. Owner's call, not a defect. *(The named list — #90–#93 / #96–#98 / #99 — is fully
    cleared.)*
-5. **Engine relay owed (NEW 2026-08-02, C1/E1) — one line, cross-app.** Contract §8.1's
-   `File.Replace` wording was amended here; the engine's `signal-bridge-v1-proposal.md` §10.2
-   repeats it verbatim and needs the same correction. **A coordinated docs note, not a schema bump.**
-   Neither seat writes cross-repo, so this only moves when you carry it. Full text: contract §9's
-   2026-08-02 entry.
-6. **🚨 C1 escalation E6 — TWO RULINGS OWED, raised 2026-08-04 before the emitter was written.**
-   Both are gaps in spec §4's trigger list, both the same shape (a schema field no trigger can
-   change), and both only became defects once §4(d) ruled the heartbeat *republishes* instead of
-   re-reading. **E6a — `executor.ws` has no trigger at all**, so a WS drop heartbeats `"OK"`
-   forever; contract §8.5's list has the same gap, so it is a coordinated docs note like E1's.
-   **E6b — nothing publishes at startup**, so a fresh idle flat app writes no file and §Acceptances
-   5 and 6 have no instrument (H-6 §7b lesson 1 again). Neither is implemented; both insertion
-   points are recorded so either ruling is a one-line change. Full text + recommended arms:
-   `impl-report-c1-feedback-emitter.md` §5.
+5. **Engine relay owed (C1 — E1 + E6, now ONE trip) — cross-app, coordinated docs note.** Two
+   corrections to the engine's `signal-bridge-v1-proposal.md` §10.2, which mirrors both: the §8.1
+   atomic-write wording (E1, 2026-08-02) and the §8.5 **trigger list** (E6, 2026-08-03 — `ws` into
+   (c), new (f) initial write). **No schema, field, enum or semantic change either time.** Neither
+   seat writes cross-repo, so this only moves when you carry it. Full text: contract §9's 2026-08-02
+   and 2026-08-03 entries. *(Not yet answered: the engine reply you may be recalling is
+   `feedback-file-engine-reply-2026-07-28.md`, which predates E1 by five days. Their
+   `trader-tick-queue.md` uses its own unrelated E1–E8 numbering.)*
+6. **✅ C1 escalation E6 — BOTH RULED 2026-08-03 (implement A1 and B1). The two hooks are now the
+   only unimplemented lines in the spec.** **E6a** — add a `ws` transition trigger at the connect
+   and receive-loop-exit sites (`IsWebSocketConnected` is a *computed* property, so there is no
+   assignment site; the hooks go on the lifecycle). **E6b** — one initial write at start when
+   configured, on the UI thread after the bridge is constructed, mirroring (e). Spec §4 and contract
+   §8.5 are amended to match; the relay in item 5 now covers both. ⚠ **Until the E6a hook lands,
+   `executor.ws` is knowingly permanently stale** — do not trust it in an emit-only inspection that
+   includes a disconnect. Insertion points: `impl-report-c1-feedback-emitter.md` §5.
 7. **C1 acceptances 3–7 are owner-runtime and unrun** — the run sheet is
    `impl-report-c1-feedback-emitter.md` §7, written to be executable without the implementer.
    Acceptance 4 (the flat trap) is the one that matters and needs a real open→close cycle;
@@ -77,13 +79,16 @@ inputs must be set **together**, because they compose.
 
 ## 3. Queue
 
-**N2 enable (owner) → C1 E6 rulings + acceptances 3–7 (owner) → coordinator review of C1 →
-`ROADMAP-2026-08.md` §5 backlog.**
+**N2 enable (owner) → C1 E6 hooks (implementer, one line each) → coordinator review of C1 →
+acceptances 3–7 (owner) → `ROADMAP-2026-08.md` §5 backlog.**
 
 - N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
   the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.
-- **C1 emitter: IMPLEMENTED 2026-08-04, gate-green, SHIPS OFF — awaiting the E6 rulings (§2.6),
-  the owner-runtime acceptances 3–7 (§2.7), and then the coordinator's adversarial review.**
+- **C1 emitter: IMPLEMENTED, gate-green, SHIPS OFF. E6 RULED 2026-08-03 — awaiting the two E6 hooks
+  (§2.6), then the coordinator's adversarial review, then the owner-runtime acceptances 3–7 (§2.7).**
+  ⚠ **The review's sharpest target, named by the report itself:** its claim that no hooked method
+  has a `Return` between its first snapshot-field write and its tail hook, across all 10 methods.
+  A unified diff cannot show it (§7 lesson 3 — open the file), and fixture 8 cannot reach it.
   Five commits `c27951b..`; impl report `impl-report-c1-feedback-emitter.md` (its §3 is the
   what-was-NOT-established list and is the first thing to read). Gate `GATE PASSED`, **OrderCheck
   173/173 → 227/227**; the nine censuses are UNCHANGED at every commit.
@@ -222,6 +227,34 @@ items touching a settled ruling go to the OWNER, who is the arbiter.
 model choice is theirs — but it depends on facts only the spec author holds, having just read the
 code. Leaving it implicit pushes a cost/risk decision onto the person with the least context about
 it. **The recommendation is advisory; the owner still picks.**
+
+**The spec must also ask the implementer to answer it in hindsight** — "was this tier right?" — as a
+numbered impl-report section. C1's §6 is the pattern: it found no `PositionModelChanged` seam, so
+Opus-HIGH was confirmed correct with the three near-miss candidates recorded and why each fails.
+That is how the tiering table earns corrections instead of drifting.
+
+### 7c. 🚨 RULING 2026-08-03 — the coordinator matches effort to the task in hand
+
+**The seat modulates its own depth per task rather than running one gear all session.** The tiering
+in §7a and in `CODE_AUDIT_FABLE5.md` §H applies to the coordinator's own work, not only to
+implementer seats:
+
+| Coordinator task | Depth |
+|---|---|
+| Reviewing code on the order/SL/receive/bridge/act paths · adversarial passes · rulings that touch the frozen contract | **high** |
+| Spec writing · impl-report review · log diagnosis · escalation rulings | **medium** (the default) |
+| Doc edits, memory updates, census runs, mechanical housekeeping | **low** |
+
+⚠ **State the limit honestly: the seat cannot change the harness's own effort setting.** What it
+controls is *depth of work* — how much it independently verifies, whether it re-derives a claim from
+the artefact, whether it runs an adversarial pass. **When a task genuinely warrants a different
+session effort than the one set, say so and let the owner change it** — do not silently do
+high-effort work at a low setting, or the reverse.
+
+**And the real spend on this repo is CONTEXT, not thinking depth** (`CODE_AUDIT_FABLE5.md` §H):
+`frmMainPageV2.vb` alone is ~67k tokens. Use the section banners, the audits and the specs as the
+map; read regions on demand; review via `git show` and targeted greps rather than re-reads. A
+high-effort pass that re-reads the god-form has spent its budget in the wrong place.
 
 **The lessons that keep earning:**
 

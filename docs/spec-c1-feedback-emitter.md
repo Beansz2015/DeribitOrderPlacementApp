@@ -50,11 +50,24 @@ the flat echo (§3.2 — read around it, never "fix" it) · the v1 signal schema
 
 ## ✅ §0 — Escalations: ALL RULED 2026-08-02. No open questions; implement as ruled.
 
-**E1/E2/E3/E5 owner-ticked 2026-08-02; E4 resolved against the engine's canonical mirror.** The
-spec is READY FOR AN IMPLEMENTER SEAT — the owner launches it. Kept in full rather than collapsed to
-"approved", because three of the five carry obligations that outlive the ruling: **E1**'s engine
-relay, **E3**'s verify-before-you-map, and **E4**'s revisit trigger. Raising all five before any
-code was written is the standing rule working (`memory: spec-defect-escalation` / H-6 §7).
+**E1/E2/E3/E5 owner-ticked 2026-08-02; E4 resolved against the engine's canonical mirror; E6a/E6b
+owner-ticked 2026-08-03.** Kept in full rather than collapsed to "approved", because three carry
+obligations that outlive the ruling: **E1**'s engine relay (now combined with E6's), **E4**'s
+revisit trigger, and **E6a/E6b**'s two hooks, which are the only unimplemented lines in the spec.
+Raising all of them before writing the disputed code is the standing rule working
+(`memory: spec-defect-escalation` / H-6 §7).
+
+**E3 is CLOSED — established, not assumed:** `position.size_usd` is signed **negative on a short**,
+proven from two independent owner-driven testnet shorts (trades #99 and #68) via
+`SendReduceMarketOrderAsync`'s direction derivation, with the exchange's own reduce-only rejection
+as a second argument. Detail in impl report §3. *(Established from transcribed runtime records — the
+seat placed nothing, so the safety boundary held.)*
+
+**✅ E6a / E6b — RULED 2026-08-03: implement both, as the implementer recommended (A1 and B1).**
+Contract §8.5 is amended to match (`ws` into (c); new (f)); see §4 for the reasoning and the
+insertion points. The rejected arms are recorded there too, because the reasons generalise: a
+heartbeat that seeds itself from live state reintroduces exactly what E4 accepted as residual, and
+dropping `ws` from the payload violates the §8.3 pin.
 
 **E1 — ✅ RULED 2026-08-02: amend the wording, implement the house pattern.** The contract is
 **already amended** — §8.1 now reads *"atomic (temp + atomic replace)"*, logged in its §9 version
@@ -248,8 +261,23 @@ from that window — so the emitter must not synthesize anything to close the ga
 ## §4 — Emission triggers (§8.5)
 
 (a) each disposition · (b) position open/close/size change · (b2) working-level stop/target change
-*(engine refinement 3.1)* · (c) ARM/START/mode/breaker transition · (d) **~10 s heartbeat** ·
-(e) a final write on graceful close.
+*(engine refinement 3.1)* · (c) ARM/START/mode/breaker/**ws** transition · (d) **~10 s heartbeat** ·
+(e) a final write on graceful close · **(f) an initial write at start when configured**.
+
+**(c)'s `ws` and (f) are the E6 ruling (2026-08-03), and contract §8.5 is amended to match.**
+- **`ws`** — `IsWebSocketConnected` is a *computed* property (`webSocketClient.State`), so there is
+  no assignment site to hook: publish at the **connect** and **receive-loop exit/reconnect** sites.
+  Both are cold and rare, and emission is additive — more writes, never fewer, never wrong. This
+  keeps the invariant **every §8.3 field has a trigger**, which is what makes fixture 8 auditable;
+  the tempting alternative (let the heartbeat re-read just the `executor` block) fixes the same one
+  field while splitting the schema into two freshness classes.
+- **(f)** — one publish at start when configured, on the UI thread after the bridge is constructed.
+  It mirrors (e). Without it a fresh idle flat app writes nothing, which is indistinguishable from
+  the feature being off, and **§8.1's "Silence = dead executor" is simply false** for a live-but-idle
+  executor. That is the load-bearing reason, ahead of making acceptances 5 and 6 reachable.
+  Do **not** instead let the first heartbeat seed itself from live state: that is the live read
+  §4(d) forbids in terms, on a timer thread — the incoherent case E4 accepted as residual, not one
+  to add to. Ships OFF unchanged: unconfigured ⇒ no timer, no worker, no file.
 
 - **🚨 (d) the heartbeat REPUBLISHES the last snapshot with a fresh `generated_at_utc` and
   `feedback_id`. It does NOT read live state** (E4). Its job is the engine's staleness rule
@@ -279,11 +307,18 @@ Fixtures are the review's evidence, so pin the things that fail *silently*:
 6. **Serialization pins** — invariant culture on a decimal, ISO-8601 `Z`, zeros-never-null for a
    suppressed block, `null` for an absent object.
 7. **Coalescing seam** — pure, last-wins: three snapshots in, newest out.
-8. **🚨 Trigger completeness — the fixture that makes §4's heartbeat rule safe.** For EACH of the
-   four snapshot fields, mutating it must produce a new published snapshot. Assert per field, not in
-   aggregate: aggregate passes while three of four are wired. Under §4 (d) the heartbeat no longer
-   papers over a missing hook, so this fixture is the only thing standing between a forgotten
-   trigger and the engine reading one stale value forever.
+8. **🚨 Trigger completeness — the fixture that makes §4's heartbeat rule safe.** For **EVERY §8.3
+   field** — not just the four position ones — mutating it must produce a new published snapshot.
+   Assert per field, not in aggregate: aggregate passes while three of four are wired. Under §4 (d)
+   the heartbeat no longer papers over a missing hook, so this fixture is the only thing standing
+   between a forgotten trigger and the engine reading one stale value forever.
+   ⚠ **AMENDED 2026-08-03 — this fixture was originally scoped to "the four snapshot fields", and
+   that scoping is exactly why it could not have caught E6a: `executor.ws` is a §8.3 field OUTSIDE
+   the four.** Enumerate the **schema**, not the position block. (The same "enumerate the domain,
+   not the keys" lesson as the NY session bucket — H-6 §7 lesson 6 — applied to a fixture.)
+   **Known limit, from the impl report:** this fixture works at the seam and cannot execute
+   `frmMainPageV2`, so it cannot detect a hook *deleted from a handler*. Call-site completeness rests
+   on the impl report's enumeration and on the reviewer re-deriving it.
 
 Keep the seams pure and side-effect-free, as `ShouldSend` (`RemoteNotifier.vb:103`) and
 `EffectiveSizeUsd` are — that is what makes them fixture-pinnable at all.
