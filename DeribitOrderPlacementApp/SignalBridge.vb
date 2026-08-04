@@ -209,6 +209,7 @@ Public Class SignalBridge
                 EvaluateNow() ' initial read so status/dispositions don't wait for the next engine run
             End If
             RaiseEvent StatusChanged()
+            _host.PublishExecutorFeedback() ' C1 trigger (c): mode transition
         End Set
     End Property
 
@@ -228,6 +229,7 @@ Public Class SignalBridge
             If Not value Then ForceStop("ARM unchecked")
             _log(If(value, "ARM on (local)", "ARM off (local)"), If(value, Color.DodgerBlue, Color.Gray))
             RaiseEvent StatusChanged()
+            _host.PublishExecutorFeedback() ' C1 trigger (c): ARM transition
         End Set
     End Property
 
@@ -323,6 +325,8 @@ Public Class SignalBridge
             _log($"START refused: {reason}", Color.Yellow)
         End If
         RaiseEvent StatusChanged()
+        _host.PublishExecutorFeedback() ' C1 trigger (c): START transition (published on refusal too -
+        '                                 the snapshot is content-gated, so a refused START writes nothing)
         Return reason
     End Function
 
@@ -513,6 +517,7 @@ Public Class SignalBridge
             _log($"auto-STOP: {cause}", Color.Red)
             RemoteNotifier.Post("OrderApp bridge", $"auto-STOP: {cause}", priority:="urgent") ' Q1
             RaiseEvent StatusChanged()
+            _host.PublishExecutorFeedback() ' C1 trigger (c): STOP transition (started -> false)
         End If
     End Sub
 
@@ -1227,6 +1232,12 @@ Public Class SignalBridge
             End If
             _log(hostLine, c)
         End If
+
+        ' C1 trigger (a): one publish per consumed payload, from the site that already owns the
+        ' one-row-per-payload commitment. Unconditional and BELOW the host-log filter, exactly like
+        ' the disposition file append above - the feedback file must see every disposition, not the
+        ' filtered chatter stream.
+        _host.PublishExecutorFeedback()
     End Sub
 
     Friend Class PayloadSnapshot

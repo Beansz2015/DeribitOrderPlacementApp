@@ -524,6 +524,12 @@ Public Class frmMainPageV2
         commsVal = If(Decimal.TryParse(txtComms.Text, d), d, 0D)
         marketStopThreshold = If(Decimal.TryParse(txtMarketStopLoss.Text, d), d, 0D)
         maxSlippageATRmult = If(Decimal.TryParse(txtMaxSlippageATR.Text, d), d, 0D)
+
+        ' C1 trigger (b2), working-level TARGET - manualTPval, the ONLY UI-thread writer of any of
+        ' the four snapshot fields (every other one is receive-thread). This handler is wired to the
+        ' TextChanged of ten boxes, so it runs on keystrokes: the content gate is what keeps that
+        ' from touching the file unless the TP itself actually moved.
+        PublishExecutorFeedback()
     End Sub
 
     ' One TextChanged handler for every trade-input textbox: keeps the engine fields == the controls,
@@ -750,6 +756,25 @@ Public Class frmMainPageV2
                                               positionSizeUSD, positionAvgEntry,
                                               placedStopLossPrice, manualTPval, lastSignal)
     End Function
+
+    ' The ONE call every C1 trigger uses (spec section 4 (b)/(b2)/(c)). Every call site is a plain
+    ' one-liner with no wrapper, no Await and no Try, exactly like RemoteNotifier.Post - which is
+    ' what makes it safe to sit beside the hot order/receive paths.
+    '
+    ' Unconfigured costs ONE Boolean field read and a return: no capture, no allocation, no timer,
+    ' no file. That is the OFF-parity guarantee, and it is structural rather than careful.
+    '
+    ' Content-identical snapshots write nothing (ExecutorFeedback.SameContent), which is why these
+    ' calls can sit on per-echo handlers - a portfolio tick that moves session P/L without flipping
+    ' breaker_tripped, or an SL chase that re-sends the same price, publishes nothing at all.
+    Friend Sub PublishExecutorFeedback()
+        If Not ExecutorFeedback.IsConfigured Then Return
+        Try
+            ExecutorFeedback.Publish(CaptureFeedbackSnapshot())
+        Catch
+            ' Fail-silent: telemetry must never be able to hurt the trading path.
+        End Try
+    End Sub
 
     ' The SL stop-limit execution offset (mirrors txtStopLoss). The bridge derives its manualSL
     ' (the LIMIT leg) one offset beyond the engine's stop so the TRIGGER lands exactly on it.
@@ -1047,6 +1072,10 @@ Public Class frmMainPageV2
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Signal bridge init failed: {ex.Message}", Color.Red)
         End Try
+
+        ' C1 trigger (d): arm the ~10 s heartbeat. AFTER the bridge exists, so the first snapshot it
+        ' republishes carries real executor state. No-op when unconfigured - no timer at all.
+        ExecutorFeedback.StartHeartbeat()
     End Sub
 
     ' Bridge log sink: prefixes + routes to the main log. AppendColoredText self-marshals and is
@@ -1802,6 +1831,9 @@ Public Class frmMainPageV2
                              txtPlacedPrice.Text = entry.PrevPlacedPrice.ToString("F2")
                              txtPlacedStopLossPrice.Text = entry.PrevPlacedSL.ToString("F2")
                          End Sub)
+                ' C1 trigger (b2): the rollback moved the working stop. This arm RETURNS below, so
+                ' the publish has to be here and not at the method tail.
+                PublishExecutorFeedback()
                 AppendColoredText(txtLogs,
                     $"ORDER REJECTED (id {messageId.Value}): code {If(code?.ToString(), "?")} - {msg}{If(data IsNot Nothing, " | " & data, "")} - engine state rolled back",
                     Color.Red)
@@ -2069,6 +2101,13 @@ Public Class frmMainPageV2
                     AppendColoredText(txtLogs, "Error: " & errorField.ToString(), Color.Yellow)
                 End If
             End If
+
+            ' C1 trigger (c), the BREAKER half. USDPublicSession (= SessionPnLUSD) is written above
+            ' on every portfolio echo, and executor.breaker_tripped is a function of it, so this is
+            ' the only place a breaker TRANSITION can be observed from the thread that caused it.
+            ' The content gate collapses the continuous P/L drift to nothing: only the boolean
+            ' flipping ever reaches the file.
+            PublishExecutorFeedback()
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in HandleBalanceUpdates: {ex.Message}", Color.Red)
         End Try
@@ -2527,6 +2566,11 @@ Public Class frmMainPageV2
                                         emergencyBaselineSettled = True
                                     End If
                                     UiInvoke(Sub() txtPlacedStopLossPrice.Text = newStopPrice.ToString("F2"))
+                                    ' C1 trigger (b2): the triggered-SL chase just moved the working
+                                    ' stop. Hooked HERE rather than at the method tail on purpose -
+                                    ' this handler runs on every quote tick, and only this branch
+                                    ' touches a snapshot field.
+                                    PublishExecutorFeedback()
                                     ' N1c (docs/spec-sl-backoff-confirmed-reset.md commit 1): lastStopLossUpdate STAYS here, on
                                     ' the attempt. It is the anti-duplicate throttle stamp (SL-chase v2 §3 - without it a second
                                     ' tick passes the gate while this send's Await is in flight and dispatches a duplicate edit),
@@ -3517,6 +3561,15 @@ Public Class frmMainPageV2
 
                 End If
             End If
+
+            ' C1 triggers (b) AND (b2), and this ONE call covers every snapshot field this handler
+            ' writes: positionSizeUSD, positionAvgEntry, placedStopLossPrice (three sites) and
+            ' manualTPval. A method tail rather than six adjacent calls, deliberately - the whole
+            ' echo is applied before anything is published, so the position block can never go out
+            ' with a new size against an old avg entry (E4's cross-field incoherence, which is the
+            ' bigger half of that class). Verified as complete: this method contains no Return
+            ' between its first snapshot-field write and this line.
+            PublishExecutorFeedback()
             '            End If
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in HandleOrderPositionUpdates: {ex.Message}", Color.Red)
@@ -4022,6 +4075,10 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Market sell order placed For {amount} starting at {BestPrice}.", Color.Crimson)
             End If
 
+            ' C1 trigger (b2): this placement seeded placedStopLossPrice (the working stop) above.
+            ' Method tail - there is no Return between that seed and here.
+            PublishExecutorFeedback()
+
         Catch ex As Exception
             ' Handle any errors
             AppendColoredText(txtLogs, "Error placing order: " & ex.Message, Color.Red)
@@ -4120,6 +4177,10 @@ Public Class frmMainPageV2
             PositionEmpty = False
         End If
 
+        ' C1 trigger (b2): the nuclear teardown zeroed placedStopLossPrice. Method tail - no Return
+        ' between that reset and here (this function has none at all after the send).
+        PublishExecutorFeedback()
+
     End Function
 
 
@@ -4185,6 +4246,10 @@ Public Class frmMainPageV2
         End If
 
         AppendColoredText(txtLogs, $"Working entry cancelled ({reason}) - position legs untouched", Color.Yellow)
+
+        ' C1 trigger (b2): the provably-flat display-hygiene arm above may have zeroed
+        ' placedStopLossPrice. Method tail; the arm does not Return.
+        PublishExecutorFeedback()
     End Function
 
 
@@ -4927,6 +4992,10 @@ Public Class frmMainPageV2
                 ' Optional: Handle post-order logic (e.g., display confirmation)
                 AppendColoredText(txtLogs, $"Sell Trailing order placed For {amount} at {BestPrice}.", Color.Red)
             End If
+
+            ' C1 trigger (b2): the trailing bracket seeded placedStopLossPrice above. Method tail -
+            ' there is no Return between that seed and here.
+            PublishExecutorFeedback()
 
         Catch ex As Exception
             ' Handle any errors
@@ -5679,6 +5748,11 @@ Public Class frmMainPageV2
                 AppendColoredText(txtLogs, $"Restored order context: entry={entryDesc}, TP={tpDesc}, SL={slDesc}", Color.Cyan)
             End If
 
+            ' C1 trigger (b2): the id-778 restore seeds placedStopLossPrice from the exchange's own
+            ' open orders (two sites above). Method tail - the only Return in this handler is the
+            ' guard BEFORE any of them.
+            PublishExecutorFeedback()
+
         Catch ex As Exception
             ' Ignore parsing errors for non-relevant responses
         End Try
@@ -5787,6 +5861,11 @@ Public Class frmMainPageV2
                                           "$" & estimatedLiquidation.Value.ToString("F2"), "N/A")
 
             AppendColoredText(txtLogs, $"LIVE position data - Liq: {liquidationText}, Leverage: {If(accountBalanceUSD = 0D, "pending", $"{effectiveLeverage:F2}x")}", Color.Red)
+
+            ' C1 trigger (b): the id-777 snapshot is the OTHER writer of positionSizeUSD /
+            ' positionAvgEntry (the connect-time seed and restart restore). Method tail - this
+            ' handler contains no Return.
+            PublishExecutorFeedback()
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error processing live position data: {ex.Message}", Color.Red)
@@ -5930,6 +6009,18 @@ Public Class frmMainPageV2
         ' save at the top of this handler). Its own Try - a save failure must never block shutdown.
         Try
             SaveUserSettings(announce:=False)
+        Catch
+        End Try
+        ' C1 trigger (e), the final write - what makes "silence = dead executor" honest. ADDED to
+        ' this handler, never restructuring it: it already persists all 11 geometry fields
+        ' unconditionally (HANDOVER-6 section 5.4) and that behaviour must not move. Its own Try,
+        ' like the save above, so telemetry can never block shutdown. Taken BEFORE the bridge is
+        ' disposed and the socket closed, so the final snapshot is the executor's last true state
+        ' rather than a torn-down one. Synchronous by necessity - a queued write would race exit.
+        Try
+            If ExecutorFeedback.IsConfigured Then
+                ExecutorFeedback.ShutdownWithFinalWrite(CaptureFeedbackSnapshot())
+            End If
         Catch
         End Try
         Try

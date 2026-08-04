@@ -3,6 +3,8 @@ Option Explicit On
 
 Imports System.Globalization
 Imports System.IO
+Imports System.Threading
+Imports System.Threading.Tasks
 Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 
@@ -353,5 +355,181 @@ Friend NotInheritable Class ExecutorFeedback
         }
         Return root.ToString(Formatting.Indented)
     End Function
+
+    ' ================================ the writer (spec section 1) ================================
+
+    ' ~10 s (contract 8.5). The engine's staleness rule is now - generated_at_utc > 35 s, so three
+    ' consecutive misses are tolerated before EXECUTOR STALE.
+    Private Const HeartbeatMs As Integer = 10_000
+
+    Private Shared ReadOnly _gate As New Object()      ' guards the queue + the ids
+    Private Shared ReadOnly _writeGate As New Object() ' serializes the FILE write itself
+
+    Private Shared _pending As FeedbackSnapshot        ' the coalescing slot - LAST WINS
+    Private Shared _hasPending As Boolean = False
+    Private Shared _lastPublished As FeedbackSnapshot  ' what the heartbeat republishes
+    Private Shared _hasLastPublished As Boolean = False
+    Private Shared _workerRunning As Boolean = False   ' SINGLE WRITER: at most one worker, ever
+    Private Shared _feedbackId As Long = 0             ' monotonic per process, starts at 1
+    Private Shared _heartbeat As Timer
+    Private Shared _disposed As Boolean = False
+
+    ''' <summary>
+    ''' Arm the heartbeat. No-op when unconfigured - SHIPS OFF means no timer, no worker, no file.
+    ''' </summary>
+    Friend Shared Sub StartHeartbeat()
+        If Not IsConfigured Then Return
+        SyncLock _gate
+            If _disposed OrElse _heartbeat IsNot Nothing Then Return
+            _heartbeat = New Timer(AddressOf OnHeartbeat, Nothing, HeartbeatMs, HeartbeatMs)
+        End SyncLock
+    End Sub
+
+    ''' <summary>
+    ''' Publish a snapshot (spec section 4 triggers a/b/b2/c). Safe from ANY thread including the
+    ''' receive path: never blocks on I/O, never throws, and returns after one Boolean field read
+    ''' when the emitter is unconfigured.
+    '''
+    ''' SELF-COALESCING, LAST-WINS (contract 8.5) - deliberately NOT the notifier's
+    ''' rate-limit-and-drop. A burst collapses onto the newest snapshot rather than dropping the
+    ''' newest, because a dropped feedback write leaves the engine on a stale executor picture until
+    ''' the next trigger, whereas a dropped notification is only a missed alert.
+    '''
+    ''' Content-identical snapshots write NOTHING. That is what lets the triggers sit on
+    ''' high-frequency echoes (portfolio updates, quote-driven SL repositions) without rewriting the
+    ''' file per tick, and it is why the heartbeat below must bypass this gate rather than route
+    ''' through it.
+    ''' </summary>
+    Friend Shared Sub Publish(snap As FeedbackSnapshot)
+        If Not IsConfigured Then Return
+        Try
+            SyncLock _gate
+                If _disposed Then Return
+                If _hasLastPublished AndAlso SameContent(_lastPublished, snap) Then Return
+                _lastPublished = snap
+                _hasLastPublished = True
+                _pending = snap
+                _hasPending = True
+                If _workerRunning Then Return   ' the running worker will pick the newest up
+                _workerRunning = True
+            End SyncLock
+            Task.Run(AddressOf DrainQueue)
+        Catch
+            ' Fail-silent at dispatch, exactly like RemoteNotifier.Post: telemetry must never be
+            ' able to hurt the trading path.
+        End Try
+    End Sub
+
+    ' Spec section 4 (d) - and it is COUNTER-INTUITIVE BY DESIGN (E4), so read this before "fixing" it.
+    '
+    ' The heartbeat REPUBLISHES THE LAST SNAPSHOT with a fresh feedback_id and generated_at_utc. It
+    ' does NOT read live state, and it must not be changed to. Its job is the engine's staleness
+    ' rule - a LIVENESS PROOF, not a data refresh - and every actual change to the four position
+    ' fields already publishes from the thread that wrote it. Re-reading here would take the one
+    ' coherence race E4 accepted (a timer thread reading four fields it did not write, mixing pre-
+    ' and post-update values) and make it fire every ten seconds forever, to refresh data that is
+    ' already fresh.
+    '
+    ' THE TRADE THIS MAKES: a MISSING trigger is no longer self-correcting - it republishes stale
+    ' data indefinitely instead of healing within 10 s. OrderCheck fixture 8 is what makes that
+    ' trade safe; do not keep this rule without it.
+    Private Shared Sub OnHeartbeat(state As Object)
+        Try
+            If Not IsConfigured Then Return
+            SyncLock _gate
+                If _disposed Then Return                  ' never resurrect a disposed emitter
+                If Not _hasLastPublished Then Return      ' nothing published yet: nothing to republish
+                _pending = _lastPublished
+                _hasPending = True
+                If _workerRunning Then Return
+                _workerRunning = True
+            End SyncLock
+            Task.Run(AddressOf DrainQueue)
+        Catch
+        End Try
+    End Sub
+
+    ' The SINGLE WRITER. At most one of these runs at a time (_workerRunning), so the ids it stamps
+    ' are monotonic and the writes it makes are ordered - two concurrent writes to one path is the
+    ' exact failure this design exists to prevent. It drains rather than writing once, so a burst
+    ' that arrives mid-write still ends with the NEWEST snapshot on disk.
+    Private Shared Sub DrainQueue()
+        Try
+            Do
+                Dim snap As FeedbackSnapshot
+                Dim id As Long
+                SyncLock _gate
+                    If _disposed OrElse Not _hasPending Then
+                        _workerRunning = False
+                        Return
+                    End If
+                    snap = _pending
+                    _hasPending = False
+                    _feedbackId += 1
+                    id = _feedbackId
+                End SyncLock
+                WriteAtomic(Serialize(snap, id, DateTime.UtcNow))
+            Loop
+        Catch
+            ' Fail-silent, but never leave the latch set or nothing would ever write again.
+            SyncLock _gate
+                _workerRunning = False
+            End SyncLock
+        End Try
+    End Sub
+
+    ' E1 - the atomic write, and the reason contract 8.1 was amended before any of this was written.
+    ' The house pattern is WriteAllText(tmp) + Move(overwrite:=True) (AppUserSettings.vb:207,
+    ' SignalBridge.vb PersistState). The contract used to name File.Replace, which THROWS when the
+    ' destination does not exist - precisely the first write and the ships-OFF -> ON transition.
+    ' Atomicity was always the requirement; the API never was.
+    Private Shared Sub WriteAtomic(text As String)
+        SyncLock _writeGate   ' the graceful-close write and the worker must never overlap on one path
+            Try
+                Dim path As String = _outputPath
+                If path.Length = 0 Then Return
+                Dim dir As String = IO.Path.GetDirectoryName(path)
+                If Not String.IsNullOrEmpty(dir) AndAlso Not Directory.Exists(dir) Then
+                    Directory.CreateDirectory(dir)   ' create-if-missing, as the bridge watcher does
+                End If
+                Dim tmp As String = path & ".tmp"
+                File.WriteAllText(tmp, text)
+                File.Move(tmp, path, overwrite:=True)
+            Catch
+                ' Fail-silent: a locked/unwritable path costs the app nothing. The engine sees the
+                ' file go stale, which is the honest signal.
+            End Try
+        End SyncLock
+    End Sub
+
+    ''' <summary>
+    ''' Spec section 4 (e): the final write on graceful close, which is what makes "silence = dead
+    ''' executor" honest. SYNCHRONOUS on the caller's thread by necessity - a queued write would
+    ''' race the process exit and simply be lost - and bounded: one local file write under the same
+    ''' lock the worker uses. Disposes the heartbeat and latches _disposed first, so nothing can
+    ''' resurrect the emitter afterwards.
+    ''' </summary>
+    Friend Shared Sub ShutdownWithFinalWrite(final As FeedbackSnapshot)
+        If Not IsConfigured Then Return
+        Try
+            Dim t As Timer
+            Dim id As Long
+            SyncLock _gate
+                If _disposed Then Return
+                _disposed = True
+                t = _heartbeat
+                _heartbeat = Nothing
+                _hasPending = False        ' anything queued is superseded by this final snapshot
+                _lastPublished = final
+                _hasLastPublished = True
+                _feedbackId += 1
+                id = _feedbackId
+            End SyncLock
+            t?.Dispose()
+            WriteAtomic(Serialize(final, id, DateTime.UtcNow))
+        Catch
+            ' Never block shutdown on telemetry.
+        End Try
+    End Sub
 
 End Class
