@@ -157,6 +157,12 @@ Public Class SignalBridge
     Private _lastSeenInstanceId As String = ""           ' in-memory only: suppresses double-dispositions
     Private _lastSeenSignalId As Long = Long.MinValue    ' when FSW double-fires on the same payload
 
+    ' C1 v2 feedback, last_signal (spec section 3.3): Nothing until this executor process consumes
+    ' its first payload, then swapped BY REFERENCE at consumption - once. The section-4
+    ' disposition-cardinality freeze extends here: a post-acted chase abort updates the host log's
+    ' cancel REASON and must NOT touch this, exactly as it must not write a second disposition row.
+    Private _feedbackLastSignal As ExecutorFeedback.LastSignalRef = Nothing
+
     ' ---- machinery ----
     Private _watcher As FileSystemWatcher
     Private ReadOnly _debounce As Threading.Timer
@@ -261,6 +267,24 @@ Public Class SignalBridge
     Public ReadOnly Property LastSignalSummary As String
         Get
             Return _lastSignalSummary
+        End Get
+    End Property
+
+    ' ---- C1 v2 feedback: the executor-state reads the emitter's snapshot takes (spec section 3.1) ----
+    ' All three are callable from ANY thread: two are plain field reads, and BreakerTripped composes
+    ' a settings-form-owned Decimal with a host field through the SHARED gate predicate, so the
+    ' emitted value and gate 4.6 can never disagree.
+
+    Public ReadOnly Property BreakerTripped As Boolean
+        Get
+            Return IsBreakerTripped(CircuitBreakerUsd, _host.SessionPnLUSD)
+        End Get
+    End Property
+
+    ' One reference read of an immutable object - coherent by construction, never half-updated.
+    Friend ReadOnly Property FeedbackLastSignal As ExecutorFeedback.LastSignalRef
+        Get
+            Return _feedbackLastSignal
         End Get
     End Property
 
@@ -695,7 +719,10 @@ Public Class SignalBridge
         If disposition Is Nothing Then
             Dim breaker As Decimal = CircuitBreakerUsd
             Dim cooloff As Decimal = CooloffMin
-            Dim breakerBreached As Boolean = breaker > 0D AndAlso _host.SessionPnLUSD <= -breaker
+            ' C1 spec section 3.1: the SHARED seam, not a second copy of the expression. The gate
+            ' below and executor.breaker_tripped in the feedback file are now the same predicate by
+            ' construction, so they cannot drift and the emitted value is fixture-pinnable.
+            Dim breakerBreached As Boolean = IsBreakerTripped(breaker, _host.SessionPnLUSD)
             If Not _host.IsWebSocketConnected Then
                 disposition = "refused: not_connected"
             ElseIf Not _host.CanMakeAPIRequest Then
@@ -1085,6 +1112,20 @@ Public Class SignalBridge
         Return size
     End Function
 
+    ' The circuit-breaker predicate as a pure seam (C1 spec section 3.1), shared by BOTH callers:
+    ' gate 4.6 above and executor.breaker_tripped in the v2 feedback file. Extracted rather than
+    ' duplicated for the reason the house keeps extracting these (ShouldSend, EffectiveSizeUsd):
+    ' a second copy of a live-trading predicate drifts silently, and the emitted telemetry would
+    ' then disagree with the gate that actually stops trading - the worst possible direction for
+    ' a field the engine displays as "can the executor act".
+    '
+    ' breakerUsd <= 0 means NO BREAKER (the legitimate way to spell "off" in the settings form),
+    ' so it can never be tripped - that arm is why this is a function and not an inline comparison.
+    ' sessionPnLUsd is signed; the breaker is configured as a positive loss magnitude.
+    Friend Shared Function IsBreakerTripped(breakerUsd As Decimal, sessionPnLUsd As Decimal) As Boolean
+        Return breakerUsd > 0D AndAlso sessionPnLUsd <= -breakerUsd
+    End Function
+
     ' True when EffectiveSizeUsd had to clamp UP to the 10-USD contract minimum (D3: clamp and log,
     ' never refuse - at live-at-min-size the Amount box IS 10, and refusing would silently kill every
     ' signal in a reduced-size session).
@@ -1132,8 +1173,18 @@ Public Class SignalBridge
     ' (contract section 4 commitment; v2 feedback-file precursor). Format and tokens are
     ' soak-stable: utc | instance_id | signal_id | verdict | confidence | direction | disposition
     Private Sub EmitDisposition(p As PayloadSnapshot, disposition As String)
+        Dim consumedUtc As DateTime = DateTime.UtcNow
         SyncLock _sync
             _lastDisposition = disposition
+            ' C1 spec section 3.3: last_signal is written ONCE, AT CONSUMPTION, and this is the
+            ' consumption site - the same single place that owns the one-row-per-payload
+            ' disposition append. Hooking here rather than at the act site is what extends the
+            ' cardinality freeze into the feedback file: a post-acted chase abort never reaches
+            ' this method, so it can no more update last_signal than it can write a second row.
+            ' Identity is the ENGINE's pair, and the disposition token is passed through EXACTLY -
+            ' it is the soak-stable string the reviewers join on.
+            _feedbackLastSignal = New ExecutorFeedback.LastSignalRef(p.InstanceId, p.SignalId,
+                                                                    disposition, consumedUtc)
         End SyncLock
 
         Dim line As String = String.Join(" | ",

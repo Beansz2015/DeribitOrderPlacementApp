@@ -715,6 +715,42 @@ Public Class frmMainPageV2
         End Get
     End Property
 
+    ' ===== C1 v2 EXECUTOR FEEDBACK (docs/spec-c1-feedback-emitter.md section 3) =====
+    '
+    ' The snapshot's host half: live state -> the flat immutable value the emitter's worker writes.
+    ' Callable from ANY thread and taken on the CALLER's thread by design (spec section 1.3) - the
+    ' position and working-level triggers fire from the very thread that just wrote those fields,
+    ' which is what makes the position block coherent without a lock (E4).
+    '
+    ' EVERY READ HERE IS A BACKING FIELD. Not one of them is a control, and that is absolute:
+    ' this runs on the receive thread, where reading a WinForms control caused the edit-flood storm
+    ' (docs/spec-cross-thread-fix.md). positionSizeUSD/positionAvgEntry are engine-owned;
+    ' placedStopLossPrice is the engine's SL mirror; manualTPval is kept == txtManualTP by
+    ' SyncTradeInputsFromUi ON THE UI THREAD. A single control read here is a review-blocking defect.
+    '
+    ' The flat trap and the sign -> direction mapping are NOT done here - BuildSnapshot owns both,
+    ' so they are pure and fixture-pinnable. This function only supplies the raw values.
+    Friend Function CaptureFeedbackSnapshot() As ExecutorFeedback.FeedbackSnapshot
+        Dim b As SignalBridge = signalBridge   ' one reference read; Nothing before Load finishes
+        Dim mode As SignalBridge.BridgeMode = SignalBridge.BridgeMode.Off
+        Dim armed As Boolean = False
+        Dim started As Boolean = False
+        Dim breakerTripped As Boolean = False
+        Dim lastSignal As ExecutorFeedback.LastSignalRef = Nothing
+        If b IsNot Nothing Then
+            mode = b.Mode
+            armed = b.LocalArmed          ' the LOCAL toggle - the engine's own ARM is never echoed back
+            started = b.Started
+            breakerTripped = b.BreakerTripped
+            lastSignal = b.FeedbackLastSignal
+        End If
+
+        Return ExecutorFeedback.BuildSnapshot(ExecutorFeedback.InstanceId, mode, armed, started,
+                                              breakerTripped, IsWebSocketConnected,
+                                              positionSizeUSD, positionAvgEntry,
+                                              placedStopLossPrice, manualTPval, lastSignal)
+    End Function
+
     ' The SL stop-limit execution offset (mirrors txtStopLoss). The bridge derives its manualSL
     ' (the LIMIT leg) one offset beyond the engine's stop so the TRIGGER lands exactly on it.
     Public ReadOnly Property StopLimitOffset As Decimal

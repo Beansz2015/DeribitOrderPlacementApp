@@ -1,7 +1,9 @@
 Option Strict On
 Option Explicit On
 
+Imports System.Globalization
 Imports System.IO
+Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
 
 ' =====================================================================================================
@@ -36,9 +38,45 @@ Friend NotInheritable Class ExecutorFeedback
     ' Contract section 8.2: beside the signal file, and the same default on both sides.
     Friend Const DefaultOutputPath As String = "C:\Dev\DeribitBridge\executor_feedback.json"
 
+    ' The FEEDBACK file's own counter (contract section 8.3) - deliberately NOT the v1 signal
+    ' schema's version, which this addendum leaves untouched.
+    Friend Const SchemaVersion As Integer = 1
+    Friend Const AppName As String = "DeribitOrderPlacementApp"
+
+    ' Single-instrument app: every subscription, order and position path is hard-bound to
+    ' BTC-PERPETUAL, so the schema's instrument field is a constant rather than a read.
+    Friend Const Instrument As String = "BTC-PERPETUAL"
+
+    ' Pinned enum strings (contract section 8.3). Named so a fixture pins the LITERAL, not a
+    ' re-typing of it - E2's failure mode was a string that was wrong in one place only.
+    Friend Const ModeOff As String = "OFF"
+    Friend Const ModeLogOnly As String = "LOG_ONLY"
+    Friend Const ModeLive As String = "LIVE"
+    Friend Const WsOk As String = "OK"
+    Friend Const WsDown As String = "DOWN"
+    Friend Const DirLong As String = "LONG"
+    Friend Const DirShort As String = "SHORT"
+    Friend Const DirFlat As String = "FLAT"
+
     ' "" = not configured = inert. Set once by LoadConfig at startup and never again, so every
     ' IsConfigured check below is a plain field read from any thread.
     Private Shared _outputPath As String = ""
+
+    ' executor.instance_id (spec section 3.1 / contract 8.4) - NEW STATE, nothing like it existed
+    ' before. Minted ONCE per order-app process by this shared initialiser and never regenerated;
+    ' that is what makes contract 8.4's guarantee structural rather than careful - a restart
+    ' necessarily yields a new GUID with armed/started false, which is how section 6's
+    ' restart-disarmed becomes visible engine-side.
+    '
+    ' NOT the same thing as the disposition log's column 2, which is the ENGINE's instance_id
+    ' carried in the payload. The two are joined, never interchanged.
+    Private Shared ReadOnly _instanceId As String = Guid.NewGuid().ToString()
+
+    Friend Shared ReadOnly Property InstanceId As String
+        Get
+            Return _instanceId
+        End Get
+    End Property
 
     ''' <summary>
     ''' True when bridge.json carries a feedback_output_path key (the v2 master switch).
@@ -100,6 +138,220 @@ Friend NotInheritable Class ExecutorFeedback
         Return If(IsConfigured,
                   $"Executor feedback: configured - {_outputPath}",
                   "Executor feedback: disabled (no feedback_output_path in bridge.json)")
+    End Function
+
+    ' ================================ the snapshot (spec section 3) ================================
+
+    ''' <summary>
+    ''' last_signal (spec section 3.3 / contract 8.4). IMMUTABLE and published BY REFERENCE: the
+    ''' four members are read together on a thread that did not write them, and a reference
+    ''' assignment is atomic, so a reader can never mix an old signal_id with a new disposition.
+    ''' (This is exactly the mitigation E4 named and then did NOT need for the position block,
+    ''' where the writing thread is also the publishing thread. It is cheap here because a
+    ''' disposition happens once per consumed payload, not once per tick.)
+    '''
+    ''' Identity is the ENGINE's (instance_id, signal_id) - the soak-proven join key - NOT this
+    ''' executor's instance_id, and not the disposition log's own column ordering.
+    ''' </summary>
+    Friend NotInheritable Class LastSignalRef
+        Friend ReadOnly InstanceId As String
+        Friend ReadOnly SignalId As Long
+        Friend ReadOnly Disposition As String
+        Friend ReadOnly AtUtc As DateTime
+
+        Friend Sub New(instanceId As String, signalId As Long, disposition As String, atUtc As DateTime)
+            Me.InstanceId = If(instanceId, "")
+            Me.SignalId = signalId
+            Me.Disposition = If(disposition, "")
+            Me.AtUtc = atUtc
+        End Sub
+    End Class
+
+    ''' <summary>
+    ''' The flat immutable value handed from the caller's thread to the worker (spec section 1.3).
+    ''' It is the WIRE CONTENT, already mapped: the flat-trap zeroing and the sign -> direction
+    ''' decision happen in BuildSnapshot, so nothing downstream can re-derive them differently and
+    ''' the worker never reaches back into live state.
+    '''
+    ''' feedback_id and generated_at_utc are deliberately NOT members: the heartbeat republishes
+    ''' this exact value with fresh ones (spec section 4 (d)), so they belong to the publish, not
+    ''' to the snapshot.
+    ''' </summary>
+    Friend Structure FeedbackSnapshot
+        Public InstanceId As String              ' THIS executor process's GUID
+        Public Mode As SignalBridge.BridgeMode
+        Public Armed As Boolean                  ' the LOCAL toggle; the engine's ARM is never echoed back
+        Public Started As Boolean
+        Public BreakerTripped As Boolean
+        Public WsConnected As Boolean
+        Public Direction As String               ' LONG | SHORT | FLAT - derived from SizeUsd's sign
+        Public SizeUsd As Decimal                ' signed; 0 when flat
+        Public AvgEntry As Decimal               ' 0 when flat - see BuildSnapshot's flat trap
+        Public WorkingStop As Decimal            ' 0 = unset, informational
+        Public WorkingTarget As Decimal
+        Public LastSignal As LastSignalRef       ' Nothing until this process consumes its first payload
+    End Structure
+
+    ' ---- E2: executor.mode. The pinned wire strings are NOT the enum's own names ----
+    ' BridgeMode.LogOnly.ToString() is "LogOnly", which violates the section-8.3 pin "LOG_ONLY" -
+    ' and violates it INVISIBLY, because the consumer's T8 enum tolerance renders an unrecognised
+    ' value verbatim and takes the conservative arm without erroring. An explicit map is the whole
+    ' fix; Case Else takes the conservative arm on our side too (an unmapped enum must never be
+    ' able to read as LIVE).
+    Friend Shared Function ModeWire(mode As SignalBridge.BridgeMode) As String
+        Select Case mode
+            Case SignalBridge.BridgeMode.Off : Return ModeOff
+            Case SignalBridge.BridgeMode.LogOnly : Return ModeLogOnly
+            Case SignalBridge.BridgeMode.Live : Return ModeLive
+            Case Else : Return ModeOff
+        End Select
+    End Function
+
+    ''' <summary>
+    ''' Live state -> wire content. PURE, so the two traps below are fixture-pinnable rather than
+    ''' buried in a form. Every argument is a BACKING FIELD read by the caller - never a control
+    ''' (spec section 1: a single control read in the snapshot path is a review-blocking defect,
+    ''' and reading one off the receive thread is what caused the edit-flood storm).
+    '''
+    ''' TRAP 1 - THE FLAT TRAP (spec section 3.2), the defect this whole spec exists to prevent.
+    ''' rawAvgEntry is DELIBERATELY RETAINED through the flat echo: the position model keeps the
+    ''' just-closed basis because the close-P/L computation reads it (frmMainPageV2.vb:2794 states
+    ''' this outright, and :5224 is the consumer). That retention is CORRECT and must never be
+    ''' "fixed" - so the emitter reads AROUND it, gating on IsFlat and emitting explicit zeros.
+    ''' Publishing the retained value on a FLAT executor would hand the engine a stale fill to
+    ''' attribute to the NEXT signal (contract 8.4 makes the avg_entry join the slippage record),
+    ''' and it would do so silently: the number is plausible, well-formed and wrong, and it would
+    ''' survive a soak. Same class as the placement log line that is not evidence of position size.
+    '''
+    ''' TRAP 2 - SIGN/DIRECTION CONSISTENCY (E3, contract 8.4). Both are derived from the ONE
+    ''' signed value here, so they cannot disagree by construction rather than by care. The sign
+    ''' itself is established, not assumed: positionSizeUSD is the exchange's positions[].size
+    ''' verbatim and is NEGATIVE on a short - see docs/impl-report-c1-feedback-emitter.md section 3.
+    ''' </summary>
+    Friend Shared Function BuildSnapshot(instanceId As String,
+                                         mode As SignalBridge.BridgeMode,
+                                         armed As Boolean, started As Boolean,
+                                         breakerTripped As Boolean, wsConnected As Boolean,
+                                         rawSizeUsd As Decimal, rawAvgEntry As Decimal,
+                                         rawWorkingStop As Decimal, rawWorkingTarget As Decimal,
+                                         lastSignal As LastSignalRef) As FeedbackSnapshot
+        Dim s As New FeedbackSnapshot With {
+            .InstanceId = If(instanceId, ""),
+            .Mode = mode,
+            .Armed = armed,
+            .Started = started,
+            .BreakerTripped = breakerTripped,
+            .WsConnected = wsConnected,
+            .LastSignal = lastSignal
+        }
+
+        If rawSizeUsd = 0D Then
+            ' IsFlat (frmMainPageV2.vb:712 is the same predicate). Contract 8.4: flat => FLAT + ZEROS.
+            s.Direction = DirFlat
+            s.SizeUsd = 0D
+            s.AvgEntry = 0D
+            s.WorkingStop = 0D
+            s.WorkingTarget = 0D
+        Else
+            s.Direction = If(rawSizeUsd > 0D, DirLong, DirShort)
+            s.SizeUsd = rawSizeUsd
+            s.AvgEntry = rawAvgEntry
+            s.WorkingStop = rawWorkingStop
+            s.WorkingTarget = rawWorkingTarget
+        End If
+        Return s
+    End Function
+
+    ''' <summary>
+    ''' Content equality over everything the file carries EXCEPT feedback_id and generated_at_utc.
+    ''' This is the publish gate: a trigger whose snapshot is content-identical to the last
+    ''' published one writes nothing, which is what lets the triggers sit on high-frequency echoes
+    ''' (portfolio updates, quote-driven SL repositions) without rewriting the file per tick.
+    '''
+    ''' It is therefore also the thing that could SWALLOW a field - which is exactly what OrderCheck
+    ''' fixture 8 asserts PER FIELD rather than in aggregate. Under spec section 4 (d) the heartbeat
+    ''' republishes rather than re-reads, so a field this function forgot would be stale forever
+    ''' rather than for 10 seconds.
+    ''' </summary>
+    Friend Shared Function SameContent(a As FeedbackSnapshot, b As FeedbackSnapshot) As Boolean
+        If a.InstanceId <> b.InstanceId Then Return False
+        If a.Mode <> b.Mode Then Return False
+        If a.Armed <> b.Armed Then Return False
+        If a.Started <> b.Started Then Return False
+        If a.BreakerTripped <> b.BreakerTripped Then Return False
+        If a.WsConnected <> b.WsConnected Then Return False
+        If a.Direction <> b.Direction Then Return False
+        If a.SizeUsd <> b.SizeUsd Then Return False
+        If a.AvgEntry <> b.AvgEntry Then Return False
+        If a.WorkingStop <> b.WorkingStop Then Return False
+        If a.WorkingTarget <> b.WorkingTarget Then Return False
+        Return SameLastSignal(a.LastSignal, b.LastSignal)
+    End Function
+
+    Friend Shared Function SameLastSignal(a As LastSignalRef, b As LastSignalRef) As Boolean
+        If a Is Nothing OrElse b Is Nothing Then Return a Is b   ' null vs populated is a change
+        Return a.InstanceId = b.InstanceId AndAlso a.SignalId = b.SignalId AndAlso
+               a.Disposition = b.Disposition AndAlso a.AtUtc = b.AtUtc
+    End Function
+
+    ' ================================ serialization (contract section 8.3) ================================
+
+    ' v1's serialization pins carry over (contract 8.1): JSON numbers, invariant culture,
+    ' ISO-8601 UTC with a literal Z. Same format string the disposition log already emits.
+    Friend Shared Function FormatUtc(value As DateTime) As String
+        Return value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
+    End Function
+
+    ''' <summary>
+    ''' The snapshot as the section-8.3 document. Zeros-never-null for the suppressed numerics;
+    ''' null (not an empty object) for an absent last_signal. feedback_id and generated_at_utc are
+    ''' arguments, not snapshot members, because the heartbeat republishes one snapshot under many
+    ''' of them.
+    ''' </summary>
+    Friend Shared Function Serialize(snap As FeedbackSnapshot, feedbackId As Long,
+                                     generatedAtUtc As DateTime) As String
+        Dim executor As New JObject From {
+            {"instance_id", snap.InstanceId},
+            {"app", AppName},
+            {"mode", ModeWire(snap.Mode)},
+            {"armed", snap.Armed},
+            {"started", snap.Started},
+            {"breaker_tripped", snap.BreakerTripped},
+            {"ws", If(snap.WsConnected, WsOk, WsDown)}
+        }
+
+        Dim position As New JObject From {
+            {"direction", snap.Direction},
+            {"size_usd", snap.SizeUsd},
+            {"avg_entry", snap.AvgEntry},
+            {"working", New JObject From {
+                {"stop", snap.WorkingStop},
+                {"target", snap.WorkingTarget}
+            }}
+        }
+
+        Dim lastSignal As JToken
+        If snap.LastSignal Is Nothing Then
+            lastSignal = JValue.CreateNull()   ' null until this process consumes its first payload
+        Else
+            lastSignal = New JObject From {
+                {"instance_id", snap.LastSignal.InstanceId},
+                {"signal_id", snap.LastSignal.SignalId},
+                {"disposition", snap.LastSignal.Disposition},
+                {"at_utc", FormatUtc(snap.LastSignal.AtUtc)}
+            }
+        End If
+
+        Dim root As New JObject From {
+            {"schema_version", SchemaVersion},
+            {"feedback_id", feedbackId},
+            {"generated_at_utc", FormatUtc(generatedAtUtc)},
+            {"executor", executor},
+            {"instrument", Instrument},
+            {"position", position},
+            {"last_signal", lastSignal}
+        }
+        Return root.ToString(Formatting.Indented)
     End Function
 
 End Class
