@@ -5,6 +5,7 @@ Imports System.Data.SQLite
 Imports System.Globalization
 Imports System.IO
 Imports DeribitOrderPlacementApp
+Imports Newtonsoft.Json.Linq
 
 ' =====================================================================================================
 ' OrderCheck - the order app's layer-1 logic harness (docs/spec-ui-test-harness.md section 3).
@@ -761,6 +762,243 @@ Module Program
         ' The one-line statement of what N1c changed: same four rejections, two reset policies.
         Check("SL backoff (N1c): moving the reset off the attempt is the whole delta - 666 ms before, 5000 ms cap now",
               oscMaxMs = 666 AndAlso escSeries(3) = 5000)
+
+        ' =============================================================================================
+        ' C1 - the v2 executor feedback emitter (docs/spec-c1-feedback-emitter.md section 5).
+        ' Contract section 8 is the schema; these pin the things that fail SILENTLY.
+        ' =============================================================================================
+
+        ' ---- C1.0 config: absent / blank / set are THREE different answers ----
+        ' Absent vs blank is the ships-OFF distinction, so it is pinned rather than assumed.
+        Check("C1 config: an ABSENT key is fully inert (no path => no timer, no worker, no file)",
+              ExecutorFeedback.ResolveOutputPath("", keyPresent:=False) = "")
+        Check("C1 config: a PRESENT BUT BLANK key resolves to the section-8.2 default",
+              ExecutorFeedback.ResolveOutputPath("   ", keyPresent:=True) = ExecutorFeedback.DefaultOutputPath)
+        Check("C1 config: a present key is taken as given (trimmed)",
+              ExecutorFeedback.ResolveOutputPath("  D:\fb.json  ", keyPresent:=True) = "D:\fb.json")
+
+        ' ---- C1.1 mode mapping (E2): the enum's own names are NOT the pinned wire strings ----
+        Check("C1 fixture 1: BridgeMode.Off -> ""OFF""",
+              ExecutorFeedback.ModeWire(SignalBridge.BridgeMode.Off) = "OFF")
+        Check("C1 fixture 1: BridgeMode.LogOnly -> ""LOG_ONLY""",
+              ExecutorFeedback.ModeWire(SignalBridge.BridgeMode.LogOnly) = "LOG_ONLY")
+        Check("C1 fixture 1: BridgeMode.Live -> ""LIVE""",
+              ExecutorFeedback.ModeWire(SignalBridge.BridgeMode.Live) = "LIVE")
+        ' THE defect E2 named, stated as a fixture: .ToString() emits "LogOnly", which violates the
+        ' section-8.3 pin - and violates it invisibly, because the consumer's T8 tolerance renders an
+        ' unknown value verbatim and takes the conservative arm without erroring.
+        Check("C1 fixture 1: and .ToString() would NOT have satisfied the pin (this is E2)",
+              SignalBridge.BridgeMode.LogOnly.ToString() = "LogOnly" AndAlso
+              SignalBridge.BridgeMode.LogOnly.ToString() <> ExecutorFeedback.ModeWire(SignalBridge.BridgeMode.LogOnly))
+        ' An unmapped enum value must never be able to read as LIVE.
+        Check("C1 fixture 1: an unmapped enum value takes the conservative arm, never LIVE",
+              ExecutorFeedback.ModeWire(CType(99, SignalBridge.BridgeMode)) = "OFF")
+
+        ' ---- C1.2 THE FLAT TRAP - the fixture that would have caught spec section 3.2 ----
+        ' A flat position with a NON-ZERO retained positionAvgEntry. The retention is deliberate and
+        ' correct (close-P/L reads it); publishing it on a FLAT executor would hand the engine a
+        ' stale fill to attribute to the NEXT signal, silently.
+        Dim flat As ExecutorFeedback.FeedbackSnapshot =
+            ExecutorFeedback.BuildSnapshot("exec-guid", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                           rawSizeUsd:=0D, rawAvgEntry:=59012.5D,
+                                           rawWorkingStop:=58962.5D, rawWorkingTarget:=59095D,
+                                           lastSignal:=Nothing)
+        Check("C1 fixture 2: flat + RETAINED avg entry 59012.5 => direction FLAT",
+              flat.Direction = "FLAT", flat.Direction)
+        Check("C1 fixture 2: ...and avg_entry is ZEROED, not the retained basis",
+              flat.AvgEntry = 0D, flat.AvgEntry.ToString(CultureInfo.InvariantCulture))
+        Check("C1 fixture 2: ...and size_usd is 0",
+              flat.SizeUsd = 0D)
+        Check("C1 fixture 2: ...and BOTH working levels are 0 (contract 8.4: flat => FLAT + zeros)",
+              flat.WorkingStop = 0D AndAlso flat.WorkingTarget = 0D)
+
+        ' ---- C1.3 non-flat: direction/sign consistency BOTH WAYS (E3) ----
+        Dim lng As ExecutorFeedback.FeedbackSnapshot =
+            ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                           250D, 59012.5D, 58962.5D, 59095D, Nothing)
+        Dim sht As ExecutorFeedback.FeedbackSnapshot =
+            ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                           -250D, 59012.5D, 59062.5D, 58930D, Nothing)
+        Check("C1 fixture 3: positive size => LONG, size preserved signed",
+              lng.Direction = "LONG" AndAlso lng.SizeUsd = 250D)
+        Check("C1 fixture 3: NEGATIVE size => SHORT (E3: the sign is established, not assumed)",
+              sht.Direction = "SHORT" AndAlso sht.SizeUsd = -250D, sht.Direction)
+        ' The section-8.4 guarantee itself, asserted as the invariant rather than as two cases:
+        ' both are derived from the one signed value, so they cannot disagree.
+        Check("C1 fixture 3: sign/direction consistency holds in both directions",
+              (lng.SizeUsd > 0D) = (lng.Direction = "LONG") AndAlso
+              (sht.SizeUsd < 0D) = (sht.Direction = "SHORT"))
+        Check("C1 fixture 3: a non-flat snapshot keeps avg_entry and the working levels",
+              lng.AvgEntry = 59012.5D AndAlso lng.WorkingStop = 58962.5D AndAlso lng.WorkingTarget = 59095D)
+
+        ' ---- C1.4 last_signal: null, populated, and FROZEN across a post-acted chase abort ----
+        Dim noSig As String = ExecutorFeedback.Serialize(flat, 1, New DateTime(2026, 8, 5, 9, 14, 2, DateTimeKind.Utc))
+        Check("C1 fixture 4: last_signal is null before this process consumes its first payload",
+              SignalBridge.ParsePayloadJson(noSig).SelectToken("last_signal").Type = JTokenType.Null)
+
+        Dim acted As New ExecutorFeedback.LastSignalRef("9f0c-engine-guid", 1234, "acted (id 55)",
+                                                        New DateTime(2026, 8, 5, 9, 13, 41, DateTimeKind.Utc))
+        Dim atActed As ExecutorFeedback.FeedbackSnapshot =
+            ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                           0D, 0D, 0D, 0D, acted)
+        Dim actedJson As JObject = SignalBridge.ParsePayloadJson(ExecutorFeedback.Serialize(atActed, 2, DateTime.UtcNow))
+        Check("C1 fixture 4: populated last_signal carries the ENGINE's (instance_id, signal_id) join key",
+              actedJson.SelectToken("last_signal.instance_id").ToString() = "9f0c-engine-guid" AndAlso
+              actedJson.SelectToken("last_signal.signal_id").ToObject(Of Long)() = 1234L)
+        Check("C1 fixture 4: the disposition token passes through EXACTLY (soak-stable string)",
+              actedJson.SelectToken("last_signal.disposition").ToString() = "acted (id 55)")
+
+        ' The cardinality freeze, simulated: after `acted`, a chase abort moves the position and the
+        ' working levels. It must NOT touch last_signal - the same rule that forbids a second
+        ' disposition row. Structurally guaranteed here because only EmitDisposition writes the
+        ' reference; this pins the consequence.
+        Dim afterAbort As ExecutorFeedback.FeedbackSnapshot =
+            ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                           0D, 0D, 0D, 0D, acted)
+        Dim abortJson As JObject = SignalBridge.ParsePayloadJson(ExecutorFeedback.Serialize(afterAbort, 3, DateTime.UtcNow))
+        Check("C1 fixture 4: a post-acted chase abort leaves last_signal UNCHANGED (cardinality freeze)",
+              JToken.DeepEquals(actedJson.SelectToken("last_signal"), abortJson.SelectToken("last_signal")))
+
+        ' ---- C1.5 the breaker_tripped seam: below / at / above, and 0 = no breaker ----
+        Check("C1 fixture 5: BELOW the threshold is not tripped",
+              Not SignalBridge.IsBreakerTripped(10D, -9.99D))
+        Check("C1 fixture 5: AT the threshold IS tripped (the gate's <= semantics)",
+              SignalBridge.IsBreakerTripped(10D, -10D))
+        Check("C1 fixture 5: ABOVE the threshold is tripped",
+              SignalBridge.IsBreakerTripped(10D, -10.01D))
+        Check("C1 fixture 5: a POSITIVE session P/L is never tripped",
+              Not SignalBridge.IsBreakerTripped(10D, 500D))
+        ' breaker = 0 is the legitimate way to spell "off"; it must never be tripped, at any P/L.
+        Check("C1 fixture 5: breaker 0 = no breaker, never tripped even at a huge loss",
+              Not SignalBridge.IsBreakerTripped(0D, -100000D))
+        Check("C1 fixture 5: a negative breaker is also 'off', never tripped",
+              Not SignalBridge.IsBreakerTripped(-5D, -100000D))
+
+        ' ---- C1.6 serialization pins (contract 8.1: v1's pins carry over) ----
+        Dim pinSnap As ExecutorFeedback.FeedbackSnapshot =
+            ExecutorFeedback.BuildSnapshot("exec-guid", SignalBridge.BridgeMode.LogOnly, True, False, False, False,
+                                           -250D, 59012.5D, 59062.5D, 58930D, acted)
+        Dim pinJson As String
+        Dim savedCulture As CultureInfo = CultureInfo.CurrentCulture
+        Try
+            ' de-DE renders decimals with a COMMA. The v1 consumer-side culture bug (8956baa) is the
+            ' reason this is pinned on the EMIT side too.
+            CultureInfo.CurrentCulture = New CultureInfo("de-DE")
+            pinJson = ExecutorFeedback.Serialize(pinSnap, 587, New DateTime(2026, 8, 5, 9, 14, 2, DateTimeKind.Utc))
+        Finally
+            CultureInfo.CurrentCulture = savedCulture
+        End Try
+        Check("C1 fixture 6: decimals are invariant-culture JSON numbers even under de-DE",
+              pinJson.Contains("59012.5") AndAlso Not pinJson.Contains("59012,5"))
+        ' The strongest form of this pin is on the RAW TEXT, because the bytes on disk are what the
+        ' engine reads. Note the reader below is the app's own ParsePayloadJson, NOT JObject.Parse:
+        ' Newtonsoft's default DateParseHandling turns an ISO-8601 STRING into a Date token that
+        ' ToString() then renders in the CURRENT culture - the exact 8956baa failure, which showed up
+        ' here first as a false FAIL of this very fixture ("5/8/2026 9:14:02 AM").
+        Check("C1 fixture 6: the raw emitted text carries the ISO-8601 Z timestamp verbatim",
+              pinJson.Contains("""generated_at_utc"": ""2026-08-05T09:14:02Z"""),
+              pinJson.Substring(0, Math.Min(200, pinJson.Length)))
+        Dim pin As JObject = SignalBridge.ParsePayloadJson(pinJson)
+        Check("C1 fixture 6: generated_at_utc is ISO-8601 UTC with a literal Z",
+              pin.SelectToken("generated_at_utc").ToString() = "2026-08-05T09:14:02Z",
+              pin.SelectToken("generated_at_utc").ToString())
+        Check("C1 fixture 6: at_utc inside last_signal takes the same format",
+              pin.SelectToken("last_signal.at_utc").ToString() = "2026-08-05T09:13:41Z")
+        Check("C1 fixture 6: schema_version is the FEEDBACK file's own counter, 1",
+              pin.SelectToken("schema_version").ToObject(Of Integer)() = 1)
+        Check("C1 fixture 6: feedback_id and the fixed identity fields are present",
+              pin.SelectToken("feedback_id").ToObject(Of Long)() = 587L AndAlso
+              pin.SelectToken("executor.app").ToString() = "DeribitOrderPlacementApp" AndAlso
+              pin.SelectToken("instrument").ToString() = "BTC-PERPETUAL")
+        Check("C1 fixture 6: executor.ws maps False -> DOWN (and never v1's 'REST')",
+              pin.SelectToken("executor.ws").ToString() = "DOWN")
+        ' Zeros-never-null for a SUPPRESSED numeric block: the flat snapshot's numbers are 0, not null.
+        Dim flatJson As JObject = SignalBridge.ParsePayloadJson(noSig)
+        Check("C1 fixture 6: zeros-never-null - a suppressed position block carries 0s, not nulls",
+              flatJson.SelectToken("position.size_usd").Type = JTokenType.Integer OrElse
+              flatJson.SelectToken("position.size_usd").Type = JTokenType.Float)
+        Check("C1 fixture 6: ...and every suppressed numeric really is 0",
+              flatJson.SelectToken("position.size_usd").ToObject(Of Decimal)() = 0D AndAlso
+              flatJson.SelectToken("position.avg_entry").ToObject(Of Decimal)() = 0D AndAlso
+              flatJson.SelectToken("position.working.stop").ToObject(Of Decimal)() = 0D AndAlso
+              flatJson.SelectToken("position.working.target").ToObject(Of Decimal)() = 0D)
+        ' ...but null (not {}) for an ABSENT OBJECT. The two rules differ and both are contract 8.1.
+        Check("C1 fixture 6: null - not an empty object - for an absent last_signal",
+              flatJson.SelectToken("last_signal").Type = JTokenType.Null)
+
+        ' ---- C1.7 the coalescing seam: LAST WINS, and a burst collapses to ONE write ----
+        Dim slot As New ExecutorFeedback.CoalescingSlot()
+        Dim s1 = ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                10D, 100D, 90D, 110D, Nothing)
+        Dim s2 = ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                20D, 100D, 90D, 110D, Nothing)
+        Dim s3 = ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                30D, 100D, 90D, 110D, Nothing)
+        slot.Offer(s1) : slot.Offer(s2) : slot.Offer(s3)
+        Dim taken As ExecutorFeedback.FeedbackSnapshot = Nothing
+        Check("C1 fixture 7: three snapshots in, the NEWEST out (last-wins, not drop-the-newest)",
+              slot.TryTake(taken) AndAlso taken.SizeUsd = 30D, taken.SizeUsd.ToString(CultureInfo.InvariantCulture))
+        Check("C1 fixture 7: ...and the burst collapsed to ONE write, not three",
+              Not slot.HasPending AndAlso Not slot.TryTake(taken))
+        slot.Offer(s1)
+        slot.Clear()
+        Check("C1 fixture 7: Clear drops the queue (the graceful-close write supersedes it)",
+              Not slot.HasPending)
+
+        ' ---- C1.8 TRIGGER COMPLETENESS, ASSERTED PER FIELD ----
+        ' This is what makes section 4 (d)'s heartbeat rule safe. Under that rule the heartbeat
+        ' REPUBLISHES rather than re-reads, so a field the publish gate swallows is stale FOREVER,
+        ' not for 10 s. Asserted per field on purpose: an aggregate assertion passes while three of
+        ' the four are wired, which is the exact "mostly wired" defect the spec names.
+        '
+        ' Two things per field, because either alone would be a false pass: the field must survive
+        ' the content gate (SameContent), AND it must actually reach the wire (Serialize).
+        Dim baseSnap = ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                      250D, 59012.5D, 58962.5D, 59095D, Nothing)
+        Dim baseJson As String = ExecutorFeedback.Serialize(baseSnap, 1, New DateTime(2026, 8, 5, 9, 14, 2, DateTimeKind.Utc))
+
+        Dim mutations As New List(Of (name As String, snap As ExecutorFeedback.FeedbackSnapshot)) From {
+            ("position size_usd", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                                 260D, 59012.5D, 58962.5D, 59095D, Nothing)),
+            ("position avg_entry", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                                  250D, 59013.5D, 58962.5D, 59095D, Nothing)),
+            ("working stop", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                            250D, 59012.5D, 58963.5D, 59095D, Nothing)),
+            ("working target", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                              250D, 59012.5D, 58962.5D, 59096D, Nothing))
+        }
+
+        For Each m In mutations
+            Check($"C1 fixture 8: mutating {m.name} alone is NOT content-equal (the publish gate cannot swallow it)",
+                  Not ExecutorFeedback.SameContent(baseSnap, m.snap))
+            Check($"C1 fixture 8: ...and mutating {m.name} alone changes the emitted document",
+                  ExecutorFeedback.Serialize(m.snap, 1, New DateTime(2026, 8, 5, 9, 14, 2, DateTimeKind.Utc)) <> baseJson)
+            Dim burst As New ExecutorFeedback.CoalescingSlot()
+            Dim got As ExecutorFeedback.FeedbackSnapshot = Nothing
+            burst.Offer(baseSnap) : burst.Offer(m.snap)
+            Check($"C1 fixture 8: ...and it survives coalescing behind an older snapshot ({m.name})",
+                  burst.TryTake(got) AndAlso ExecutorFeedback.SameContent(got, m.snap))
+        Next
+
+        ' The gate's other half: an unchanged snapshot must publish NOTHING, or every quote tick
+        ' would rewrite the file. Both halves matter - this is why the heartbeat bypasses the gate.
+        Check("C1 fixture 8: a content-identical snapshot is NOT a change (no per-tick rewrites)",
+              ExecutorFeedback.SameContent(baseSnap, baseSnap) AndAlso
+              ExecutorFeedback.SameContent(baseSnap,
+                  ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                 250D, 59012.5D, 58962.5D, 59095D, Nothing)))
+
+        ' The executor-state fields are on the same gate, and (c)/(a) depend on them being seen.
+        Check("C1 fixture 8: mode, armed, started, breaker_tripped and ws are each a change too",
+              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.LogOnly, True, True, False, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
+              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, False, True, False, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
+              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, False, False, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
+              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, True, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
+              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, False, 250D, 59012.5D, 58962.5D, 59095D, Nothing)))
+        Check("C1 fixture 8: and last_signal moving from null to populated is a change (trigger (a))",
+              Not ExecutorFeedback.SameContent(baseSnap,
+                  ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
+                                                 250D, 59012.5D, 58962.5D, 59095D, acted)))
 
         ' ---- summary ----
         Dim total As Integer = _passed + _failed

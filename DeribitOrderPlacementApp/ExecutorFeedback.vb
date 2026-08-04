@@ -362,11 +362,49 @@ Friend NotInheritable Class ExecutorFeedback
     ' consecutive misses are tolerated before EXECUTOR STALE.
     Private Const HeartbeatMs As Integer = 10_000
 
+    ''' <summary>
+    ''' The coalescing slot (spec section 1.1 / contract 8.5). A burst of publishes collapses onto
+    ''' the NEWEST snapshot and one take drains it - LAST WINS, deliberately not the notifier's
+    ''' drop-the-newest rate limit.
+    '''
+    ''' Pure state: no I/O, no timers and no locking of its own (the caller owns the lock). That is
+    ''' what lets OrderCheck pin last-wins as arithmetic rather than as an assertion about a file -
+    ''' the same reason ShouldSend and EffectiveSizeUsd are shaped the way they are.
+    ''' </summary>
+    Friend NotInheritable Class CoalescingSlot
+        Private _snap As FeedbackSnapshot
+        Private _has As Boolean = False
+
+        Friend ReadOnly Property HasPending As Boolean
+            Get
+                Return _has
+            End Get
+        End Property
+
+        ''' <summary>Queue a snapshot, discarding any older one it supersedes.</summary>
+        Friend Sub Offer(snap As FeedbackSnapshot)
+            _snap = snap
+            _has = True
+        End Sub
+
+        ''' <summary>Drop anything queued (the graceful-close write supersedes it).</summary>
+        Friend Sub Clear()
+            _has = False
+        End Sub
+
+        ''' <summary>Take the newest queued snapshot; False when the slot is empty.</summary>
+        Friend Function TryTake(ByRef snap As FeedbackSnapshot) As Boolean
+            If Not _has Then Return False
+            snap = _snap
+            _has = False
+            Return True
+        End Function
+    End Class
+
     Private Shared ReadOnly _gate As New Object()      ' guards the queue + the ids
     Private Shared ReadOnly _writeGate As New Object() ' serializes the FILE write itself
 
-    Private Shared _pending As FeedbackSnapshot        ' the coalescing slot - LAST WINS
-    Private Shared _hasPending As Boolean = False
+    Private Shared ReadOnly _queue As New CoalescingSlot()
     Private Shared _lastPublished As FeedbackSnapshot  ' what the heartbeat republishes
     Private Shared _hasLastPublished As Boolean = False
     Private Shared _workerRunning As Boolean = False   ' SINGLE WRITER: at most one worker, ever
@@ -408,8 +446,7 @@ Friend NotInheritable Class ExecutorFeedback
                 If _hasLastPublished AndAlso SameContent(_lastPublished, snap) Then Return
                 _lastPublished = snap
                 _hasLastPublished = True
-                _pending = snap
-                _hasPending = True
+                _queue.Offer(snap)
                 If _workerRunning Then Return   ' the running worker will pick the newest up
                 _workerRunning = True
             End SyncLock
@@ -439,8 +476,7 @@ Friend NotInheritable Class ExecutorFeedback
             SyncLock _gate
                 If _disposed Then Return                  ' never resurrect a disposed emitter
                 If Not _hasLastPublished Then Return      ' nothing published yet: nothing to republish
-                _pending = _lastPublished
-                _hasPending = True
+                _queue.Offer(_lastPublished)
                 If _workerRunning Then Return
                 _workerRunning = True
             End SyncLock
@@ -456,15 +492,13 @@ Friend NotInheritable Class ExecutorFeedback
     Private Shared Sub DrainQueue()
         Try
             Do
-                Dim snap As FeedbackSnapshot
+                Dim snap As FeedbackSnapshot = Nothing
                 Dim id As Long
                 SyncLock _gate
-                    If _disposed OrElse Not _hasPending Then
+                    If _disposed OrElse Not _queue.TryTake(snap) Then
                         _workerRunning = False
                         Return
                     End If
-                    snap = _pending
-                    _hasPending = False
                     _feedbackId += 1
                     id = _feedbackId
                 End SyncLock
@@ -519,7 +553,7 @@ Friend NotInheritable Class ExecutorFeedback
                 _disposed = True
                 t = _heartbeat
                 _heartbeat = Nothing
-                _hasPending = False        ' anything queued is superseded by this final snapshot
+                _queue.Clear()             ' anything queued is superseded by this final snapshot
                 _lastPublished = final
                 _hasLastPublished = True
                 _feedbackId += 1
