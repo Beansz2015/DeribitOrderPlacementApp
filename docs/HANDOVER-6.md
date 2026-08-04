@@ -58,19 +58,40 @@ inputs must be set **together**, because they compose.
    repeats it verbatim and needs the same correction. **A coordinated docs note, not a schema bump.**
    Neither seat writes cross-repo, so this only moves when you carry it. Full text: contract §9's
    2026-08-02 entry.
-6. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
-7. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
+6. **🚨 C1 escalation E6 — TWO RULINGS OWED, raised 2026-08-04 before the emitter was written.**
+   Both are gaps in spec §4's trigger list, both the same shape (a schema field no trigger can
+   change), and both only became defects once §4(d) ruled the heartbeat *republishes* instead of
+   re-reading. **E6a — `executor.ws` has no trigger at all**, so a WS drop heartbeats `"OK"`
+   forever; contract §8.5's list has the same gap, so it is a coordinated docs note like E1's.
+   **E6b — nothing publishes at startup**, so a fresh idle flat app writes no file and §Acceptances
+   5 and 6 have no instrument (H-6 §7b lesson 1 again). Neither is implemented; both insertion
+   points are recorded so either ruling is a one-line change. Full text + recommended arms:
+   `impl-report-c1-feedback-emitter.md` §5.
+7. **C1 acceptances 3–7 are owner-runtime and unrun** — the run sheet is
+   `impl-report-c1-feedback-emitter.md` §7, written to be executable without the implementer.
+   Acceptance 4 (the flat trap) is the one that matters and needs a real open→close cycle;
+   log-only inspection cannot prove it.
+8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
+9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
 
 ## 3. Queue
 
-**N2 enable (owner) → C1 emitter build → `ROADMAP-2026-08.md` §5 backlog.**
+**N2 enable (owner) → C1 E6 rulings + acceptances 3–7 (owner) → coordinator review of C1 →
+`ROADMAP-2026-08.md` §5 backlog.**
 
 - N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
   the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.
-- **C1 emitter: SPEC WRITTEN + ALL ESCALATIONS RULED 2026-08-02
-  (`spec-c1-feedback-emitter.md`) — READY FOR AN IMPLEMENTER SEAT, which the owner launches.**
-  Not implemented; no impl report. E1/E2/E3/E5 ticked, E4 resolved against the engine's mirror.
+- **C1 emitter: IMPLEMENTED 2026-08-04, gate-green, SHIPS OFF — awaiting the E6 rulings (§2.6),
+  the owner-runtime acceptances 3–7 (§2.7), and then the coordinator's adversarial review.**
+  Five commits `c27951b..`; impl report `impl-report-c1-feedback-emitter.md` (its §3 is the
+  what-was-NOT-established list and is the first thing to read). Gate `GATE PASSED`, **OrderCheck
+  173/173 → 227/227**; the nine censuses are UNCHANGED at every commit.
+  **E3 is now ESTABLISHED, not assumed: `positionSizeUSD` is signed and NEGATIVE on a short**,
+  proven from two real testnet shorts (#99, #68) via the reduce direction, which is derived from
+  the position sign alone — impl report §3. E1/E2/E5 implemented as ruled; E4's ruling is honoured
+  (the heartbeat republishes and never re-reads) and **its revisit trigger is untouched and still
+  binding**. E1/E2/E3/E5 were owner-ticked, E4 resolved against the engine's mirror.
   **Contract §8.1 is AMENDED in this repo** (`atomic (temp + atomic replace)`, logged in §9) — the
   first change to the frozen contract since 2026-07-28, and it is wording only: no schema, field,
   enum or behaviour change.
