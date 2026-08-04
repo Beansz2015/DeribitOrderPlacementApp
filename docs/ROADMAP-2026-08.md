@@ -43,6 +43,13 @@ sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
 
 ## §5 — Hygiene backlog (anytime, unscheduled, all on record)
 
+- **A `PositionModelChanged` seam** (observation from `impl-report-c1-feedback-emitter.md` §6, not a
+  proposal). The four position fields have **17 assignments across 10 methods on two threads**, so
+  C1's emitter needs 10 hooks and its completeness argument is an *enumeration* rather than a
+  structural guarantee. One seam would collapse that to a single hook. ⚠ The receive-loop dispatcher
+  is NOT that seam — `HandleQuoteUpdates` / `HandleOrderPositionUpdates` are `Async Sub`, so a hook
+  there fires at their first `Await`, before their post-await writes: it would look complete and be
+  wrong on the two hottest handlers.
 - **`set-textbox -Exact` switch** — `set-textbox` matches by SUBSTRING, so `txtTrigger` can never
   address `txtTrigger` while `txtTriggerOffset` exists; it silently sets the wrong box and reports
   success. *(Verified still absent 2026-08-02.)*
