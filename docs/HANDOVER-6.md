@@ -53,14 +53,19 @@ inputs must be set **together**, because they compose.
    holds 91 live rows; after `#89` only these two remain. `#100` postdates N1c's #99 and appears in
    no doc. Owner's call, not a defect. *(The named list — #90–#93 / #96–#98 / #99 — is fully
    cleared.)*
-5. **Engine relay owed (C1 — E1 + E6, now ONE trip) — cross-app, coordinated docs note.** Two
-   corrections to the engine's `signal-bridge-v1-proposal.md` §10.2, which mirrors both: the §8.1
-   atomic-write wording (E1, 2026-08-02) and the §8.5 **trigger list** (E6, 2026-08-03 — `ws` into
-   (c), new (f) initial write). **No schema, field, enum or semantic change either time.** Neither
-   seat writes cross-repo, so this only moves when you carry it. Full text: contract §9's 2026-08-02
-   and 2026-08-03 entries. *(Not yet answered: the engine reply you may be recalling is
-   `feedback-file-engine-reply-2026-07-28.md`, which predates E1 by five days. Their
-   `trader-tick-queue.md` uses its own unrelated E1–E8 numbering.)*
+5. **✅ Engine relay DONE 2026-08-04 (engine `5d1bd02`) — mirror and canonical text agree.** Both
+   corrections applied to their `signal-bridge-v1-proposal.md` §10.2: the §8.1 atomic-write wording
+   (E1) and the §8.5 trigger list (E6 — `ws` into (c), new (f)). Verified read-only, not taken on
+   report. **Two findings from their side worth keeping:**
+   (a) **E1 was a DOC defect on both sides, not a code defect on theirs** — `SignalEmitter.TryWrite`
+   already guarded with `If File.Exists(path) Then File.Replace(...) Else File.Move(...)`, so the
+   engine had it right in code while its comment described the unguarded version. The reasoning
+   transferred even though the bug did not.
+   (b) **E6 landed harder there than "trigger list" suggests:** their §10.4 *renders* `ws`, so a
+   drop would have shown a stale `OK` on their interlock strip through the whole disconnect; and (f)
+   is what makes their "file absent = OFF, file stale = dead" pair sound at all.
+   ⚠ **One open reply owed (ours):** their §10.2 question — should the mirror carry the
+   heartbeat-republishes ruling? See §3's C1 bullet.
 6. **✅ C1 escalation E6 — BOTH RULED 2026-08-03 (implement A1 and B1). The two hooks are now the
    only unimplemented lines in the spec.** **E6a** — add a `ws` transition trigger at the connect
    and receive-loop-exit sites (`IsWebSocketConnected` is a *computed* property, so there is no
