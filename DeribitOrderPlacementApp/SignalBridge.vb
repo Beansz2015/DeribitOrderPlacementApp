@@ -316,7 +316,9 @@ Public Class SignalBridge
 
     ' ================================ file paths (beside the exe, like secrets.json) ================================
 
-    Private Shared ReadOnly Property ConfigFilePath As String
+    ' Friend (was Private) so ExecutorFeedback reads its feedback_output_path out of the SAME
+    ' bridge.json this class reads, from ONE expression rather than a second copy of the filename.
+    Friend Shared ReadOnly Property ConfigFilePath As String
         Get
             Return Path.Combine(AppContext.BaseDirectory, "bridge.json")
         End Get

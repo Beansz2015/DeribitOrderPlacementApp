@@ -860,6 +860,12 @@ Public Class frmMainPageV2
                                       "Remote notifier: configured",
                                       "Remote notifier: disabled (no ntfy_url)"), Color.Gray)
 
+        ' C1 (docs/spec-c1-feedback-emitter.md section 2): resolve feedback_output_path out of
+        ' bridge.json and say so in exactly one line, on the notifier's precedent. Absent key =>
+        ' fully inert: no timer, no worker, NO FILE. The path is not a credential, so it is logged.
+        ExecutorFeedback.LoadConfig()
+        AppendColoredText(txtLogs, ExecutorFeedback.StartupLine(), Color.Gray)
+
         ' Window title environment convention (harness spec section 1) - LOAD-BEARING:
         ' the prefix "Deribit Order Placement App" is frozen forever (every harness script matches
         ' on it) and the environment suffix is what the script safety tier gates on. The version

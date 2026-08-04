@@ -1,5 +1,6 @@
 {
   "_comment": "Copy to bridge.json beside the exe. Only the payload path lives here - the gate config (tiers, cooloff, max loss, time window) is on the Auto Settings form, and order size is the main form's Amount box.",
   "path": "C:\\Dev\\DeribitBridge\\verdict_signal.json",
-  "slippage_atr_mult": 0.6
+  "slippage_atr_mult": 0.6,
+  "_comment_feedback_output_path": "C1 v2 executor feedback (contract section 8) SHIPS OFF, so the key is DELIBERATELY ABSENT from this template - absent means fully inert: no timer, no worker, no file. To enable, add \"feedback_output_path\": \"C:\\\\Dev\\\\DeribitBridge\\\\executor_feedback.json\"; present-but-blank resolves to that same section-8.2 default. The path is not a credential and is logged at startup."
 }
