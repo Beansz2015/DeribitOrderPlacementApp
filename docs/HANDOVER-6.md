@@ -195,6 +195,17 @@ about the owner's bin** — separate settings file, DB and journal.
    mirroring the engine. The four gates grep as `ChaseAbortReason`.
 9. **The loss-cap anchor** `emergencyBaseline` moves only on adopt / manual edit / restore — NEVER
    the chase. Post-trigger, `placedStopLossPrice` is the chase reference. Deliberately divergent.
+10. **Every atomic write is `File.WriteAllText(tmp)` + `File.Move(tmp, path, overwrite:=True)`, and
+    this repo uses `File.Replace` NOWHERE.** Swept 2026-08-04 at the engine seat's suggestion: three
+    sites, all conforming — `AppUserSettings.vb:207` · `SignalBridge.vb:407` (PersistState) ·
+    `ExecutorFeedback.vb:530` (C1). **Our pattern is TOTAL where theirs needs a guard** —
+    `File.Move(overwrite:=True)` works whether or not the destination exists, which is why E1 was
+    never a code defect here. Append-only log writes (`crash.log`, `AutoTradeLog.txt`, the
+    disposition log) are a different class and are deliberately not atomic.
+    ⚠ One inherited dependency, benign but worth knowing: `SignalBridge.vb:425`'s comment asserts
+    *"`File.Replace` on the engine side surfaces as rename/change"* — a claim about **another
+    repo's** internals. It is safe either way because the watcher subscribes to Changed, Created
+    **and** Renamed, but it is the mirror-drift class pointing inward.
 
 ## 7. Methodology + seat rules
 
@@ -278,3 +289,16 @@ high-effort pass that re-reads the god-form has spent its budget in the wrong pl
    never an open item is invisible to a queue audit · **an unconfigured default is invisible to both
    a queue audit and an artefact read** — so **when config is a partial map, enumerate the DOMAIN,
    not the keys.**
+7. 🚨 **A SUMMARY SILENTLY DROPS THE CAVEAT ITS SOURCE CARRIED — and nothing looks wrong.**
+   Contributed by the engine seat 2026-08-04, from the E1 arc: their original spec
+   (`audit-cleanup-pass-proposal.md:65`) stated the `File.Replace` existence-guard fallback
+   explicitly and correctly. **Three separate summaries of it each dropped the guard** — a code
+   comment, a method `<summary>`, and `architecture.md`, the last being the worst because it is read
+   in full at every session start, so a seat inherits the wrong model *before opening any code*.
+   The source was right the whole time; every derivative was wrong.
+   **This is distinct from lesson 6.** There, a claim goes stale. Here nothing is stale and no
+   single copy looks defective — the qualifier is simply absent, and absence reads as "there was
+   never a qualifier." **It applies directly to this document**: H-6 summarises the specs, the
+   archive summarises milestones, memory summarises H-6. Each layer is a chance to drop a caveat.
+   **Mitigation: when you summarise a rule, carry its exception or do not carry the rule. And grep
+   every copy before calling a correction done — code comments included, not only docs.**
