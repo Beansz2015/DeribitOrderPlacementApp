@@ -42,6 +42,61 @@ Module Program
         Return SignalBridge.ParsePayload(SignalBridge.ParsePayloadJson(ReadFixture(fileName)))
     End Function
 
+    ' ---- C1 helpers (docs/spec-c1-feedback-emitter.md section 5) ----
+
+    ' One named-argument snapshot builder, so a fixture that varies EXACTLY ONE field reads as
+    ' varying exactly one field. Fixture 8 asserts per field across the whole section-8.3 domain,
+    ' and eleven positional BuildSnapshot calls would make "which one moved?" unreadable - which is
+    ' the same legibility problem that let the aggregate version hide E6a.
+    Private Function Snap(Optional instanceId As String = "exec-guid",
+                          Optional mode As SignalBridge.BridgeMode = SignalBridge.BridgeMode.Live,
+                          Optional armed As Boolean = True,
+                          Optional started As Boolean = True,
+                          Optional breakerTripped As Boolean = False,
+                          Optional wsConnected As Boolean = True,
+                          Optional sizeUsd As Decimal = 250D,
+                          Optional avgEntry As Decimal = 59012.5D,
+                          Optional workingStop As Decimal = 58962.5D,
+                          Optional workingTarget As Decimal = 59095D,
+                          Optional lastSignal As ExecutorFeedback.LastSignalRef = Nothing) _
+                          As ExecutorFeedback.FeedbackSnapshot
+        Return ExecutorFeedback.BuildSnapshot(instanceId, mode, armed, started, breakerTripped,
+                                              wsConnected, sizeUsd, avgEntry, workingStop,
+                                              workingTarget, lastSignal)
+    End Function
+
+    Private ReadOnly PinnedAt As New DateTime(2026, 8, 5, 9, 14, 2, DateTimeKind.Utc)
+
+    Private Function SnapJson(s As ExecutorFeedback.FeedbackSnapshot) As String
+        Return ExecutorFeedback.Serialize(s, 1, PinnedAt)
+    End Function
+
+    ' Every LEAF path in an emitted document. This is what turns fixture 8 from "the fields I
+    ' remembered" into "the schema": a new section-8.3 field cannot be added without failing the
+    ' domain check below, which forces whoever adds it to give it a per-field assertion - and
+    ' therefore to think about whether it has a TRIGGER. E6a is precisely what happens when a field
+    ' exists that no fixture enumerates. (H-6 section 7 lesson 6: enumerate the DOMAIN, not the keys.)
+    Private Sub CollectLeafPaths(t As JToken, acc As List(Of String))
+        Dim o As JObject = TryCast(t, JObject)
+        If o IsNot Nothing AndAlso o.Count > 0 Then
+            For Each p As JProperty In o.Properties()
+                CollectLeafPaths(p.Value, acc)
+            Next
+        Else
+            acc.Add(t.Path)
+        End If
+    End Sub
+
+    ' ParsePayloadJson, not JObject.Parse: the latter's default DateParseHandling turns an ISO-8601
+    ' string into a Date token rendered in the CURRENT culture (the 8956baa bug), which false-failed
+    ' fixture 6 on its first run.
+    Private Function LeafPaths(json As String) As List(Of String)
+        Dim acc As New List(Of String)
+        CollectLeafPaths(SignalBridge.ParsePayloadJson(json), acc)
+        acc.Sort(StringComparer.Ordinal)
+        Return acc
+    End Function
+
     Public Function Main() As Integer
         Console.WriteLine("OrderCheck - order app logic harness")
 
@@ -945,60 +1000,133 @@ Module Program
         Check("C1 fixture 7: Clear drops the queue (the graceful-close write supersedes it)",
               Not slot.HasPending)
 
-        ' ---- C1.8 TRIGGER COMPLETENESS, ASSERTED PER FIELD ----
-        ' This is what makes section 4 (d)'s heartbeat rule safe. Under that rule the heartbeat
-        ' REPUBLISHES rather than re-reads, so a field the publish gate swallows is stale FOREVER,
-        ' not for 10 s. Asserted per field on purpose: an aggregate assertion passes while three of
-        ' the four are wired, which is the exact "mostly wired" defect the spec names.
+        ' ---- C1.8 TRIGGER COMPLETENESS, ASSERTED PER FIELD, OVER THE WHOLE SECTION-8.3 DOMAIN ----
         '
-        ' Two things per field, because either alone would be a false pass: the field must survive
-        ' the content gate (SameContent), AND it must actually reach the wire (Serialize).
-        Dim baseSnap = ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
-                                                      250D, 59012.5D, 58962.5D, 59095D, Nothing)
-        Dim baseJson As String = ExecutorFeedback.Serialize(baseSnap, 1, New DateTime(2026, 8, 5, 9, 14, 2, DateTimeKind.Utc))
+        ' This is what makes section 4 (d)'s heartbeat rule safe. Under that rule the heartbeat
+        ' REPUBLISHES rather than re-reads, so a fresh generated_at_utc proves only that the process
+        ' is alive - every field is as of its last TRIGGERING event. Trigger completeness is
+        ' therefore the only thing bounding any individual field's staleness, and a field the
+        ' publish gate swallows is stale FOREVER rather than for 10 s.
+        '
+        ' AMENDED 2026-08-03 (owner, with the E6 ruling). This fixture was originally scoped to "the
+        ' four snapshot fields", and THAT SCOPING IS EXACTLY WHY IT COULD NOT HAVE CAUGHT E6a:
+        ' executor.ws is a section-8.3 field outside the four. It now enumerates the SCHEMA. Same
+        ' "enumerate the domain, not the keys" lesson as the unconfigured NY session bucket
+        ' (H-6 section 7 lesson 6), applied to a fixture instead of a config map.
+        '
+        ' Three assertions per field, because any one alone is a false pass: the mutation must
+        ' survive the content gate (SameContent), reach the wire (Serialize), and survive coalescing
+        ' behind an older snapshot.
+        Dim baseSnap As ExecutorFeedback.FeedbackSnapshot = Snap()
+        Dim baseJson As String = SnapJson(baseSnap)
+        Dim otherSig As New ExecutorFeedback.LastSignalRef("9f0c-engine-guid", 1234, "acted (id 55)",
+                                                           New DateTime(2026, 8, 5, 9, 13, 41, DateTimeKind.Utc))
 
+        ' EVERY mutable field of the section-8.3 document, one entry per field, each varying that
+        ' field ALONE. The immutable remainder is enumerated separately below, so the domain is
+        ' covered rather than sampled.
         Dim mutations As New List(Of (name As String, snap As ExecutorFeedback.FeedbackSnapshot)) From {
-            ("position size_usd", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
-                                                                 260D, 59012.5D, 58962.5D, 59095D, Nothing)),
-            ("position avg_entry", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
-                                                                  250D, 59013.5D, 58962.5D, 59095D, Nothing)),
-            ("working stop", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
-                                                            250D, 59012.5D, 58963.5D, 59095D, Nothing)),
-            ("working target", ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
-                                                              250D, 59012.5D, 58962.5D, 59096D, Nothing))
+            ("executor.instance_id", Snap(instanceId:="a-different-guid")),
+            ("executor.mode", Snap(mode:=SignalBridge.BridgeMode.LogOnly)),
+            ("executor.armed", Snap(armed:=False)),
+            ("executor.started", Snap(started:=False)),
+            ("executor.breaker_tripped", Snap(breakerTripped:=True)),
+            ("executor.ws  <- THE E6a FIELD", Snap(wsConnected:=False)),
+            ("position.size_usd", Snap(sizeUsd:=260D)),
+            ("position.avg_entry", Snap(avgEntry:=59013.5D)),
+            ("position.working.stop", Snap(workingStop:=58963.5D)),
+            ("position.working.target", Snap(workingTarget:=59096D)),
+            ("last_signal (null -> populated)", Snap(lastSignal:=otherSig)),
+            ("last_signal.instance_id", Snap(lastSignal:=New ExecutorFeedback.LastSignalRef(
+                 "OTHER-engine", 1234, "acted (id 55)", New DateTime(2026, 8, 5, 9, 13, 41, DateTimeKind.Utc)))),
+            ("last_signal.signal_id", Snap(lastSignal:=New ExecutorFeedback.LastSignalRef(
+                 "9f0c-engine-guid", 1235, "acted (id 55)", New DateTime(2026, 8, 5, 9, 13, 41, DateTimeKind.Utc)))),
+            ("last_signal.disposition", Snap(lastSignal:=New ExecutorFeedback.LastSignalRef(
+                 "9f0c-engine-guid", 1234, "rejected: cancel pending", New DateTime(2026, 8, 5, 9, 13, 41, DateTimeKind.Utc)))),
+            ("last_signal.at_utc", Snap(lastSignal:=New ExecutorFeedback.LastSignalRef(
+                 "9f0c-engine-guid", 1234, "acted (id 55)", New DateTime(2026, 8, 5, 9, 13, 42, DateTimeKind.Utc))))
         }
 
+        ' The last four vary a member of last_signal against the POPULATED baseline, not the null
+        ' one - otherwise they would all pass merely by being non-null and prove nothing about the
+        ' member. SameLastSignal compares four members and could swallow any one of them.
+        Dim sigBase As ExecutorFeedback.FeedbackSnapshot = Snap(lastSignal:=otherSig)
+
         For Each m In mutations
-            Check($"C1 fixture 8: mutating {m.name} alone is NOT content-equal (the publish gate cannot swallow it)",
-                  Not ExecutorFeedback.SameContent(baseSnap, m.snap))
-            Check($"C1 fixture 8: ...and mutating {m.name} alone changes the emitted document",
-                  ExecutorFeedback.Serialize(m.snap, 1, New DateTime(2026, 8, 5, 9, 14, 2, DateTimeKind.Utc)) <> baseJson)
+            Dim ref As ExecutorFeedback.FeedbackSnapshot =
+                If(m.name.StartsWith("last_signal.", StringComparison.Ordinal), sigBase, baseSnap)
+            Check($"C1 fixture 8: {m.name} - mutating it alone is NOT content-equal (the gate cannot swallow it)",
+                  Not ExecutorFeedback.SameContent(ref, m.snap))
+            Check($"C1 fixture 8: {m.name} - ...and it changes the emitted document",
+                  SnapJson(m.snap) <> SnapJson(ref))
             Dim burst As New ExecutorFeedback.CoalescingSlot()
             Dim got As ExecutorFeedback.FeedbackSnapshot = Nothing
-            burst.Offer(baseSnap) : burst.Offer(m.snap)
-            Check($"C1 fixture 8: ...and it survives coalescing behind an older snapshot ({m.name})",
+            burst.Offer(ref) : burst.Offer(m.snap)
+            Check($"C1 fixture 8: {m.name} - ...and it survives coalescing behind an older snapshot",
                   burst.TryTake(got) AndAlso ExecutorFeedback.SameContent(got, m.snap))
         Next
+
+        ' position.direction is DERIVED from size_usd's sign, so it cannot be varied independently -
+        ' that derivation is what makes contract 8.4's sign/direction consistency structural, and
+        ' fixture 3 owns it. What belongs here is that the derived value is itself on the gate.
+        Check("C1 fixture 8: position.direction - LONG vs SHORT at equal magnitude is a change",
+              Not ExecutorFeedback.SameContent(Snap(sizeUsd:=250D), Snap(sizeUsd:=-250D)))
+        Check("C1 fixture 8: position.direction - non-flat vs FLAT is a change",
+              Not ExecutorFeedback.SameContent(baseSnap, Snap(sizeUsd:=0D)))
 
         ' The gate's other half: an unchanged snapshot must publish NOTHING, or every quote tick
         ' would rewrite the file. Both halves matter - this is why the heartbeat bypasses the gate.
         Check("C1 fixture 8: a content-identical snapshot is NOT a change (no per-tick rewrites)",
               ExecutorFeedback.SameContent(baseSnap, baseSnap) AndAlso
-              ExecutorFeedback.SameContent(baseSnap,
-                  ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
-                                                 250D, 59012.5D, 58962.5D, 59095D, Nothing)))
+              ExecutorFeedback.SameContent(baseSnap, Snap()))
 
-        ' The executor-state fields are on the same gate, and (c)/(a) depend on them being seen.
-        Check("C1 fixture 8: mode, armed, started, breaker_tripped and ws are each a change too",
-              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.LogOnly, True, True, False, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
-              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, False, True, False, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
-              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, False, False, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
-              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, True, True, 250D, 59012.5D, 58962.5D, 59095D, Nothing)) AndAlso
-              Not ExecutorFeedback.SameContent(baseSnap, ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, False, 250D, 59012.5D, 58962.5D, 59095D, Nothing)))
-        Check("C1 fixture 8: and last_signal moving from null to populated is a change (trigger (a))",
-              Not ExecutorFeedback.SameContent(baseSnap,
-                  ExecutorFeedback.BuildSnapshot("g", SignalBridge.BridgeMode.Live, True, True, False, True,
-                                                 250D, 59012.5D, 58962.5D, 59095D, acted)))
+        ' ---- C1.8b THE DOMAIN CHECK - what would have caught E6a's SHAPE ----
+        ' The emitted leaf paths, pinned as a set. A new section-8.3 field cannot be added without
+        ' failing this, which forces whoever adds it to give it a per-field assertion above - and
+        ' therefore to ask whether it has a TRIGGER. Enumerating the schema is the whole point:
+        ' fixture 8 could list every field it knew about and still miss the one nobody listed.
+        Dim expectedPopulated As New List(Of String) From {
+            "executor.app", "executor.armed", "executor.breaker_tripped", "executor.instance_id",
+            "executor.mode", "executor.started", "executor.ws",
+            "feedback_id", "generated_at_utc", "instrument",
+            "last_signal.at_utc", "last_signal.disposition", "last_signal.instance_id", "last_signal.signal_id",
+            "position.avg_entry", "position.direction", "position.size_usd",
+            "position.working.stop", "position.working.target", "schema_version"
+        }
+        expectedPopulated.Sort(StringComparer.Ordinal)
+        Dim actualPopulated As List(Of String) = LeafPaths(SnapJson(sigBase))
+        Check("C1 fixture 8b: the emitted document carries EXACTLY the section-8.3 field set (populated)",
+              actualPopulated.SequenceEqual(expectedPopulated),
+              $"got [{String.Join(", ", actualPopulated)}]")
+
+        ' The null-last_signal shape is a different document and is pinned separately: the four
+        ' last_signal members collapse to one null leaf, and nothing else may move.
+        Dim expectedNull As New List(Of String) From {
+            "executor.app", "executor.armed", "executor.breaker_tripped", "executor.instance_id",
+            "executor.mode", "executor.started", "executor.ws",
+            "feedback_id", "generated_at_utc", "instrument", "last_signal",
+            "position.avg_entry", "position.direction", "position.size_usd",
+            "position.working.stop", "position.working.target", "schema_version"
+        }
+        expectedNull.Sort(StringComparer.Ordinal)
+        Check("C1 fixture 8b: ...and exactly that set with last_signal null before first consumption",
+              LeafPaths(baseJson).SequenceEqual(expectedNull),
+              $"got [{String.Join(", ", LeafPaths(baseJson))}]")
+
+        ' The immutable remainder of the domain, named so the enumeration above is complete rather
+        ' than merely long. These three are constants and have no trigger BECAUSE they cannot
+        ' change within a process - which is a different thing from E6a's "changes with no trigger".
+        Check("C1 fixture 8b: schema_version, executor.app and instrument are per-build constants",
+              ExecutorFeedback.SchemaVersion = 1 AndAlso
+              ExecutorFeedback.AppName = "DeribitOrderPlacementApp" AndAlso
+              ExecutorFeedback.Instrument = "BTC-PERPETUAL")
+        ' feedback_id and generated_at_utc are deliberately OUTSIDE the content gate: they are
+        ' assigned per publish, and the heartbeat's whole job is to move them while nothing else
+        ' moves. If they were inside SameContent the heartbeat would be a no-op by construction.
+        Check("C1 fixture 8b: feedback_id and generated_at_utc are excluded from the content gate by design",
+              ExecutorFeedback.SameContent(baseSnap, Snap()) AndAlso
+              ExecutorFeedback.Serialize(baseSnap, 1, PinnedAt) <>
+              ExecutorFeedback.Serialize(baseSnap, 2, PinnedAt.AddSeconds(10)))
 
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
