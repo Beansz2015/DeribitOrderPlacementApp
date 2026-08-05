@@ -5,10 +5,15 @@ binding, and the spec implements it without restating it, so §8 governed every 
 **Seat:** Opus 5, HIGH effort, fresh conversation (the spec's own recommendation; see §6 for whether
 that was right in hindsight).
 
-**Status: code COMPLETE and gate-green; SHIPS OFF. Two items are open and both are owner-side —
-escalation E6 (§5), raised before the code was written and still unruled.** Acceptances 1 and 2 are
-done and evidenced below. Acceptances 3–7 need a running app and in places ARM/START, so they are
-written up as a run sheet (§7) rather than driven — the seat places no trades and arms no bridge.
+**Status: code COMPLETE and gate-green; SHIPS OFF. Every line of the spec is implemented —
+E6a and E6b were ruled 2026-08-03 and landed in commits 6 and 7 (§8 is the addendum).** Acceptances
+1 and 2 are done and evidenced below. Acceptances 3–7 need a running app and in places ARM/START, so
+they are written up as a run sheet (§7) rather than driven — the seat places no trades and arms no
+bridge. Nothing is owed by this seat; the next step is the coordinator's adversarial review.
+
+⚠ **Read §8 before §3–§7.** The addendum supersedes four statements in them, and each superseded
+statement is struck at its own site rather than left to be discovered — a doc is not evidence about
+a doc, and the staleness is recursive (H-6 §7b lesson 6).
 
 ## 1. What landed
 
@@ -18,7 +23,10 @@ written up as a run sheet (§7) rather than driven — the seat places no trades
 | 2 | `e5156a1` | §3 snapshot + §8.3 mapping + the `breaker_tripped` seam extraction |
 | 3 | `2b1b565` | §1 writer/worker + §4 triggers (a)/(b)/(b2)/(c)/(d)/(e) |
 | 4 | `3366feb` | §5 fixtures 1–8 — OrderCheck **173/173 → 227/227** |
-| 5 | this | impl report |
+| 5 | `91c8bc2` | impl report |
+| 6 | `5c2d6ed` | **E6a + E6b as ruled** — the `ws` trigger (both edges) and the initial write (f) |
+| 7 | `dd43e59` | **fixture 8 rescoped to the whole §8.3 domain** + the 8b domain check — **227 → 264** |
+| 8 | this | report addendum (§8), and the §7.0 caveat dropped |
 
 New file `ExecutorFeedback.vb`. Touched: `SignalBridge.vb`, `frmMainPageV2.vb`,
 `bridge.example.json`, `tools/OrderCheck/Program.vb`.
@@ -240,12 +248,10 @@ inspection instead (the field has exactly two assignment sites, both quoted abov
 4. **The atomic write was never observed mid-crash.** Acceptance 7's kill-the-process half is
    unrun. The claim rests on the house pattern being unchanged from `AppUserSettings:207` /
    `SignalBridge.PersistState`, which are themselves soak-proven — not on a new observation.
-5. **`executor.ws` has no trigger** (E6a, unruled). As shipped, a WebSocket drop is *not* published;
-   the heartbeat will republish `ws:"OK"` until some other trigger fires. **This is a known
-   permanently-stale field until E6a is ruled**, and it is the honest reason the field cannot be
-   trusted in an emit-only inspection that includes a disconnect.
-6. **No file is written on a fresh idle app** (E6b, unruled). Acceptances 5 and 6 have no instrument
-   until this is ruled; §7's run sheet works around it explicitly.
+5. ~~**`executor.ws` has no trigger** (E6a, unruled).~~ **CLOSED by commit `5c2d6ed` — see §8.**
+   `ws` is now published at both edges and is no longer a permanently-stale field.
+6. ~~**No file is written on a fresh idle app** (E6b, unruled).~~ **CLOSED by commit `5c2d6ed` —
+   see §8.** Trigger (f) writes one snapshot at start when configured.
 7. **No engine-side behaviour was verified.** Nothing in this pass ran, read, or touched
    `C:\Dev\DeribitVerdictEngine` (read-only by standing rule). Consumption is the engine's mirror
    doc's business and phase-1 ships `enabled: false`.
@@ -262,7 +268,11 @@ have thrown on the first write and on the OFF→ON transition, which is the whol
 raised. **The owner's cross-repo relay of that wording to the engine's `signal-bridge-v1-proposal.md`
 §10.2 remains owed** (H-6 §2 item 5); nothing in this pass could carry it.
 
-## 5. OPEN — escalation E6, raised before implementation, still unruled
+## 5. Escalation E6 — RULED 2026-08-03, IMPLEMENTED in commit `5c2d6ed` (§8)
+
+**Both arms ruled as recommended (A1 and B1) and both are now in the code. This section is kept as
+the record of what was raised and why, not as an open item** — the ruling and the implementation are
+in §8. The original text follows.
 
 Both are gaps in §4's trigger list, both are the same shape (a schema field no trigger can change),
 and both only became defects when §4(d) ruled the heartbeat republishes instead of re-reading.
@@ -278,8 +288,8 @@ Full text was handed to the owner for relay; summarised here so this report stan
   *Implementer's recommendation:* one initial publish at startup when configured, on the UI thread,
   right after the bridge is constructed — §4 gains an (f) mirroring (e).
 
-**Neither is implemented.** Both insertion points are identified above so either ruling lands as a
-one-line change rather than a rework, and no line already committed depends on the outcome.
+~~**Neither is implemented.**~~ **Both are, as of `5c2d6ed`.** The insertion points identified above
+turned out to be the ones used, so each ruling did land as a one-line change rather than a rework.
 
 ## 6. The question the spec asked: was Opus-HIGH right?
 
@@ -328,9 +338,11 @@ START. Written to be executable without the implementer.
 5. Remember the disposition log you will want to cross-check is the **x64 bin's**
    `bridge-dispositions.log` (H-6 §5.11).
 
-> ⚠ **E6b caveat.** Until E6b is ruled, **no file exists on a fresh idle app**. Before acceptances
-> 5 and 6, tick and untick **ARM** once — that is trigger (c) and it forces the first write. If the
-> file does not appear after that, treat it as a defect, not as this caveat.
+> ✅ **The E6b caveat is GONE** (it said: tick ARM once to force a first write). Trigger (f) now
+> writes one snapshot at start, so **the file must exist as soon as the app is up and configured,
+> with the app idle and flat and the bridge Off.** That is itself the first observation to make:
+> if `executor_feedback.json` is absent after a configured start, that is a defect — there is no
+> longer any workaround standing between you and it. Acceptances 5 and 6 now have a real instrument.
 
 ### 7.1 Acceptance 3 — emit-only, hand inspection
 
@@ -377,17 +389,26 @@ it** — it needs a real open→close cycle.
 
 ### 7.3 Acceptance 5 — restart
 
-With the caveat in 7.0 applied: note `executor.instance_id` and the current `feedback_id`, close the
-app, relaunch, force one trigger (tick ARM), then read. Required: a **different** `instance_id`,
+Note `executor.instance_id` and the current `feedback_id`, close the app, relaunch, and read **as
+soon as it is up** — trigger (f) has already written by then, so nothing needs forcing. Required:
+a **different** `instance_id`,
 `feedback_id` restarted from `1`, and `executor.armed` / `executor.started` both `false` at the
 first write after restart.
 
 ### 7.4 Acceptance 6 — heartbeat
 
-App **idle and flat**, emitter configured, one trigger already forced. Read `generated_at_utc`
-twice ~30 s apart: it must advance in ~10 s steps and `feedback_id` must increase with it, while
-`position` and `last_signal` stay **byte-identical** — that is the republish rule doing its job. If
-`position` changes while genuinely idle, the heartbeat is reading live state and that is a defect.
+App **idle and flat**, emitter configured, nothing forced — trigger (f) has already seeded the
+heartbeat, which is why it now has a snapshot to republish from its first tick. Read
+`generated_at_utc` twice ~30 s apart: it must advance in ~10 s steps and `feedback_id` must increase
+with it, while `position` and `last_signal` stay **byte-identical** — that is the republish rule
+doing its job. If `position` changes while genuinely idle, the heartbeat is reading live state and
+that is a defect.
+
+**Also check `executor.ws` here now that it has a trigger (E6a).** With the app connected it must
+read `"OK"`. Then pull the network (or stop the socket) and watch it go to `"DOWN"` **on the
+transition, not on a heartbeat** — the heartbeat republishes, so the value can only change because
+the receive loop exited and published. Reconnect and it must return to `"OK"`. Before commit
+`5c2d6ed` this field would have read `"OK"` through the entire disconnect.
 
 ### 7.5 Acceptance 7 — graceful close, then kill
 
@@ -407,3 +428,141 @@ Delete the `feedback_output_path` key from the x64 `bridge.json` (blank is **not
 to the default path). Confirm the startup line reads
 `Executor feedback: disabled (no feedback_output_path in bridge.json)`, and that no new
 `executor_feedback.json` appears.
+
+---
+
+# 8. ADDENDUM — E6a and E6b implemented (2026-08-04, commits `5c2d6ed` and `dd43e59`)
+
+**Both arms ruled 2026-08-03 as recommended (A1 and B1). Contract §8.5 and spec §4 were amended
+first — trigger list only, no schema, field, enum or semantic change — and both were re-read before
+any code was written.** This addendum supersedes §3 items 5 and 6, §5's "neither is implemented",
+and §7.0's E6b caveat; each is struck at its own site as well as listed here.
+
+**Gate after each commit: `GATE PASSED`. OrderCheck 227/227 → 264/264 (+37).** The nine censuses are
+**unchanged at both commits** — 10 · 8 · 2 · 3 · 1 · 0 · 13 · 13 · 18, still 68 occurrences across
+64 lines. Commit 6 touches `frmMainPageV2.vb` only; commit 7 touches `tools/OrderCheck/Program.vb`
+only.
+
+## 8.1 What the hooks touched — three lines, three sites
+
+| Trigger | Site | Why there |
+|---|---|---|
+| (c) `ws` — **OK edge** | `ConnectWebSocket`, after the success UI update, before the background tasks start | The connection is established at that point and nothing else has run yet |
+| (c) `ws` — **DOWN edge** | `ReceiveWebSocketMessagesAsync`, immediately after `End While`, **above** the `If reconnectNeeded` branch | Covers **every** way out — the server-close `Exit While`, all three exception arms, and the `While` condition itself going non-Open. Above the branch because that branch `Return`s when `isClosing` |
+| (f) initial write | `frmMainPageV2_Shown`, after the bridge is constructed, immediately **before** `StartHeartbeat` | UI thread, app idle, nothing racing; and the heartbeat then has a real snapshot to republish from its first tick |
+
+All three are the same one-line `PublishExecutorFeedback()` call that every other trigger uses, so
+OFF-parity is unchanged: unconfigured costs one Boolean field read and a return.
+
+**The owner's verification sharpened E6a's diagnosis and the comment records it:**
+`IsWebSocketConnected` (`:672`) is a **computed** property over `webSocketClient.State`, not a
+stored flag — so there is no assignment site any trigger could hook the way the other four fields
+are hooked. The gap was **structural**, not an omission from the list, which is exactly why the
+transition has to be published where it *happens* rather than where a field is written.
+
+**One interaction worth stating, because it is the only place the two new hooks meet an old one:**
+on a user-driven shutdown the DOWN edge is a no-op by construction. `FormClosing` takes its final
+write (trigger e) and latches the emitter disposed **before** it closes the socket, so the
+subsequent loop-exit publish cannot overwrite that final snapshot with a `DOWN`. The final write
+therefore remains the executor's last true state, which is what makes "silence = dead executor"
+honest rather than "last thing observed was a disconnect".
+
+## 8.2 The trigger enumeration, restated with `ws` and (f) folded in
+
+§4(d) makes a missing hook permanent, so this table is the artefact — not the fixtures. **18 call
+sites.** The first block is unchanged from §1 and is repeated so this table stands alone.
+
+**(b) / (b2) — the four snapshot fields. 17 assignments across 10 methods; all 10 carry a hook.**
+
+| Method | Field writes | Hook |
+|---|---|---|
+| `SyncTradeInputsFromUi` | `manualTPval` (:518) | tail |
+| `HandlePlacementResponse` | `placedStopLossPrice` (:1829) | in the rollback arm (it `Return`s) |
+| `HandleQuoteUpdates` | `placedStopLossPrice` (:2559) | at the SL-chase branch (per-tick method) |
+| `HandleOrderPositionUpdates` | `positionSizeUSD` (:2995), `positionAvgEntry` (:2998), `placedStopLossPrice` (:3158, :3173, :3309), `manualTPval` (:3476) | tail — one publish per echo, coherent |
+| `ExecuteOrderAsync` | `placedStopLossPrice` (:4035) | tail |
+| `CancelOrderAsync` | `placedStopLossPrice` (:4113) | tail |
+| `CancelWorkingEntryCoreAsync` | `placedStopLossPrice` (:4241) | tail |
+| `StopLossForTrailingOrderAsync` | `placedStopLossPrice` (:4968) | tail |
+| `HandleOpenOrdersSnapshot` | `placedStopLossPrice` (:5707, :5722) | tail |
+| `ProcessPositionData` | `positionSizeUSD` (:5773), `positionAvgEntry` (:5775) | tail |
+
+*(Line numbers are pre-commit-6; commit 6 inserts above some of them. The methods, not the numbers,
+are the claim.)*
+
+**(a) / (c) / (d) / (e) / (f) — everything else in the §8.3 domain.**
+
+| Trigger | Field(s) it exists for | Site |
+|---|---|---|
+| (a) disposition | `last_signal.*` | `SignalBridge.EmitDisposition` — unconditional, below the host-log filter |
+| (c) mode | `executor.mode` | `SignalBridge.Mode` setter |
+| (c) ARM | `executor.armed` | `SignalBridge.LocalArmed` setter |
+| (c) START | `executor.started` | `SignalBridge.TryStart` |
+| (c) STOP | `executor.started` | `SignalBridge.ForceStop` |
+| (c) breaker | `executor.breaker_tripped` | `HandleBalanceUpdates` tail — `USDPublicSession` is written there on every portfolio echo |
+| **(c) ws — OK** | **`executor.ws`** | **connect path, after the success UI update** |
+| **(c) ws — DOWN** | **`executor.ws`** | **receive-loop exit, above the reconnect branch** |
+| (d) heartbeat | none — liveness only | the 10 s timer; republishes, never re-reads |
+| (e) graceful close | all | `FormClosing`, synchronous, own `Try`, before teardown |
+| **(f) initial write** | **all** | **`frmMainPageV2_Shown`, before `StartHeartbeat`** |
+
+**Every §8.3 field now has a trigger.** The three that do not are the three that *cannot change
+within a process* — `schema_version`, `executor.app`, `instrument` — which is a different thing from
+E6a's "changes with no trigger", and fixture 8b now says so explicitly. `feedback_id` and
+`generated_at_utc` are assigned per publish and sit outside the content gate by design.
+
+## 8.3 Fixture 8 — rescoped, and what changed about its shape
+
+The owner filed the defect: fixture 8 was scoped to *"the four snapshot fields"*, so it **could not
+have caught E6a** — `executor.ws` is a §8.3 field outside the four. Spec §5 now scopes it to every
+§8.3 field.
+
+**The aggregate is gone.** The previous version folded mode, armed, started, breaker_tripped and ws
+into **one** `Check` joined by `AndAlso` — the very anti-pattern the fixture exists to forbid, since
+it passes while four of five are wired. Fifteen fields now get three assertions each (survives the
+content gate, reaches the wire, survives coalescing behind an older snapshot). The four
+`last_signal` members vary against the **populated** baseline rather than the null one, or they
+would pass merely by being non-null and prove nothing about the member.
+
+**New: fixture 8b, the domain check — this is what catches E6a's *shape* rather than its instance.**
+It walks the emitted document's leaf paths and pins them as a set, for both document shapes
+(`last_signal` populated and null). A new §8.3 field cannot be added without failing it, which
+forces whoever adds it to write a per-field assertion — and therefore to ask whether the field has a
+trigger. That is the point a per-field list alone cannot reach: **a fixture can enumerate every
+field it knows about and still miss the one nobody listed.** Same "enumerate the domain, not the
+keys" lesson as the unconfigured NY session bucket, applied to a fixture.
+
+**It was proved to fail rather than pass vacuously.** Dropping `executor.ws` from the expected set
+was run: the check failed and printed the actual field set in its detail line — the message a future
+author needs. Reverted before commit; the negative test is not in the repo.
+
+## 8.4 What is still NOT established
+
+§3 stands unchanged except for items 5 and 6, and **nothing in this addendum turns a runtime
+acceptance green**:
+
+- **Acceptances 3–7 remain unrun.** The two new hooks are argued from the code, not observed. In
+  particular **the ws transition has never been seen fire** — §7.4 now carries its own observation
+  step for exactly that, and it is the first runtime evidence anyone will have for E6a.
+- **(f) has never been observed writing a file.** That it does is the premise of the amended §7.0,
+  §7.3 and §7.4, and it is now the *first* thing the run sheet checks — deliberately, so a failure
+  shows up immediately rather than as a confusing absence later.
+- **Fixture 8b pins the schema, not the call sites.** It would catch a new field with no assertion;
+  it would not catch a hook deleted from a handler. That limit is unchanged and is now written into
+  spec §5 as well.
+- The **`Return`-between-write-and-tail claim** (§1, and the review's named sharpest target) is
+  **unaffected** by these commits: commit 6 added no tail hook — the two `ws` sites are lifecycle
+  sites, and (f) is a startup site. The claim still covers the same 10 methods and still rests on
+  reading them.
+
+## 8.5 One observation for the owner, not an action
+
+H-6 §2.5 records a reply owed to the engine seat — *"should the mirror carry the
+heartbeat-republishes ruling?"* — and points at §3's C1 bullet, which does not answer it. The answer
+appears to be **already written, in the owner's own amended contract §8.5**: the heartbeat rule is
+*"emitter mechanics — canonical here, deliberately NOT mirrored"*, while its consumption-visible
+*consequence* (a fresh `generated_at_utc` proves liveness, not field freshness) **is** in the
+contract and so does travel to the mirror. If that is the intended answer, the reply is a relay
+rather than a decision. **Flagged, not acted on** — cross-app decisions go through the owner and the
+engine repo is read-only to this seat.
+

@@ -66,14 +66,14 @@ inputs must be set **together**, because they compose.
    is what makes their "file absent = OFF, file stale = dead" pair sound at all.
    ⚠ **One open reply owed (ours):** their §10.2 question — should the mirror carry the
    heartbeat-republishes ruling? See §3's C1 bullet.
-6. **✅ C1 escalation E6 — BOTH RULED 2026-08-03 (implement A1 and B1). The two hooks are now the
-   only unimplemented lines in the spec.** **E6a** — add a `ws` transition trigger at the connect
-   and receive-loop-exit sites (`IsWebSocketConnected` is a *computed* property, so there is no
-   assignment site; the hooks go on the lifecycle). **E6b** — one initial write at start when
-   configured, on the UI thread after the bridge is constructed, mirroring (e). Spec §4 and contract
-   §8.5 are amended to match; the relay in item 5 now covers both. ⚠ **Until the E6a hook lands,
-   `executor.ws` is knowingly permanently stale** — do not trust it in an emit-only inspection that
-   includes a disconnect. Insertion points: `impl-report-c1-feedback-emitter.md` §5.
+6. **✅ C1 escalation E6 — RULED 2026-08-03 and IMPLEMENTED 2026-08-04 (`5c2d6ed`, `dd43e59`).
+   CLOSED; nothing owed.** **E6a** — `ws` now publishes at both edges (connect, and receive-loop
+   exit above the reconnect branch, so it covers every way out). **E6b** — trigger (f) writes one
+   snapshot at start when configured, immediately before the heartbeat is armed. Spec §4 and
+   contract §8.5 were amended first; the relay in item 5 covers both. Fixture 8 was rescoped to the
+   whole §8.3 domain in the same pass — **OrderCheck 227/227 → 264/264**. ⚠ **The former "`ws` is
+   knowingly permanently stale" warning is WITHDRAWN**, but note it has never been *observed* firing:
+   §7.4 of the impl report now carries the observation step. Addendum: that report's **§8**.
 7. **C1 acceptances 3–7 are owner-runtime and unrun** — the run sheet is
    `impl-report-c1-feedback-emitter.md` §7, written to be executable without the implementer.
    Acceptance 4 (the flat trap) is the one that matters and needs a real open→close cycle;
@@ -84,19 +84,21 @@ inputs must be set **together**, because they compose.
 
 ## 3. Queue
 
-**N2 enable (owner) → C1 E6 hooks (implementer, one line each) → coordinator review of C1 →
-acceptances 3–7 (owner) → `ROADMAP-2026-08.md` §5 backlog.**
+**N2 enable (owner) → coordinator review of C1 → acceptances 3–7 (owner) →
+`ROADMAP-2026-08.md` §5 backlog.**
 
 - N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
   the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.
-- **C1 emitter: IMPLEMENTED, gate-green, SHIPS OFF. E6 RULED 2026-08-03 — awaiting the two E6 hooks
-  (§2.6), then the coordinator's adversarial review, then the owner-runtime acceptances 3–7 (§2.7).**
+- **C1 emitter: FULLY IMPLEMENTED 2026-08-04, gate-green, SHIPS OFF. Every line of the spec is in,
+  E6 included (§2.6) — awaiting the coordinator's adversarial review, then the owner-runtime
+  acceptances 3–7 (§2.7).**
   ⚠ **The review's sharpest target, named by the report itself:** its claim that no hooked method
   has a `Return` between its first snapshot-field write and its tail hook, across all 10 methods.
   A unified diff cannot show it (§7 lesson 3 — open the file), and fixture 8 cannot reach it.
-  Five commits `c27951b..`; impl report `impl-report-c1-feedback-emitter.md` (its §3 is the
-  what-was-NOT-established list and is the first thing to read). Gate `GATE PASSED`, **OrderCheck
-  173/173 → 227/227**; the nine censuses are UNCHANGED at every commit.
+  Eight commits `c27951b..`; impl report `impl-report-c1-feedback-emitter.md` — **read its §8
+  addendum first, then §3** (the what-was-NOT-established list; §8 supersedes two of its entries).
+  Gate `GATE PASSED` at every commit, **OrderCheck 173/173 → 264/264**; the nine censuses are
+  UNCHANGED at every commit.
   **E3 is now ESTABLISHED, not assumed: `positionSizeUSD` is signed and NEGATIVE on a short**,
   proven from two real testnet shorts (#99, #68) via the reduce direction, which is derived from
   the position sign alone — impl report §3. E1/E2/E5 implemented as ruled; E4's ruling is honoured
@@ -105,11 +107,13 @@ acceptances 3–7 (owner) → `ROADMAP-2026-08.md` §5 backlog.**
   **Contract §8.1 is AMENDED in this repo** (`atomic (temp + atomic replace)`, logged in §9) — the
   first change to the frozen contract since 2026-07-28, and it is wording only: no schema, field,
   enum or behaviour change.
-  **Three obligations outlive the rulings and are why §0 was kept in full:** E1's engine relay
-  (owner, §2) · **E3 — the `size_usd` sign is still NOT ESTABLISHED**, and the tick approved the
-  approach, not the fact: prove it from a real short before writing the mapping · **E4's binding
-  revisit trigger** — re-open before ANY consumer *records* the `avg_entry` join rather than
-  re-deriving it (T7 / v2.1), because §10.3/§10.4 is what makes accepting it safe today.
+  **Of the three obligations that outlived the rulings, TWO ARE NOW DISCHARGED and one is not:**
+  ~~E1's engine relay~~ **DONE** (§2.5, engine `5d1bd02`) · ~~**E3 — prove the `size_usd` sign from
+  a real short**~~ **DONE 2026-08-04** (established negative-on-short from trades #99 and #68; the
+  paragraph above is the record) · **⚠ E4's binding revisit trigger is the one still LIVE** —
+  re-open before ANY consumer *records* the `avg_entry` join rather than re-deriving it (T7 / v2.1),
+  because §10.3/§10.4 is what makes accepting it safe today. *(This paragraph contradicted the one
+  above it for two days — the recursive-staleness class in §7b lesson 6, caught on re-read.)*
   Contract **§8 stays the binding schema** — the spec implements it and never restates it. Phase-2
   actionable exits stay fenced behind a separate signal-schema-v2 amendment — **never parse
   `hold_status`**.
