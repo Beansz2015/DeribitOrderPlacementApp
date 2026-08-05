@@ -502,7 +502,10 @@ Friend NotInheritable Class ExecutorFeedback
                     _feedbackId += 1
                     id = _feedbackId
                 End SyncLock
-                WriteAtomic(Serialize(snap, id, DateTime.UtcNow))
+                ' isFinal:=False - D1. This id may be abandoned if shutdown wins the race below,
+                ' which leaves a GAP in the on-disk sequence. Gaps are legal and never inferred
+                ' from (contract 8.4); a REGRESSION is not a gap, and that is what D1 was.
+                WriteAtomic(Serialize(snap, id, DateTime.UtcNow), isFinal:=False)
             Loop
         Catch
             ' Fail-silent, but never leave the latch set or nothing would ever write again.
@@ -517,8 +520,36 @@ Friend NotInheritable Class ExecutorFeedback
     ' SignalBridge.vb PersistState). The contract used to name File.Replace, which THROWS when the
     ' destination does not exist - precisely the first write and the ships-OFF -> ON transition.
     ' Atomicity was always the requirement; the API never was.
-    Private Shared Sub WriteAtomic(text As String)
+    ' The write-admission decision as a pure seam (D1, review 2026-08-05), so the rule is
+    ' fixture-pinnable even though the RACE it defends against is not.
+    '
+    ' The final write always proceeds - it is the one that latches _disposed, so gating it on
+    ' _disposed would gate it on itself. Every other write is refused once the emitter is disposed.
+    Friend Shared Function ShouldWrite(isFinal As Boolean, disposed As Boolean) As Boolean
+        Return isFinal OrElse Not disposed
+    End Function
+
+    Private Shared Sub WriteAtomic(text As String, isFinal As Boolean)
         SyncLock _writeGate   ' the graceful-close write and the worker must never overlap on one path
+            ' D1 (review 2026-08-05): re-check _disposed AFTER acquiring _writeGate, not only before.
+            ' DrainQueue takes its snapshot and id under _gate and then acquires _writeGate
+            ' separately; a worker pre-empted in that window would otherwise resume AFTER
+            ' ShutdownWithFinalWrite had written, and overwrite the final snapshot with an OLDER one
+            ' carrying a LOWER feedback_id. That drives the on-disk id BACKWARDS - contract 8.4
+            ' requires it monotonic - and it defeats the whole point of trigger (e), since the last
+            ' state on disk would no longer be the executor's last true state and section 8.1's
+            ' "silence = dead executor" would be dishonest at the one moment it matters.
+            '
+            ' Lock order is _writeGate -> _gate, and it is the ONLY nesting in this class: every
+            ' other path releases _gate before touching _writeGate. Deliberately NOT fixed by
+            ' widening _writeGate around ShutdownWithFinalWrite's _gate section, which would trade
+            ' a narrow race for a lock-ordering hazard and buy nothing.
+            Dim disposedNow As Boolean
+            SyncLock _gate
+                disposedNow = _disposed
+            End SyncLock
+            If Not ShouldWrite(isFinal, disposedNow) Then Return
+
             Try
                 Dim path As String = _outputPath
                 If path.Length = 0 Then Return
@@ -560,7 +591,9 @@ Friend NotInheritable Class ExecutorFeedback
                 id = _feedbackId
             End SyncLock
             t?.Dispose()
-            WriteAtomic(Serialize(final, id, DateTime.UtcNow))
+            ' isFinal:=True - D1. This is the one write that must proceed with _disposed already
+            ' latched, and it is the write every other one now defers to.
+            WriteAtomic(Serialize(final, id, DateTime.UtcNow), isFinal:=True)
         Catch
             ' Never block shutdown on telemetry.
         End Try

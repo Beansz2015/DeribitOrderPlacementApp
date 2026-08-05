@@ -1128,6 +1128,27 @@ Module Program
               ExecutorFeedback.Serialize(baseSnap, 1, PinnedAt) <>
               ExecutorFeedback.Serialize(baseSnap, 2, PinnedAt.AddSeconds(10)))
 
+        ' ---- C1.9 D1: the write-admission seam (review 2026-08-05) ----
+        '
+        ' ⚠ READ THIS BEFORE TRUSTING THESE FOUR LINES. They pin the RULE, not the RACE. The defect
+        ' was an ordering window - DrainQueue takes its id under _gate and then acquires _writeGate
+        ' separately, so a worker pre-empted in between could resume after the graceful-close write
+        ' and overwrite it with an older snapshot and a LOWER feedback_id. Reproducing that needs
+        ' two threads and a controlled pre-emption, which OrderCheck cannot do and should not
+        ' pretend to. What is pinned here is the predicate the fix turns on; the ordering itself is
+        ' covered by reading WriteAtomic, and by acceptance 7.1.
+        Check("C1 fixture 9: a normal worker write proceeds while the emitter is live",
+              ExecutorFeedback.ShouldWrite(isFinal:=False, disposed:=False))
+        ' THE D1 LINE: a worker that wakes up after shutdown must not write.
+        Check("C1 fixture 9: a LATE worker write is refused once disposed (this is D1)",
+              Not ExecutorFeedback.ShouldWrite(isFinal:=False, disposed:=True))
+        ' The final write always proceeds - it is the write that LATCHES disposed, so gating it on
+        ' disposed would gate it on itself and trigger (e) would never land.
+        Check("C1 fixture 9: the final write proceeds with disposed already latched",
+              ExecutorFeedback.ShouldWrite(isFinal:=True, disposed:=True))
+        Check("C1 fixture 9: ...and also on a live emitter, so (e) is unconditional",
+              ExecutorFeedback.ShouldWrite(isFinal:=True, disposed:=False))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

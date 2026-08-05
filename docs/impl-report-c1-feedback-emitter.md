@@ -11,7 +11,11 @@ E6a and E6b were ruled 2026-08-03 and landed in commits 6 and 7 (§8 is the adde
 they are written up as a run sheet (§7) rather than driven — the seat places no trades and arms no
 bridge. Nothing is owed by this seat; the next step is the coordinator's adversarial review.
 
-⚠ **Read §8 before §3–§7.** The addendum supersedes four statements in them, and each superseded
+**Coordinator review COMPLETE 2026-08-05 (`review-c1-feedback-emitter.md`): code APPROVED, one
+defect (D1), fixed in §9.** The nominated claim — no hooked method `Return`s between its first
+snapshot-field write and its tail hook — was re-derived by the reviewer and **holds**.
+
+⚠ **Read §8 and §9 before §3–§7.** They supersede five statements in them, and each superseded
 statement is struck at its own site rather than left to be discovered — a doc is not evidence about
 a doc, and the staleness is recursive (H-6 §7b lesson 6).
 
@@ -26,7 +30,8 @@ a doc, and the staleness is recursive (H-6 §7b lesson 6).
 | 5 | `91c8bc2` | impl report |
 | 6 | `5c2d6ed` | **E6a + E6b as ruled** — the `ws` trigger (both edges) and the initial write (f) |
 | 7 | `dd43e59` | **fixture 8 rescoped to the whole §8.3 domain** + the 8b domain check — **227 → 264** |
-| 8 | this | report addendum (§8), and the §7.0 caveat dropped |
+| 8 | `125f228` | report addendum (§8), and the §7.0 caveat dropped |
+| 9 | this | **D1 fixed** — the shutdown write-ordering race (§9) — **264 → 268** |
 
 New file `ExecutorFeedback.vb`. Touched: `SignalBridge.vb`, `frmMainPageV2.vb`,
 `bridge.example.json`, `tools/OrderCheck/Program.vb`.
@@ -536,6 +541,14 @@ keys" lesson as the unconfigured NY session bucket, applied to a fixture.
 was run: the check failed and printed the actual field set in its detail line — the message a future
 author needs. Reverted before commit; the negative test is not in the repo.
 
+⚠ **Which means the paragraph above can only be taken on trust, and should not be** (review §2).
+A negative test that is not in the repo is unverifiable downstream. **The recipe, so the next reader
+redoes it in a minute rather than believing it:** delete `"executor.ws"` from `expectedPopulated` in
+`tools/OrderCheck/Program.vb` (fixture 8b) — or delete the `{"ws", …}` line from
+`ExecutorFeedback.Serialize` — then run the harness. It must go from `OK n/n` to a non-zero exit
+with `FAIL … the emitted document carries EXACTLY the section-8.3 field set`. Revert. The coordinator
+re-derived it this way at review, from the `Serialize` side.
+
 ## 8.4 What is still NOT established
 
 §3 stands unchanged except for items 5 and 6, and **nothing in this addendum turns a runtime
@@ -565,4 +578,70 @@ appears to be **already written, in the owner's own amended contract §8.5**: th
 contract and so does travel to the mirror. If that is the intended answer, the reply is a relay
 rather than a decision. **Flagged, not acted on** — cross-app decisions go through the owner and the
 engine repo is read-only to this seat.
+
+✅ **CLOSED in `cfa2c61`** — it had in fact been answered and adopted two turns earlier; the entry
+outlived the thing it described. Same shape as the queue line corrected in `68d5a7b` (contract §8.7
+slots the emitter after N2 *unless the trader reorders*, the trader reordered by launching this
+seat, and nobody recorded it). Both are the recursive-staleness class, and both were found by
+reading rather than by any check — which is the argument for reading the file you are about to edit.
+
+---
+
+# 9. D1 — the shutdown write-ordering race, FIXED (commit `bb62099`+, 2026-08-05)
+
+**Coordinator review: code APPROVED with one defect. `review-c1-feedback-emitter.md` §4 is the
+finding; this is what changed.** Gate `GATE PASSED`, **OrderCheck 264/264 → 268/268 (+4)**. Nine
+censuses re-run and **unchanged** — 68 occurrences across 64 lines. This commit does not touch
+`frmMainPageV2.vb`.
+
+## 9.1 What changed
+
+`WriteAtomic` gains `isFinal As Boolean`. **After** acquiring `_writeGate` — not only before it —
+the non-final path re-reads `_disposed` under `_gate` and returns if set. `ShutdownWithFinalWrite`
+passes `isFinal:=True` and bypasses; `DrainQueue` passes `False`.
+
+**The defect.** `DrainQueue` took its snapshot and `feedback_id` under `_gate`, released it, then
+acquired `_writeGate` separately, with nothing re-checking `_disposed` in between. A worker
+pre-empted in that window resumed **after** the graceful-close write and overwrote it with the
+**pre-shutdown snapshot** carrying a **lower** `feedback_id`. Two consequences, and the second is
+the one that matters: the on-disk id goes **backwards**, which §8.4 forbids (gaps are legal and
+never inferred from; a regression is not a gap) — and the last state on disk stops being the
+executor's last true state, which is precisely what trigger (e) exists to guarantee and what makes
+§8.1's *"silence = dead executor"* honest at the one moment it matters.
+
+**An abandoned id now leaves a gap** (…4, then 6, with 5 discarded). That is legal and intended;
+the comment at the site says so, so nobody later "fixes" the gap and reintroduces the regression.
+
+**Lock ordering.** The fix introduces `_writeGate → _gate`, and that is the **only** nesting in the
+class — every other path releases `_gate` before touching `_writeGate`, so there is no inverse
+order to deadlock against. The rejected alternative (widening `_writeGate` around
+`ShutdownWithFinalWrite`'s `_gate` section) would have traded a narrow race for a lock-ordering
+hazard and bought nothing; the review ruled against it and the comment records that.
+
+## 9.2 The fixture — what it does and does NOT cover
+
+**Fixture 9 pins the RULE. It does not pin the RACE, and it does not pretend to.**
+
+Pinned, via the pure seam `ShouldWrite(isFinal, disposed)`: a normal worker write proceeds while
+live · **a late worker write is refused once disposed — the D1 line** · the final write proceeds
+with `disposed` already latched (it is the write that *latches* it, so gating it on `disposed` would
+gate it on itself and trigger (e) would never land) · and on a live emitter too, so (e) is
+unconditional.
+
+**Not pinned:** the ordering window itself. Reproducing it needs two threads and a controlled
+pre-emption, which OrderCheck cannot do. That limit is stated in the fixture's own header comment as
+well as here, deliberately — a fixture that *appears* to test the race and does not would be worse
+than none. The ordering is covered by reading `WriteAtomic`, and at runtime by acceptance 7.1.
+
+**This is the class §3.3 predicted:** it recorded that the single-writer discipline and the
+`_gate`/`_writeGate` ordering were *"argued from the code, not measured"*, and that no test drove
+`Publish` from two threads. That self-assessment was accurate, and D1 was what sat in the gap. §3.3
+still stands as written — this fix narrows the gap by one known case; it does not close it.
+
+## 9.3 Ruled, not changed
+
+`SignalBridge.EmitDisposition` allocating a `LastSignalRef` per consumed payload **regardless of
+configuration** (flagged as an open question in §2's OFF-parity residues): **the review ruled KEEP
+IT.** Gating it would put a second state machine over the same fact to save one small allocation on
+a per-payload path. §2's residue 3 stands as written and is now a ruling rather than a question.
 
