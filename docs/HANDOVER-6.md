@@ -64,8 +64,17 @@ inputs must be set **together**, because they compose.
    (b) **E6 landed harder there than "trigger list" suggests:** their §10.4 *renders* `ws`, so a
    drop would have shown a stale `OK` on their interlock strip through the whole disconnect; and (f)
    is what makes their "file absent = OFF, file stale = dead" pair sound at all.
-   ⚠ **One open reply owed (ours):** their §10.2 question — should the mirror carry the
-   heartbeat-republishes ruling? See §3's C1 bullet.
+   ✅ **Their §10.2 question is ANSWERED AND ADOPTED — nothing is owed here.** They asked whether
+   the mirror should carry the heartbeat-republishes ruling. Answer relayed and taken verbatim:
+   **the mirror carries consumption-visible CONSEQUENCES, never emitter mechanics.** The rule itself
+   stays canonical in contract §8.5; what travels is its consequence — *a fresh `generated_at_utc`
+   proves the process is ALIVE, not that any field was recently observed.* Their §10.2 now carries
+   that paragraph and cites §8.5 for the mechanism, and they adopted the general rule in their doc.
+   That closes the mirror-drift class: both §10.2 corrections were restated mechanics, and neither
+   could have existed under it.
+   ⚠ *This bullet said "one open reply owed" for two turns after the reply had been sent and
+   adopted — caught by the implementer seat, not by me, while it was editing around it. Third
+   instance of §7 lesson 6 in this document.*
 6. **✅ C1 escalation E6 — RULED 2026-08-03 and IMPLEMENTED 2026-08-04 (`5c2d6ed`, `dd43e59`).
    CLOSED; nothing owed.** **E6a** — `ws` now publishes at both edges (connect, and receive-loop
    exit above the reconnect branch, so it covers every way out). **E6b** — trigger (f) writes one
