@@ -1073,8 +1073,23 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, $"Signal bridge init failed: {ex.Message}", Color.Red)
         End Try
 
-        ' C1 trigger (d): arm the ~10 s heartbeat. AFTER the bridge exists, so the first snapshot it
-        ' republishes carries real executor state. No-op when unconfigured - no timer at all.
+        ' C1 trigger (f) - E6b (contract 8.5 / spec section 4, amended 2026-08-03). ONE initial write
+        ' at start when configured, on the UI thread, after the bridge is constructed. It mirrors
+        ' (e), the final write on close.
+        '
+        ' The load-bearing reason is contract 8.1's "Silence = dead executor": without this, a live,
+        ' configured, IDLE executor writes no file at all and is byte-indistinguishable from one
+        ' that was never enabled (section 8.5: file absent = feature OFF). Making acceptances 5 and
+        ' 6 reachable is the consequence, not the reason.
+        '
+        ' Deliberately NOT done by letting the first heartbeat seed itself from live state: that is
+        ' the live read section 4 (d) forbids in terms, on a timer thread - the incoherent case E4
+        ' accepted as a residual, not one to add to.
+        PublishExecutorFeedback()
+
+        ' C1 trigger (d): arm the ~10 s heartbeat. AFTER the bridge exists and AFTER (f) above, so
+        ' the heartbeat has a real snapshot to republish from its very first tick. No-op when
+        ' unconfigured - no timer at all.
         ExecutorFeedback.StartHeartbeat()
     End Sub
 
@@ -1401,6 +1416,15 @@ Public Class frmMainPageV2
                            lblStatus.Text = "Connected"
                        End Sub)
 
+        ' C1 trigger (c), the ws half - E6a (contract 8.5 / spec section 4, amended 2026-08-03).
+        ' IsWebSocketConnected is a COMPUTED property over webSocketClient.State, so there is no
+        ' assignment site to hook the way the other four fields are hooked: the transition has to be
+        ' published where it HAPPENS. This is the OK edge; the DOWN edge is at the receive loop's
+        ' exit. Both are cold and rare, and emission is additive - more writes, never fewer.
+        ' Without this a fresh generated_at_utc would report ws "OK" through an entire disconnect,
+        ' because (d) republishes rather than re-reads.
+        PublishExecutorFeedback()
+
         ' Start background tasks - use proper variable names
         Dim authTask = Task.Run(AddressOf MonitorAuthentication) ' Fire and forget
         Dim receiveTask = Task.Run(Function() ReceiveWebSocketMessagesAsync()) ' Fire and forget
@@ -1488,6 +1512,15 @@ Public Class frmMainPageV2
                 Exit While
             End Try
         End While
+
+        ' C1 trigger (c), the ws half - E6a. The DOWN edge. Placed at the loop exit rather than in
+        ' any one Catch, so it covers EVERY way out: the server-close Exit While, the three
+        ' exception arms, and the While condition itself going non-Open. Above the reconnect branch
+        ' because that branch Returns when isClosing.
+        ' On a user-driven shutdown this is a no-op by construction: FormClosing takes its final
+        ' write (trigger e) and latches the emitter disposed BEFORE it closes the socket, so this
+        ' cannot overwrite that final snapshot with a DOWN.
+        PublishExecutorFeedback()
 
         ' Only trigger reconnect if we detected a problem
 
