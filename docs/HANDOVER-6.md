@@ -103,8 +103,18 @@ inputs must be set **together**, because they compose.
 
 ## 3. Queue
 
-**N2 enable (owner) → C1 D1 fix (implementer, one commit) → C1 acceptances 3–7 (owner) →
+**ACTIVE THREAD: C1 D1 fix (implementer, one commit) → C1 acceptances 3–7 (owner) →
 `ROADMAP-2026-08.md` §5 backlog.**
+
+**INDEPENDENT, not queued behind anything: N2 enable (owner).** It is gated only on §2's three
+sizing knobs, and C1 is gated only on D1 — **neither blocks the other**, and both ship off/disabled.
+
+⚠ *Corrected 2026-08-04: this line read "N2 enable → C1 …" for two days, which was the ORIGINAL
+plan — contract §8.7 says the emitter is "after N2 unless the trader reorders". **The trader
+reordered by launching the C1 seat while N2 enable stayed pending, and nobody recorded it**, so the
+line went on describing a sequence that reality had already overtaken. Not stale in the usual way —
+it was true when written and no single word of it was ever wrong; what changed was the world.
+§7 lesson 6's family, and the reason §8.7's escape clause needs writing down when it is used.*
 
 - N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
   the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.

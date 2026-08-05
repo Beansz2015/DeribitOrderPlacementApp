@@ -71,4 +71,10 @@ engine's scope call, not this app's. Anything on the owner-rejected list above.
 
 ## §7 — Sequence of record
 
-Everything through N2b is done. Current: **N2 enable (owner) → C1 emitter → §5 backlog.**
+Everything through N2b is done. Current: **C1 D1 fix → C1 acceptances 3–7 → §5 backlog**, with
+**N2 enable running independently** (owner; gated only on its three sizing knobs).
+
+**The §8.7 reorder, recorded because it was exercised and never written down:** the contract slots
+the emitter "after N2 unless the trader reorders". The trader reordered — C1 was specced, built,
+and reviewed while N2 enable stayed pending — so the emitter is no longer downstream of N2 and
+never was in practice. Neither blocks the other; both ship off/disabled.
