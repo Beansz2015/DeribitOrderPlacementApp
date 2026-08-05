@@ -93,10 +93,16 @@ inputs must be set **together**, because they compose.
    `_disposed` after acquiring `_writeGate`. Severity LOW–MEDIUM (narrow window, graceful close
    only), but **do it first** — otherwise an acceptance-7.1 failure reads as a mystery rather than
    as this.
-7. **C1 acceptances 3–7 are owner-runtime and unrun** — the run sheet is
-   `impl-report-c1-feedback-emitter.md` §7, written to be executable without the implementer.
-   Acceptance 4 (the flat trap) is the one that matters and needs a real open→close cycle;
-   log-only inspection cannot prove it. **Do D1 first.**
+7. **✅ C1 acceptances 4–7 RAN AND PASSED 2026-08-06** (harness-driven, TESTNET, owner-authorised
+   position) — `runtime-record-c1-feedback-emitter-2026-08-06.md`. The flat trap is proven on a real
+   open→close cycle with **both** conjuncts: trade #75 records entry **64806.50** (the retained
+   `positionAvgEntry`) and **not** 64806.00 (`placedPrice`), so the retention was live at the very
+   moment the file published `avg_entry: 0`. E6a's `ws` transition and E6b's (f) were **observed for
+   the first time**. **⚠ ACCEPTANCE 3 IS THE ONLY ONE LEFT** — it needs mode Live + ARM + START
+   (owner-only; `START` is on the harness deny list) and an engine stop, and it is the one that
+   matters most now: **`mode` has still only ever been observed as `"OFF"`**, so E2's silent-failure
+   string (`"LogOnly"` ≠ `"LOG_ONLY"`) is fixture evidence only. That record's §10 is the current
+   what-is-NOT-proven list. **Do D1 first.**
 8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
 9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
