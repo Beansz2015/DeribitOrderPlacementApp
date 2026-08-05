@@ -83,27 +83,41 @@ inputs must be set **together**, because they compose.
    whole §8.3 domain in the same pass — **OrderCheck 227/227 → 264/264**. ⚠ **The former "`ws` is
    knowingly permanently stale" warning is WITHDRAWN**, but note it has never been *observed* firing:
    §7.4 of the impl report now carries the observation step. Addendum: that report's **§8**.
+6b. **🚨 C1 defect D1 — ONE COMMIT OWED, and it comes BEFORE acceptance 7**
+   (`review-c1-feedback-emitter.md` §4). A worker pre-empted between taking its id under `_gate` and
+   acquiring `_writeGate` can write **after** the graceful-close write, with an older snapshot and a
+   **lower** `feedback_id`. So the on-disk id goes backwards (§8.4 requires monotonic) and the last
+   state on disk is not the executor's last true state — defeating exactly what trigger (e) exists
+   for, and making §8.1's *"silence = dead executor"* dishonest at the one moment it matters.
+   **Fix is one parameter:** give `WriteAtomic` an `isFinal` flag; on the non-final path re-check
+   `_disposed` after acquiring `_writeGate`. Severity LOW–MEDIUM (narrow window, graceful close
+   only), but **do it first** — otherwise an acceptance-7.1 failure reads as a mystery rather than
+   as this.
 7. **C1 acceptances 3–7 are owner-runtime and unrun** — the run sheet is
    `impl-report-c1-feedback-emitter.md` §7, written to be executable without the implementer.
    Acceptance 4 (the flat trap) is the one that matters and needs a real open→close cycle;
-   log-only inspection cannot prove it.
+   log-only inspection cannot prove it. **Do D1 first.**
 8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
 9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
 
 ## 3. Queue
 
-**N2 enable (owner) → coordinator review of C1 → acceptances 3–7 (owner) →
+**N2 enable (owner) → C1 D1 fix (implementer, one commit) → C1 acceptances 3–7 (owner) →
 `ROADMAP-2026-08.md` §5 backlog.**
 
 - N2 is code-APPROVED, UNBLOCKED and ships DISABLED. `risk_size_bridge_trades = False`, verified in
   the bin. The `Risk-size` checkbox **exists** since the 2026-08-02 x64 rebuild.
-- **C1 emitter: FULLY IMPLEMENTED 2026-08-04, gate-green, SHIPS OFF. Every line of the spec is in,
-  E6 included (§2.6) — awaiting the coordinator's adversarial review, then the owner-runtime
-  acceptances 3–7 (§2.7).**
-  ⚠ **The review's sharpest target, named by the report itself:** its claim that no hooked method
-  has a `Return` between its first snapshot-field write and its tail hook, across all 10 methods.
-  A unified diff cannot show it (§7 lesson 3 — open the file), and fixture 8 cannot reach it.
+- **C1 emitter: REVIEWED 2026-08-04 — code APPROVED with ONE defect, D1 (§2.6b).**
+  `review-c1-feedback-emitter.md`. Gate re-executed by the reviewer (`GATE PASSED`, 264/264) and the
+  nine censuses re-run; both independently, not on report.
+  **The nominated claim — no `Return` between first field write and tail hook — HOLDS**, re-derived
+  by a stricter method than the report used: the reviewer's first scan anchored on `^\s*Return` and
+  would have missed VB's inline `If … Then Return`, which is the commonest form and exactly the one
+  the claim is about. The corrected scan found one candidate (`:3327`), adjudicated as sitting
+  inside `Me.Invoke(Sub() … )` and therefore returning from the lambda. **Fixture 8b's failability
+  was also re-derived** rather than taken on report — dropping `ws` from `Serialize` takes the suite
+  from 264/264 to a non-zero exit.
   Eight commits `c27951b..`; impl report `impl-report-c1-feedback-emitter.md` — **read its §8
   addendum first, then §3** (the what-was-NOT-established list; §8 supersedes two of its entries).
   Gate `GATE PASSED` at every commit, **OrderCheck 173/173 → 264/264**; the nine censuses are
