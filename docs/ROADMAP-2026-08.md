@@ -71,6 +71,12 @@ sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
   switch is only correct when the caller remembers to pass it, so it converts a silent
   wrong-control into a silent wrong-control-unless-you-remembered. Exact-first-by-default requires
   nothing of any caller and is behaviour-preserving wherever the pattern is unambiguous. Spec §2.3.
+- **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window** (surfaced by
+  the SB3 acceptance run; `review-harness-exact-match.md` §5.2). The window is `Show(Me)`-owned, and
+  `RootElement.FindAll(TreeScope.Children, …)` sometimes does not enumerate it even while Win32
+  `IsWindowVisible` says it is open — it *is* found under `TreeScope.Descendants` of the main form.
+  A retry immediately after opening succeeded. **Pre-existing and not an SB3 regression** (the old
+  code would have been blocked identically), but it makes any settings-window drive step flaky.
 - **FrmIndicators full retirement** — more attractive now: with the engine 24/7 on AWS the indicator
   fallback is nearly never exercised, so retiring it leaves payload ATR + the $70 constant only.
 - **Edit T.S. post-trigger rework** — 4-trap catalog; `EditStopLossTo` is the home.
