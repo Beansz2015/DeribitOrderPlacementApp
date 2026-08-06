@@ -104,14 +104,86 @@ function Find-ByControlType {
     return $Element.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
 }
 
-# Case-insensitive substring on UIA Name OR AutomationId (WinForms maps control Text -> Name
-# and, for the harness's targets, AccessibleName -> Name; AutomationId is the designer name).
-function Test-ElementMatch {
-    param($Element, [string]$Pattern)
-    foreach ($v in @($Element.Current.Name, $Element.Current.AutomationId)) {
-        if ($v -and $v.IndexOf($Pattern, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+# Pure decision seam (docs/spec-harness-exact-match.md section 2.1) — a candidate-set-aware
+# selection so the caller can never silently act on the wrong element among several substring
+# matches. $Candidates is an array of @{Name=...; AutomationId=...} (plain data, no UIA object,
+# so this is exercisable with no running app).
+#
+# Precedence, first non-empty tier wins: 1) exact AutomationId (OrdinalIgnoreCase)
+# 2) exact Name (OrdinalIgnoreCase) 3) substring on either (the pre-existing rule, preserved as
+# the fallback). Within the winning tier: exactly one candidate wins outright; more than one is
+# Ambiguous and every tied index is returned — never picked arbitrarily.
+function Select-BestMatchIndex {
+    param(
+        [Parameter(Mandatory=$true)][AllowEmptyCollection()][object[]]$Candidates,
+        [Parameter(Mandatory=$true)][string]$Pattern
+    )
+    function Get-TierIndices([object[]]$Cands, [string]$Tier, [string]$Pat) {
+        $idx = New-Object System.Collections.Generic.List[int]
+        for ($i = 0; $i -lt $Cands.Count; $i++) {
+            $name = $Cands[$i].Name
+            $autoId = $Cands[$i].AutomationId
+            $hit = $false
+            switch ($Tier) {
+                'ExactId'   { $hit = ($autoId -and $autoId.Equals($Pat, [StringComparison]::OrdinalIgnoreCase)) }
+                'ExactName' { $hit = ($name -and $name.Equals($Pat, [StringComparison]::OrdinalIgnoreCase)) }
+                'Substring' {
+                    foreach ($v in @($name, $autoId)) {
+                        if ($v -and $v.IndexOf($Pat, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $hit = $true; break }
+                    }
+                }
+            }
+            if ($hit) { $idx.Add($i) }
+        }
+        # Comma-wrap: an un-wrapped `return $idx` lets PowerShell unroll the List[int] on the
+        # pipeline, so a 0- or 1-element result arrives at the caller as $null or a bare int
+        # instead of a collection, and .Count silently breaks.
+        return ,$idx
     }
-    return $false
+
+    foreach ($tier in @('ExactId', 'ExactName', 'Substring')) {
+        $idx = Get-TierIndices $Candidates $tier $Pattern
+        if ($idx.Count -eq 0) { continue }
+        if ($idx.Count -eq 1) { return @{ Index = $idx[0]; Kind = $tier; Tied = @() } }
+        return @{ Index = -1; Kind = 'Ambiguous'; Tied = @($idx) }
+    }
+    return @{ Index = -1; Kind = 'None'; Tied = @() }
+}
+
+# Gathers every $TypeName descendant across all $Windows FIRST, then decides once via
+# Select-BestMatchIndex — the structural fix (spec section 2.2). Returns the chosen
+# AutomationElement (or $null), the raw decision, and two label lists:
+#   AllLabels  - the not-found diagnostic exactly as each call site built it before this change
+#                (built via $LabelBuilder, which may omit a candidate the way click-button.ps1's
+#                blank-name guard always did)
+#   FullLabels - one label per candidate, index-aligned with Result.Tied, always populated —
+#                used only to name every tied candidate on an Ambiguous result.
+function Select-MatchingElement {
+    param(
+        [Parameter(Mandatory=$true)]$Windows,
+        [Parameter(Mandatory=$true)][string]$TypeName,
+        [Parameter(Mandatory=$true)][string]$Pattern,
+        [scriptblock]$LabelBuilder = { param($Element, $Window)
+            "'$($Element.Current.Name)' (id '$($Element.Current.AutomationId)', window '$($Window.Current.Name)')"
+        }
+    )
+    $elements   = New-Object System.Collections.Generic.List[object]
+    $candidates = New-Object System.Collections.Generic.List[object]
+    $allLabels  = New-Object System.Collections.Generic.List[string]
+    $fullLabels = New-Object System.Collections.Generic.List[string]
+    foreach ($w in $Windows) {
+        foreach ($e in (Find-ByControlType -Element $w -TypeName $TypeName)) {
+            $elements.Add($e)
+            $candidates.Add(@{ Name = $e.Current.Name; AutomationId = $e.Current.AutomationId })
+            $fullLabels.Add("'$($e.Current.Name)' (id '$($e.Current.AutomationId)', window '$($w.Current.Name)')")
+            $label = & $LabelBuilder $e $w
+            if ($label) { $allLabels.Add($label) }
+        }
+    }
+    $result = Select-BestMatchIndex -Candidates @($candidates) -Pattern $Pattern
+    $chosen = $null
+    if ($result.Index -ge 0) { $chosen = $elements[$result.Index] }
+    return @{ Element = $chosen; Result = $result; AllLabels = $allLabels; FullLabels = $fullLabels }
 }
 
 # True when two AutomationElements are the SAME control. RuntimeId is the reliable identity -
