@@ -103,11 +103,19 @@ inputs must be set **together**, because they compose.
    open→close cycle with **both** conjuncts: trade #75 records entry **64806.50** (the retained
    `positionAvgEntry`) and **not** 64806.00 (`placedPrice`), so the retention was live at the very
    moment the file published `avg_entry: 0`. E6a's `ws` transition and E6b's (f) were **observed for
-   the first time**. **⚠ ACCEPTANCE 3 IS THE ONLY ONE LEFT** — it needs mode Live + ARM + START
-   (owner-only; `START` is on the harness deny list) and an engine stop, and it is the one that
-   matters most now: **`mode` has still only ever been observed as `"OFF"`**, so E2's silent-failure
-   string (`"LogOnly"` ≠ `"LOG_ONLY"`) is fixture evidence only. That record's §10 is the current
-   what-is-NOT-proven list. *(D1 is done — see 6b. Nothing gates acceptance 3 but ARM/START.)*
+   the first time**.
+   **✅ ACCEPTANCE 3 ALSO RAN AND PASSED the same day (§11 of that record) — ALL FIVE ARE CLOSED.**
+   ⚠ **It needed NO ARM and NO START**, and that is the finding worth carrying: log-only *runs
+   un-started by design* (`TryStart` refuses non-Live modes in those words) and gate 4.5's interlock
+   is Live-only, so a payload produces a `would-act` disposition with neither toggle touched.
+   **E2 IS NOW CLOSED AT RUNTIME** — `executor.mode` observed as `"LOG_ONLY"`, the pinned string,
+   published by trigger (c) before any payload. The disposition matched the `bridge-dispositions.log`
+   row character-for-character, and `last_signal` stayed byte-identical across heartbeats (the
+   cardinality freeze, observed). The live `verdict_signal.json` was **never touched** — the harness
+   `bridge.json` pointed `path` at a scratch file, verified byte-identical before and after.
+   **Still unobserved:** `mode: "LIVE"` + an `acted (id …)` disposition (needs ARM/START), the `ws`
+   DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and D1's race. §10 + §11.5 are the
+   current what-is-NOT-proven list. *(D1 is done — see 6b. Nothing gates acceptance 3 but ARM/START.)*
 8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
 9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).

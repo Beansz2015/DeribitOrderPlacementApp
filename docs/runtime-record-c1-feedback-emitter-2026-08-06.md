@@ -5,9 +5,13 @@
 x64 bin — separate `secrets.json` (`Environment: testnet`, verified), settings, DB and bridge state.
 Window title verified `— TESTNET` at every launch by the harness's own gate.
 
-## VERDICT: **PASS on every observable attempted. Acceptances 4, 5, 6 and 7 are CLOSED.**
-**Acceptance 3 was NOT run** — it needs ARM/START (owner-only; `START` is on the harness deny list)
-and an engine stop. It remains the only open acceptance.
+## VERDICT: **PASS on every observable attempted. ALL FIVE ACCEPTANCES 3–7 ARE CLOSED.**
+
+Acceptance 3 ran in a second session the same day (**§11**) once the owner stopped the engine — and
+it needed **no ARM, no START and no order**, because log-only runs un-started by design. It closed
+**E2 at runtime**: `executor.mode` observed as `"LOG_ONLY"`, the pinned string. Sections 1–10 below
+are the first session (4, 5, 6, 7); §11 is acceptance 3; §11.5 and §10 together are the current
+what-is-NOT-proven list.
 
 **Two things observed here for the first time ever:** E6a's `ws` transition and E6b's trigger (f).
 Both were implemented and gate-green but had never been seen fire — impl report §8.4 said so
@@ -169,10 +173,9 @@ surviving OTOCO child). Flat, no working orders — `CompletePositionClose`'s ca
 
 ## 10. What this run does NOT prove
 
-- **Acceptance 3 is unrun.** No payload was consumed, so `last_signal` was `null` in every reading
-  and trigger (a) was never exercised at runtime. The `mode` field was only ever observed as
-  `"OFF"` — **`"LOG_ONLY"` and `"LIVE"` remain fixture-evidence only**, and E2's silent-failure mode
-  is precisely a wrong `mode` string, so this is the most valuable thing left to observe.
+- ~~**Acceptance 3 is unrun.**~~ **SUPERSEDED by §11** — it ran the same day. Trigger (a) and
+  `mode: "LOG_ONLY"` are both now observed. **`mode: "LIVE"` and an `acted (id …)` disposition
+  remain fixture-evidence only** (they need ARM + START).
 - **The `ws` DOWN edge is unobserved** (§3).
 - **`breaker_tripped` was never seen flip** — session P/L stayed at $0.00; fixture 5 only.
 - **A `SHORT` position was never emitted.** E3's sign is established from trades #99/#68 and pinned
@@ -181,7 +184,85 @@ surviving OTOCO child). Flat, no working orders — `CompletePositionClose`'s ca
   ran cleanly, which is consistent with the fix but does not exercise the window.
 - Single session, single 10-USD position, testnet.
 
-## 11. Housekeeping — one loss, recorded
+## 11. ADDENDUM — Acceptance 3 RAN AND PASSED (same day, second session)
+
+**Owner stopped the engine and authorised the run. NO ARM, NO START, NO ORDER PLACED.**
+
+**The route matters and is worth carrying:** acceptance 3 does **not** require the dual-arm
+interlock. Log-only *runs un-started by design* (`TryStart` refuses any non-Live mode in exactly
+those words) and gate 4.5's interlock is `_mode = BridgeMode.Live` only, so a payload flows the whole
+gate chain in Log-only and produces a `would-act` disposition with neither toggle touched. E5 already
+ruled that `LOG_ONLY` emits and that the emitter never gates on mode. **This is the cheaper and
+safer half of the ladder's emit-only step, and it is the half that carries the E2 evidence.**
+
+**The live payload was never touched.** `bridge.json`'s `path` was pointed at a scratch
+`harness-signal.json`, so `verdict_signal.json` stayed byte- and timestamp-identical across the whole
+run (**1562 bytes, 11:03:07 PM**, verified before and after). The engine-stopped refusal still
+applied and was still honoured — it gates on the process, not the path, by standing ruling.
+
+### 11.1 🚨 E2 CLOSED AT RUNTIME — `mode` observed as `"LOG_ONLY"`
+
+Read immediately after the mode change and **before** any payload, i.e. published by trigger (c):
+
+```
+mode = 'LOG_ONLY'   feedback_id = 10   last_signal = null   armed/started = False/False
+```
+
+**This was the single highest-value unobserved thing in the whole feature.** E2's failure mode is
+that `BridgeMode.LogOnly.ToString()` yields `"LogOnly"`, which violates the §8.3 pin *invisibly* —
+the consumer's T8 tolerance renders an unrecognised value verbatim and takes the conservative arm
+without erroring. It was fixture-pinned from commit 4 and is now confirmed on a running app.
+`armed`/`started` staying `false` is the log-only-runs-un-started property, also observed.
+
+### 11.2 Acceptance 3's four named checks
+
+Payload: `instance_id=harness-954949d545ba signal_id=1 OK/MEDIUM/LONG entry=60000 stop=59950
+target=60100`. App log: `[BRIDGE] signal #1 HARNESS LONG (MEDIUM/LONG) -> would-act: LONG @
+60000.00, stop 59950.00, target 60100.00, size 10`.
+
+| Check | Result |
+|---|---|
+| `schema_version` | `1` ✓ |
+| `feedback_id` monotonic | 10 → 14 across the run ✓ |
+| **the ENGINE's pair in `last_signal`** | `harness-954949d545ba` / `1` — exactly the GUID the script minted ✓ |
+| `position` matches the app | `FLAT` + zeros; app flat ✓ |
+| **`disposition` character-for-character** | identical to the `bridge-dispositions.log` row ✓ |
+| `at_utc` = consumption time | `2026-08-06T15:05:48Z`, identical to the log row's timestamp ✓ |
+
+Disposition-log row, for the join:
+```
+2026-08-06T15:05:48Z | harness-954949d545ba | 1 | HARNESS LONG | MEDIUM | LONG | would-act: LONG @ 60000.00, stop 59950.00, target 60100.00, size 10
+```
+
+### 11.3 The cardinality freeze, observed under the heartbeat
+
+Two reads 32 s apart: `feedback_id` 18 → 21 and `generated_at_utc` +30 s, while `last_signal` is
+**byte-identical**. Written once, at consumption — and the heartbeat republishing around it is the
+clearest demonstration that (d) does not re-read.
+
+### 11.4 Gate config in force, recorded so the result is reproducible
+
+Harness bin, read off the form: `Tiers HIGH,MEDIUM` · Inclusion window **both blank** (unrestricted)
+· breaker `10` vs session P/L `$0.00` · cooloff `5` (no prior action, so not armed) · Amount `10` ·
+**`chkSessionPolicyOn = Off`** · `chkRiskSizeBridge = Off`.
+
+⚠ **The session policy being DISABLED here is why `size 10` passed through with no clamp line** —
+`PolicySizeMultFor` returns unity and `EffectiveSizeUsd` is the identity, the documented
+"disabled ⇒ structurally silent" invariant. **This is NOT the owner's x64 configuration**, where the
+policy is ENABLED with `LONDON = MEDIUM | CONFIRMED | 0.5`. Re-running this in the x64 bin with the
+default `-Confidence HIGH` between **local 16:00–20:59** (UTC 08:00–12:59, the LONDON bucket) would
+yield `refused: policy(LONDON/tier)` rather than a would-act. **Use `-Confidence MEDIUM`: it is the
+only value that passes all three buckets** under that config.
+
+### 11.5 What acceptance 3 still does NOT prove
+
+- **`mode: "LIVE"` and an `acted (id …)` disposition are still unobserved.** Only the Live arm
+  reaches the placement path, and it needs ARM + START. §10's other gaps are unchanged: the `ws`
+  DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and D1's race.
+- This was a **hand-crafted** payload from the harness, not the real engine's emitter. It exercises
+  the consumer and the emitter; it does not re-prove the engine's own output.
+
+## 12. Housekeeping — one loss, recorded
 
 Cleanup ran `Remove-Item verify\out\*.png`, which deleted **`n2-settings.png`** (204 KB) alongside
 this run's own two screenshots. That file pre-dated this seat and belonged to the closed N2 work;

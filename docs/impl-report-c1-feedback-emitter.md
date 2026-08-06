@@ -15,13 +15,15 @@ bridge. Nothing is owed by this seat; the next step is the coordinator's adversa
 defect (D1), fixed in §9.** The nominated claim — no hooked method `Return`s between its first
 snapshot-field write and its tail hook — was re-derived by the reviewer and **holds**.
 
-**🚨 ACCEPTANCES 4, 5, 6 and 7 RUN AND PASSED 2026-08-06 —
-`runtime-record-c1-feedback-emitter-2026-08-06.md`.** Harness-driven, TESTNET, owner-authorised
-position. **Acceptance 3 is the only one left** (needs ARM/START + an engine stop, both owner-only).
-The flat trap (4) is proven on a real open→close cycle with **both** conjuncts established. E6a's
-`ws` transition and E6b's trigger (f) were **observed for the first time** — §8.4 flagged both as
-never-observed, and that is now closed. **§10 of the runtime record is the new
-what-this-does-NOT-prove list and supersedes §3's runtime entries.**
+**🚨 ALL FIVE ACCEPTANCES 3–7 RUN AND PASSED 2026-08-06 —
+`runtime-record-c1-feedback-emitter-2026-08-06.md`.** Harness-driven, TESTNET. The flat trap (4) is
+proven on a real open→close cycle with **both** conjuncts established. E6a's `ws` transition and
+E6b's trigger (f) were **observed for the first time**, closing what §8.4 flagged as never-observed.
+**Acceptance 3 needed no ARM and no START** — log-only runs un-started by design — and it **closed
+E2 at runtime**: `executor.mode` observed as `"LOG_ONLY"`. **§10 + §11.5 of that record are the new
+what-this-does-NOT-prove list and supersede §3's runtime entries**; what remains is `mode: "LIVE"`
+and an `acted` disposition, the `ws` DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and
+D1's race.
 
 ⚠ **Read §8 and §9 before §3–§7.** They supersede five statements in them, and each superseded
 statement is struck at its own site rather than left to be discovered — a doc is not evidence about
@@ -246,11 +248,11 @@ inspection instead (the field has exactly two assignment sites, both quoted abov
 
 ### Not established — the rest
 
-1. ~~**Nothing in §7's run sheet has been executed.**~~ **SUPERSEDED 2026-08-06 — acceptances 4, 5,
-   6 and 7 RAN AND PASSED** (`runtime-record-c1-feedback-emitter-2026-08-06.md`), including the
-   flat trap on a real open→close cycle. **Acceptance 3 remains unrun**, so `mode` has still only
-   ever been observed as `"OFF"` — `"LOG_ONLY"`/`"LIVE"` are fixture evidence only, and E2's failure
-   mode is exactly a wrong `mode` string. See that record's §10 for the current limits.
+1. ~~**Nothing in §7's run sheet has been executed.**~~ **SUPERSEDED 2026-08-06 — ALL FIVE
+   acceptances 3–7 RAN AND PASSED** (`runtime-record-c1-feedback-emitter-2026-08-06.md`), including
+   the flat trap on a real open→close cycle and `mode: "LOG_ONLY"` observed (E2 closed at runtime).
+   `mode: "LIVE"` and an `acted` disposition are the only schema values still unobserved. See that
+   record's §10 and §11.5 for the current limits.
 2. **Fixture 8 cannot prove a call site exists.** It proves that a change to each field survives the
    content gate, reaches the wire, and survives coalescing. It cannot execute `frmMainPageV2` and so
    cannot detect a hook deleted from a handler. Call-site completeness rests on the enumeration in
