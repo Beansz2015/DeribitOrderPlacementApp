@@ -168,22 +168,29 @@ function Select-MatchingElement {
         }
     )
     $elements   = New-Object System.Collections.Generic.List[object]
+    $ownerWins  = New-Object System.Collections.Generic.List[object]
     $candidates = New-Object System.Collections.Generic.List[object]
     $allLabels  = New-Object System.Collections.Generic.List[string]
     $fullLabels = New-Object System.Collections.Generic.List[string]
     foreach ($w in $Windows) {
         foreach ($e in (Find-ByControlType -Element $w -TypeName $TypeName)) {
             $elements.Add($e)
+            $ownerWins.Add($w)
             $candidates.Add(@{ Name = $e.Current.Name; AutomationId = $e.Current.AutomationId })
             $fullLabels.Add("'$($e.Current.Name)' (id '$($e.Current.AutomationId)', window '$($w.Current.Name)')")
             $label = & $LabelBuilder $e $w
             if ($label) { $allLabels.Add($label) }
         }
     }
-    $result = Select-BestMatchIndex -Candidates @($candidates) -Pattern $Pattern
+    # NOT `@($candidates)`: on this PS 5.1 build, `@()` around a System.Collections.Generic.List
+    # throws "Argument types do not match" (reproduces even for a List[object] of plain strings,
+    # with Set-StrictMode off, in a fresh process — a genuine PS quirk, not session corruption).
+    # Passing the List straight into an [object[]] parameter binds fine, as does .ToArray().
+    $result = Select-BestMatchIndex -Candidates $candidates -Pattern $Pattern
     $chosen = $null
-    if ($result.Index -ge 0) { $chosen = $elements[$result.Index] }
-    return @{ Element = $chosen; Result = $result; AllLabels = $allLabels; FullLabels = $fullLabels }
+    $chosenWin = $null
+    if ($result.Index -ge 0) { $chosen = $elements[$result.Index]; $chosenWin = $ownerWins[$result.Index] }
+    return @{ Element = $chosen; Window = $chosenWin; Result = $result; AllLabels = $allLabels; FullLabels = $fullLabels }
 }
 
 # True when two AutomationElements are the SAME control. RuntimeId is the reliable identity -

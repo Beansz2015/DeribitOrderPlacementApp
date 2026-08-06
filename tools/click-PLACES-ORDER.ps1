@@ -37,35 +37,47 @@ $form = Get-MainForm -RequireTestnet -RequireHarnessPid
 Write-Host "Environment verified: '$($form.Current.Name)' (PID $($form.Current.ProcessId))"
 
 $windows = Get-ProcessWindows -OwnerPid $form.Current.ProcessId
-$allNames = New-Object System.Collections.Generic.List[string]
-foreach ($w in $windows) {
-    foreach ($b in (Find-ByControlType -Element $w -TypeName Button)) {
-        $name = $b.Current.Name
-        if ($name) { $allNames.Add("'$name' (id '$($b.Current.AutomationId)', window '$($w.Current.Name)')") }
-        if (-not (Test-ElementMatch -Element $b -Pattern $NamePattern)) { continue }
-        try {
-            $invoke = $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-            if ($Actuations -gt 1) {
-                Write-Host "*** BURST: $Actuations actuations of '$name' - this is a DELIBERATE multi-order action ***"
-                $sw = [System.Diagnostics.Stopwatch]::StartNew()
-                for ($i = 1; $i -le $Actuations; $i++) {
-                    $invoke.Invoke()
-                    Write-Host ("  invoke {0} at t+{1} ms; IsEnabled now = {2}" -f $i, $sw.ElapsedMilliseconds, $b.Current.IsEnabled)
-                }
-                $sw.Stop()
-                Write-Host ("Burst issued (TESTNET): {0} invokes of '{1}' in {2} ms" -f $Actuations, $name, $sw.ElapsedMilliseconds)
-            } else {
-                $invoke.Invoke()
-                Write-Host "Clicked (TESTNET): '$name' (window '$($w.Current.Name)')"
-            }
-            exit 0
-        } catch {
-            Write-Error "Button '$name' is not invokable: $_"
-            exit 3
-        }
-    }
-}
 
-Write-Error "No button matched '$NamePattern'. Available buttons:"
-foreach ($n in $allNames) { Write-Host "  - $n" }
-exit 2
+# Preserve the original not-found diagnostic exactly: it only ever listed buttons with a
+# non-empty caption.
+$labelBuilder = {
+    param($Element, $Window)
+    $n = $Element.Current.Name
+    if (-not $n) { return $null }
+    "'$n' (id '$($Element.Current.AutomationId)', window '$($Window.Current.Name)')"
+}
+$m = Select-MatchingElement -Windows $windows -TypeName Button -Pattern $NamePattern -LabelBuilder $labelBuilder
+if ($m.Result.Kind -eq 'Ambiguous') {
+    $tied = $m.Result.Tied | ForEach-Object { $m.FullLabels[$_] }
+    Write-Error "REFUSED: '$NamePattern' matches more than one button at the same tier — refusing to pick arbitrarily. Tied candidates:"
+    foreach ($t in $tied) { Write-Host "  - $t" }
+    exit 3
+}
+if ($m.Result.Kind -eq 'None') {
+    Write-Error "No button matched '$NamePattern'. Available buttons:"
+    foreach ($n in $m.AllLabels) { Write-Host "  - $n" }
+    exit 2
+}
+$b = $m.Element
+$w = $m.Window
+$name = $b.Current.Name
+try {
+    $invoke = $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    if ($Actuations -gt 1) {
+        Write-Host "*** BURST: $Actuations actuations of '$name' - this is a DELIBERATE multi-order action ***"
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        for ($i = 1; $i -le $Actuations; $i++) {
+            $invoke.Invoke()
+            Write-Host ("  invoke {0} at t+{1} ms; IsEnabled now = {2}" -f $i, $sw.ElapsedMilliseconds, $b.Current.IsEnabled)
+        }
+        $sw.Stop()
+        Write-Host ("Burst issued (TESTNET): {0} invokes of '{1}' in {2} ms" -f $Actuations, $name, $sw.ElapsedMilliseconds)
+    } else {
+        $invoke.Invoke()
+        Write-Host "Clicked (TESTNET): '$name' (window '$($w.Current.Name)')"
+    }
+    exit 0
+} catch {
+    Write-Error "Button '$name' is not invokable: $_"
+    exit 3
+}

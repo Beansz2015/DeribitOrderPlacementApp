@@ -31,47 +31,51 @@ if ($ItemPattern -match '(?i)live' -and -not $isTestnet) {
 }
 
 $windows = Get-ProcessWindows -OwnerPid $form.Current.ProcessId
-$allCombos = New-Object System.Collections.Generic.List[string]
-foreach ($w in $windows) {
-    foreach ($cb in (Find-ByControlType -Element $w -TypeName ComboBox)) {
-        $label = "'$($cb.Current.Name)' (id '$($cb.Current.AutomationId)', window '$($w.Current.Name)')"
-        $allCombos.Add($label)
-        if (-not (Test-ElementMatch -Element $cb -Pattern $ComboPattern)) { continue }
 
-        try {
-            $ec = $cb.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
-            $ec.Expand()
-            Start-Sleep -Milliseconds 150
-        } catch {
-            Write-Error "Combo $label does not support ExpandCollapsePattern: $_"
-            exit 3
-        }
+$m = Select-MatchingElement -Windows $windows -TypeName ComboBox -Pattern $ComboPattern
+if ($m.Result.Kind -eq 'Ambiguous') {
+    $tied = $m.Result.Tied | ForEach-Object { $m.FullLabels[$_] }
+    Write-Error "REFUSED: '$ComboPattern' matches more than one combo at the same tier — refusing to pick arbitrarily. Tied candidates:"
+    foreach ($t in $tied) { Write-Host "  - $t" }
+    exit 3
+}
+if ($m.Result.Kind -eq 'None') {
+    Write-Error "No combo matched '$ComboPattern'. Available combos:"
+    foreach ($n in $m.AllLabels) { Write-Host "  - $n" }
+    exit 2
+}
+$cb = $m.Element
+$w = $m.Window
+$label = "'$($cb.Current.Name)' (id '$($cb.Current.AutomationId)', window '$($w.Current.Name)')"
 
-        $items = Find-ByControlType -Element $cb -TypeName ListItem
-        $itemNames = New-Object System.Collections.Generic.List[string]
-        foreach ($it in $items) {
-            $n = $it.Current.Name
-            if ($n) { $itemNames.Add("'$n'") }
-            if (-not ($n -and $n.IndexOf($ItemPattern, [StringComparison]::OrdinalIgnoreCase) -ge 0)) { continue }
-            try {
-                $sel = $it.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
-                $sel.Select()
-                try { $ec.Collapse() } catch {}
-                Write-Host "Selected '$n' in combo $label"
-                exit 0
-            } catch {
-                try { $ec.Collapse() } catch {}
-                Write-Error "Item '$n' does not support SelectionItemPattern: $_"
-                exit 3
-            }
-        }
-        try { $ec.Collapse() } catch {}
-        Write-Error "No item matched '$ItemPattern' in combo $label. Items:"
-        foreach ($n in $itemNames) { Write-Host "  - $n" }
-        exit 2
-    }
+try {
+    $ec = $cb.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+    $ec.Expand()
+    Start-Sleep -Milliseconds 150
+} catch {
+    Write-Error "Combo $label does not support ExpandCollapsePattern: $_"
+    exit 3
 }
 
-Write-Error "No combo matched '$ComboPattern'. Available combos:"
-foreach ($n in $allCombos) { Write-Host "  - $n" }
+$items = Find-ByControlType -Element $cb -TypeName ListItem
+$itemNames = New-Object System.Collections.Generic.List[string]
+foreach ($it in $items) {
+    $n = $it.Current.Name
+    if ($n) { $itemNames.Add("'$n'") }
+    if (-not ($n -and $n.IndexOf($ItemPattern, [StringComparison]::OrdinalIgnoreCase) -ge 0)) { continue }
+    try {
+        $sel = $it.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+        $sel.Select()
+        try { $ec.Collapse() } catch {}
+        Write-Host "Selected '$n' in combo $label"
+        exit 0
+    } catch {
+        try { $ec.Collapse() } catch {}
+        Write-Error "Item '$n' does not support SelectionItemPattern: $_"
+        exit 3
+    }
+}
+try { $ec.Collapse() } catch {}
+Write-Error "No item matched '$ItemPattern' in combo $label. Items:"
+foreach ($n in $itemNames) { Write-Host "  - $n" }
 exit 2

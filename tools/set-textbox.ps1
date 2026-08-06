@@ -30,67 +30,70 @@ param(
 $form = Get-MainForm -RequireHarnessPid
 $windows = Get-ProcessWindows -OwnerPid $form.Current.ProcessId
 
-$allNames = New-Object System.Collections.Generic.List[string]
-foreach ($w in $windows) {
-    foreach ($e in (Find-ByControlType -Element $w -TypeName Edit)) {
-        $label = "'$($e.Current.Name)' (id '$($e.Current.AutomationId)', window '$($w.Current.Name)')"
-        $allNames.Add($label)
-        if (-not (Test-ElementMatch -Element $e -Pattern $NamePattern)) { continue }
-        try {
-            # Blur needs REAL keyboard focus, and Windows only grants focus to the foreground
-            # application: with the terminal in front (or the window minimized), UIA SetFocus
-            # silently no-ops, Leave never fires, and the app keeps its LAST committed mirror
-            # while the box shows the new text (found at the testnet runtime pass). So for
-            # -CommitViaBlur, foreground+restore the owning window first (thread-attach bypass).
-            if ($CommitViaBlur) {
-                Set-AppForeground -Hwnd ([IntPtr]$w.Current.NativeWindowHandle)
-                Start-Sleep -Milliseconds 400
-                # Focus the target BEFORE writing: it reproduces the human sequence
-                # (enter box -> edit -> leave box) and, critically, gives the box a focus to
-                # LOSE afterwards. Writing first and focusing later cannot produce a Leave.
-                $e.SetFocus()
-                Start-Sleep -Milliseconds 120
-                $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-                if (-not (Test-SameElement -A $focused -B $e)) {
-                    Write-Error "REFUSED: could not put keyboard focus on $label (focus is on '$($focused.Current.Name)'). Nothing was written. Is another window stealing the foreground?"
-                    exit 3
-                }
-            }
-            $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-            $vp.SetValue($Value)
-            Write-Host "Set $label = '$Value'"
-            if ($CommitViaBlur) {
-                # Blur onto a DIFFERENT control. Focusing the owning window does NOT work: a
-                # WinForms Form hands activation straight back to its last-active child, so
-                # focus never leaves the box and Leave never fires. That is the bug that made
-                # this script report commits it had not performed (2026-07-21 testnet pass).
-                $sink = Get-FocusSink -Window $w -Exclude $e
-                if ($null -eq $sink) {
-                    Write-Error "REFUSED: no other focusable textbox in '$($w.Current.Name)' to blur onto, so the commit cannot be performed OR verified. The value was written to the box but is NOT in force."
-                    exit 3
-                }
-                $sink.SetFocus()
-                Start-Sleep -Milliseconds 200
-                # VERIFY, do not assume. A harness that reports a commit it did not make sends
-                # you hunting for product bugs that do not exist - which is exactly what happened
-                # before this check existed.
-                $after = [System.Windows.Automation.AutomationElement]::FocusedElement
-                if (Test-SameElement -A $after -B $e) {
-                    Write-Error "REFUSED: focus did not leave $label, so the app has NOT committed the value. The box shows '$Value' but the mirror still holds the previous one."
-                    exit 3
-                }
-                Write-Host "Committed via blur (focus -> '$($sink.Current.Name)' (id '$($sink.Current.AutomationId)'); verified off the target)"
-            } else {
-                Write-Host "NOTE: value NOT committed to the app's mirrors until the box loses focus (rerun with -CommitViaBlur for gate-config boxes)."
-            }
-            exit 0
-        } catch {
-            Write-Error "Textbox $label rejected SetValue/focus: $_"
+$m = Select-MatchingElement -Windows $windows -TypeName Edit -Pattern $NamePattern
+if ($m.Result.Kind -eq 'Ambiguous') {
+    $tied = $m.Result.Tied | ForEach-Object { $m.FullLabels[$_] }
+    Write-Error "REFUSED: '$NamePattern' matches more than one textbox at the same tier — refusing to pick arbitrarily. Tied candidates:"
+    foreach ($t in $tied) { Write-Host "  - $t" }
+    exit 3
+}
+if ($m.Result.Kind -eq 'None') {
+    Write-Error "No textbox matched '$NamePattern'. Available textboxes:"
+    foreach ($n in $m.AllLabels) { Write-Host "  - $n" }
+    exit 2
+}
+$e = $m.Element
+$w = $m.Window
+$label = "'$($e.Current.Name)' (id '$($e.Current.AutomationId)', window '$($w.Current.Name)')"
+try {
+    # Blur needs REAL keyboard focus, and Windows only grants focus to the foreground
+    # application: with the terminal in front (or the window minimized), UIA SetFocus
+    # silently no-ops, Leave never fires, and the app keeps its LAST committed mirror
+    # while the box shows the new text (found at the testnet runtime pass). So for
+    # -CommitViaBlur, foreground+restore the owning window first (thread-attach bypass).
+    if ($CommitViaBlur) {
+        Set-AppForeground -Hwnd ([IntPtr]$w.Current.NativeWindowHandle)
+        Start-Sleep -Milliseconds 400
+        # Focus the target BEFORE writing: it reproduces the human sequence
+        # (enter box -> edit -> leave box) and, critically, gives the box a focus to
+        # LOSE afterwards. Writing first and focusing later cannot produce a Leave.
+        $e.SetFocus()
+        Start-Sleep -Milliseconds 120
+        $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if (-not (Test-SameElement -A $focused -B $e)) {
+            Write-Error "REFUSED: could not put keyboard focus on $label (focus is on '$($focused.Current.Name)'). Nothing was written. Is another window stealing the foreground?"
             exit 3
         }
     }
+    $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    $vp.SetValue($Value)
+    Write-Host "Set $label = '$Value'"
+    if ($CommitViaBlur) {
+        # Blur onto a DIFFERENT control. Focusing the owning window does NOT work: a
+        # WinForms Form hands activation straight back to its last-active child, so
+        # focus never leaves the box and Leave never fires. That is the bug that made
+        # this script report commits it had not performed (2026-07-21 testnet pass).
+        $sink = Get-FocusSink -Window $w -Exclude $e
+        if ($null -eq $sink) {
+            Write-Error "REFUSED: no other focusable textbox in '$($w.Current.Name)' to blur onto, so the commit cannot be performed OR verified. The value was written to the box but is NOT in force."
+            exit 3
+        }
+        $sink.SetFocus()
+        Start-Sleep -Milliseconds 200
+        # VERIFY, do not assume. A harness that reports a commit it did not make sends
+        # you hunting for product bugs that do not exist - which is exactly what happened
+        # before this check existed.
+        $after = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if (Test-SameElement -A $after -B $e) {
+            Write-Error "REFUSED: focus did not leave $label, so the app has NOT committed the value. The box shows '$Value' but the mirror still holds the previous one."
+            exit 3
+        }
+        Write-Host "Committed via blur (focus -> '$($sink.Current.Name)' (id '$($sink.Current.AutomationId)'); verified off the target)"
+    } else {
+        Write-Host "NOTE: value NOT committed to the app's mirrors until the box loses focus (rerun with -CommitViaBlur for gate-config boxes)."
+    }
+    exit 0
+} catch {
+    Write-Error "Textbox $label rejected SetValue/focus: $_"
+    exit 3
 }
-
-Write-Error "No textbox matched '$NamePattern'. Available textboxes:"
-foreach ($n in $allNames) { Write-Host "  - $n" }
-exit 2
