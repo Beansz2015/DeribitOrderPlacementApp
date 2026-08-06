@@ -116,6 +116,18 @@ inputs must be set **together**, because they compose.
    **Still unobserved:** `mode: "LIVE"` + an `acted (id …)` disposition (needs ARM/START), the `ws`
    DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and D1's race. §10 + §11.5 are the
    current what-is-NOT-proven list. *(D1 is done — see 6b. Nothing gates acceptance 3 but ARM/START.)*
+7b. **📋 C1 SPEC-BACK raised 2026-08-06 — `spec-back-c1-acceptance-2026-08-06.md`. Five findings,
+   none a code defect, all owner/orchestrator calls.** **D1** — spec §Acceptance 3's wording implies
+   ARM/START and it does not need them (log-only runs un-started; gate 4.5 is Live-only; E5 already
+   ruled LOG_ONLY emits) — **the spec's own copy is still unamended**, and that over-strict reading
+   is what had deferred E2's runtime evidence behind an owner-only gate. **D2** — H-6 §5.2's
+   live-payload clobber is AVOIDABLE by pointing `bridge.json`'s `path` at a scratch file; verified,
+   and it touches no ruling (the engine-stop refusal gates on the process, not the path).
+   **D3 — harness defect:** `Test-ElementMatch` is substring-only and `txtTrigger` ⊂
+   `txtTriggerOffset`; it silently set the wrong box during acceptance 4 (`tools/` fix, Sonnet-medium).
+   **D4** — the harness bin's GATE CONFIG diverges from the x64 bin's (session policy **disabled**
+   there), which silently changes dispositions; §4/§5.11 name only the settings/DB/journal split.
+   **D5** — a wildcard cleanup deleted `n2-settings.png`, not recoverable; recorded, not excused.
 8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
 9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
