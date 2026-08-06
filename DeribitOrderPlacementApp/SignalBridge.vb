@@ -422,7 +422,18 @@ Public Class SignalBridge
                     If Not Directory.Exists(dir) Then Directory.CreateDirectory(dir) ' create-if-missing (emitter does too)
                     Dim w As New FileSystemWatcher(dir, Path.GetFileName(_payloadPath))
                     w.NotifyFilter = NotifyFilters.LastWrite Or NotifyFilters.FileName Or NotifyFilters.CreationTime Or NotifyFilters.Size
-                    ' File.Replace on the engine side surfaces as rename/change - watch all three.
+                    ' Watch Changed, Created AND Renamed because THE WRITER'S API IS NOT OURS TO
+                    ' ASSUME. An atomic write surfaces as a different event depending on how the
+                    ' other side implements it (Replace vs Move vs plain write), and that is another
+                    ' repo's implementation detail which may change without notice. Subscribing to
+                    ' all three is correct for any of them.
+                    '
+                    ' This used to read "File.Replace on the engine side surfaces as rename/change".
+                    ' True when written, and a claim about the ENGINE's internals living in OUR code.
+                    ' Reworded 2026-08-04: the engine seat is queuing a swap of File.Replace ->
+                    ' File.Move, which would have falsified the stated reason while leaving this code
+                    ' correct - a comment that is wrong for a reason nothing here can detect, which
+                    ' is the worst shape a comment can be in.
                     AddHandler w.Changed, AddressOf OnPayloadFileEvent
                     AddHandler w.Created, AddressOf OnPayloadFileEvent
                     AddHandler w.Renamed, AddressOf OnPayloadRenamed
