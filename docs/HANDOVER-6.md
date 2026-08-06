@@ -116,18 +116,27 @@ inputs must be set **together**, because they compose.
    **Still unobserved:** `mode: "LIVE"` + an `acted (id …)` disposition (needs ARM/START), the `ws`
    DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and D1's race. §10 + §11.5 are the
    current what-is-NOT-proven list. *(D1 is done — see 6b. Nothing gates acceptance 3 but ARM/START.)*
-7b. **📋 C1 SPEC-BACK raised 2026-08-06 — `spec-back-c1-acceptance-2026-08-06.md`. Five findings,
-   none a code defect, all owner/orchestrator calls.** **D1** — spec §Acceptance 3's wording implies
-   ARM/START and it does not need them (log-only runs un-started; gate 4.5 is Live-only; E5 already
-   ruled LOG_ONLY emits) — **the spec's own copy is still unamended**, and that over-strict reading
-   is what had deferred E2's runtime evidence behind an owner-only gate. **D2** — H-6 §5.2's
-   live-payload clobber is AVOIDABLE by pointing `bridge.json`'s `path` at a scratch file; verified,
-   and it touches no ruling (the engine-stop refusal gates on the process, not the path).
-   **D3 — harness defect:** `Test-ElementMatch` is substring-only and `txtTrigger` ⊂
-   `txtTriggerOffset`; it silently set the wrong box during acceptance 4 (`tools/` fix, Sonnet-medium).
-   **D4** — the harness bin's GATE CONFIG diverges from the x64 bin's (session policy **disabled**
-   there), which silently changes dispositions; §4/§5.11 name only the settings/DB/journal split.
-   **D5** — a wildcard cleanup deleted `n2-settings.png`, not recoverable; recorded, not excused.
+7b. **✅ C1 SPEC-BACK — ALL FIVE UPHELD AND FOLDED IN 2026-08-06**
+   (`spec-back-c1-acceptance-2026-08-06.md`). **None was a code defect.** ⚠ **Numbered SB1–SB5, not
+   D1–D5** — `D1` was already taken twice in live docs (the C1 review's write-ordering defect, and
+   N2b's spec-back trap at §7.4), so a grep for "C1 D1" returned two different things in one
+   feature. **Convention from here: `D` = a defect found in code · `SB` = a spec-back finding
+   against the docs.**
+   **SB1** — §Acceptance 3 needs **no** ARM/START; log-only runs the whole gate chain and yields a
+   `would-act`, firing trigger (a). Verified: `TryStart` refuses non-Live (`SignalBridge.vb:308`) and
+   gate 4.5 is `_mode = BridgeMode.Live`-guarded (`:726`), so it is skipped in log-only. **Spec
+   AMENDED** — log-only is now the default route, Live an optional extension. That over-strict
+   reading had deferred E2's runtime evidence behind an owner-only gate for two days.
+   **SB2** — the live-payload clobber is avoidable; **§5.2 amended**, scratch path now preferred.
+   Touches no ruling: the engine-stop refusal still gates on the **process**, not the path.
+   **SB3 — harness defect, and it BIT:** `Test-ElementMatch` set `Trig. O.` instead of `Trig. P.`
+   **and reported success**, leaving the SL ~$6 below market for the whole acceptance-4 position —
+   the run survived only because price moved up. **Promoted out of the anytime backlog**
+   (`ROADMAP-2026-08.md` §5; `tools/` only, Sonnet-medium).
+   **SB4** — the harness bin's GATE CONFIG diverges and is *inverted* on which bucket is
+   unrestricted; **§4 amended** (it had named only settings/DB/journal).
+   **SB5** — a wildcard cleanup deleted `n2-settings.png`, unrecoverable; recorded, not excused, and
+   the rule is now in memory `winforms-harness-quirks`.
 8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
 9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
@@ -138,7 +147,8 @@ inputs must be set **together**, because they compose.
 C1 is otherwise DONE: implemented, reviewed, D1 fixed and verified, acceptances 4–7 passed.
 
 **INDEPENDENT, not queued behind anything: N2 enable (owner).** It is gated only on §2's three
-sizing knobs, and C1 is gated only on D1 — **neither blocks the other**, and both ship off/disabled.
+sizing knobs, and **C1 is now complete** (D1 fixed, all acceptances passed) — **neither ever blocked
+the other**, and both ship off/disabled.
 
 ⚠ *Corrected 2026-08-04: this line read "N2 enable → C1 …" for two days, which was the ORIGINAL
 plan — contract §8.7 says the emitter is "after N2 unless the trader reorders". **The trader
@@ -195,7 +205,7 @@ mtime, so a copy and a skipped copy look identical afterwards. **After ANY x64 r
 about the owner's bin** — separate settings file, DB and journal.
 
 🚨 **…AND SEPARATE GATE CONFIG — the half that decides whether a payload is acted on at all**
-(spec-back D4, 2026-08-06; the clause above named settings/DB/journal and stopped short of this).
+(spec-back SB4, 2026-08-06; the clause above named settings/DB/journal and stopped short of this).
 Verified divergence:
 
 | | session policy | buckets |
@@ -222,7 +232,7 @@ CHECKBOX** — reading `txtSessionPolicy` alone tells you nothing about whether 
    hit for real: forgetting to restart (nothing warns you no signals are arriving), and — engine
    stopped — `write-payload.ps1` defaulting to the **LIVE** payload path, clobbering
    `C:\Dev\DeribitBridge\verdict_signal.json`.
-   ✅ **PREFERRED FORM (spec-back D2, 2026-08-06): point the running bin's `bridge.json` `path` at a
+   ✅ **PREFERRED FORM (spec-back SB2, 2026-08-06): point the running bin's `bridge.json` `path` at a
    SCRATCH file and the live payload is never opened at all.** `write-payload.ps1` resolves the
    payload path *from that key*, so with
    `"path": "C:\\Dev\\DeribitBridge\\harness-signal.json"` there is nothing to clobber and nothing to
@@ -232,7 +242,7 @@ CHECKBOX** — reading `txtSessionPolicy` alone tells you nothing about whether 
    *restore is mandatory, not cleanup, there.*
    ⚠ **This does NOT touch the blunt-kill-rule ruling.** The refusal still gates on the engine
    **process**, not the path (2026-08-01, and the path-aware variant stays rejected), so
-   **STOP → run → restore → RESTART is unchanged**. D2 removes a footgun; it does not remove a step.
+   **STOP → run → restore → RESTART is unchanged**. SB2 removes a footgun; it does not remove a step.
 3. **Harness-driven placement IS permitted** on a TESTNET-titled, harness-launched session, through
    `tools/place-and-verify.ps1` only. *(H-4 §5's "owner mouse clicks only" is SUPERSEDED — the
    harness was exonerated 53/53.)* The owner still drives every **trade decision, ARM and START**.
@@ -343,6 +353,18 @@ it. **The recommendation is advisory; the owner still picks.**
 numbered impl-report section. C1's §6 is the pattern: it found no `PositionModelChanged` seam, so
 Opus-HIGH was confirmed correct with the three near-miss candidates recorded and why each fails.
 That is how the tiering table earns corrections instead of drifting.
+
+### 7bb. Finding-ID convention (2026-08-06) — `E` / `D` / `SB`, and they are NOT interchangeable
+
+- **`E`n** — an **escalation** raised by the implementer *before* writing the code it concerns.
+- **`D`n** — a **defect found in code**, whoever finds it (review, acceptance, runtime).
+- **`SB`n** — a **spec-back finding against the DOCS**, raised after the work.
+
+**Scope IDs to their feature and say which kind they are when citing across features.** C1 briefly
+had two live `D1`s — the review's write-ordering defect and the spec-back's first finding — while
+N2b's spec-back already owned a third. A bare "C1 D1" resolved to two different things, and the
+collision was introduced by numbering a docs-finding set with the code-defect prefix. Renumbering
+afterwards is cheap; a stale cross-reference to the wrong `D1` is not.
 
 ### 7c. 🚨 RULING 2026-08-03 — the coordinator matches effort to the task in hand
 

@@ -84,7 +84,8 @@ engine's scope call, not this app's. Anything on the owner-rejected list above.
 
 ## §7 — Sequence of record
 
-Everything through N2b is done. Current: **C1 D1 fix → C1 acceptances 3–7 → §5 backlog**, with
+Everything through N2b is done, **and C1 is COMPLETE** — implemented, reviewed, its D1 fixed, and
+all five acceptances 3–7 passed 2026-08-06. Current: **SB3's harness fix → §5 backlog**, with
 **N2 enable running independently** (owner; gated only on its three sizing knobs).
 
 **The §8.7 reorder, recorded because it was exercised and never written down:** the contract slots

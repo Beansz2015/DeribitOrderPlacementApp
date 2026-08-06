@@ -330,7 +330,7 @@ Keep the seams pure and side-effect-free, as `ShouldSend` (`RemoteNotifier.vb:10
    observable behaviour against the pre-change build is empty. The disabled path must be
    byte-identical in effect.
 3. **Emit-only rollout step (§8.7) — the DEFAULT route is LOG-ONLY, and needs no ARM/START.**
-   *(AMENDED 2026-08-06, spec-back D1. The original wording said "drive one bridge act", which reads
+   *(AMENDED 2026-08-06, spec-back SB1. The original wording said "drive one bridge act", which reads
    as the Live placement path and sent a run sheet — and H-6 — through an owner-only gate for two
    days. The code says otherwise: `TryStart` refuses non-Live outright, "log-only runs un-started by
    design" (`SignalBridge.vb:308`), and **gate 4.5's dual-arm interlock is guarded

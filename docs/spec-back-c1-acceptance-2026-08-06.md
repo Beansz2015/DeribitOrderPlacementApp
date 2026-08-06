@@ -7,12 +7,19 @@ and one mistake of mine.
 
 **Context:** all five acceptances 3–7 ran and passed
 (`runtime-record-c1-feedback-emitter-2026-08-06.md`). Code is APPROVED (`review-c1-feedback-emitter.md`),
-D1 fixed, gate `GATE PASSED` / OrderCheck 268/268, censuses unchanged throughout. **Nothing here
+the review's D1 fixed, gate `GATE PASSED` / OrderCheck 268/268, censuses unchanged throughout. **Nothing here
 changes the emitted schema, any disposition token, or any ruling.**
 
 ---
 
-## D1 — 🚨 Acceptance 3 does NOT need ARM/START, and both the spec and my run sheet implied it did
+> **⚠ RENUMBERED 2026-08-06 by the coordinator: these five findings are SB1–SB5, not D1–D5.**
+> `D1` was already taken **twice** in live docs — the C1 review's write-ordering defect
+> (`review-c1-feedback-emitter.md` §4, fixed in `cef0b9c`) and N2b's spec-back trap (H-6 §7.4) — so
+> a grep for "C1 D1" returned two different things in the same feature. **`D` = a defect found in
+> code; `SB` = a spec-back finding against the docs.** References to `D1`'s race elsewhere in this
+> file and in the runtime record still mean the REVIEW's D1 and are left alone.
+
+## SB1 — 🚨 Acceptance 3 does NOT need ARM/START, and both the spec and my run sheet implied it did
 
 **The spec says** (§Acceptance 3): *"enable the path, drive one bridge act on the harness, then
 inspect the file by hand."* **"Bridge act" reads as the Live placement path**, and I wrote
@@ -51,7 +58,7 @@ code required what the wording implied. That is H-6 §7b lesson 1 in mirror imag
 
 ---
 
-## D2 — the live-payload clobber is AVOIDABLE, and H-6 §5.2 presents it as unavoidable
+## SB2 — the live-payload clobber is AVOIDABLE, and H-6 §5.2 presents it as unavoidable
 
 **H-6 §5.2 frames it as an accepted footgun:** with the engine stopped, `write-payload.ps1` defaults
 to the LIVE payload path and clobbers `C:\Dev\DeribitBridge\verdict_signal.json`; the first-write
@@ -79,7 +86,7 @@ larger of the two footguns that section names.
 
 ---
 
-## D3 — 🔧 harness defect: `Test-ElementMatch` is substring-only, and `txtTrigger` ⊂ `txtTriggerOffset`
+## SB3 — 🔧 harness defect: `Test-ElementMatch` is substring-only, and `txtTrigger` ⊂ `txtTriggerOffset`
 
 **`harness-common.ps1:109`** matches on `Name` or `AutomationId` by
 `IndexOf(Pattern, OrdinalIgnoreCase) >= 0` — pure substring, first match in enumeration order wins.
@@ -116,7 +123,7 @@ Alternatively — cheaper, weaker — make a script that matched more than one c
 
 ---
 
-## D4 — the harness bin's GATE CONFIG diverges from the owner's x64 bin, and nothing says so
+## SB4 — the harness bin's GATE CONFIG diverges from the owner's x64 bin, and nothing says so
 
 **H-6 §4 and §5.11 name the divergence as "separate settings file, DB and journal"** and call the
 AnyCPU bin's own `bridge-dispositions.log` *"accidental but useful isolation"*. What neither says is
@@ -147,7 +154,7 @@ reading `txtSessionPolicy` alone tells you nothing about whether it is in force.
 
 ---
 
-## D5 — housekeeping: I deleted a file that was not mine
+## SB5 — housekeeping: I deleted a file that was not mine
 
 Teardown after the first session ran `Remove-Item verify\out\*.png`, which took
 **`n2-settings.png` (204 KB)** along with this run's own two screenshots. It pre-dated this seat and
@@ -181,7 +188,7 @@ reproduce it.
 
 ## What this spec-back does NOT claim
 
-- **No code defect is alleged.** D3 is the only defect and it is in `tools/`, not the app.
+- **No code defect is alleged.** SB3 is the only defect and it is in `tools/`, not the app.
 - **`mode: "LIVE"` and an `acted (id …)` disposition remain unobserved** — only the Live arm reaches
   the placement path. So do the `ws` DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and
   D1's race (which needs two threads and a pre-emption).
