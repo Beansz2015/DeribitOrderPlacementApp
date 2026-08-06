@@ -50,27 +50,27 @@ sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
   is NOT that seam — `HandleQuoteUpdates` / `HandleOrderPositionUpdates` are `Async Sub`, so a hook
   there fires at their first `Await`, before their post-await writes: it would look complete and be
   wrong on the two hottest handlers.
-- 🚨 **`Test-ElementMatch` exact-id match — PROMOTED OUT OF "anytime" 2026-08-06: THIS HAS NOW
-  BITTEN.** `harness-common.ps1:109` matches by `IndexOf >= 0`, first match in enumeration order
-  wins, and **every drive script uses it**. `txtTrigger` is a substring of `txtTriggerOffset`, which
-  enumerates first — so on the C1 acceptance run, asking for `Trig. P.` silently set `Trig. O.` **and
-  reported success**: `Set '' (id 'txtTriggerOffset', …) = '300'`.
-  **Consequence: the stop trigger stayed at 5 instead of 300, so the SL sat ~$6 below market for the
-  whole acceptance-4 position. The run survived only because price moved UP** (64806.5 → 64825.62).
-  Six dollars the other way and the position self-closes mid-test, and the flat-trap reading is taken
-  against a close nobody drove — which reads as a mystery rather than as this.
-  Scope was measured, not asserted: all 28 Edit ids enumerated, and the `txt` prefix protects the
-  other near-collisions (`txtStopLoss` is NOT a substring of `txtMarketStopLoss` or
-  `txtPlacedStopLossPrice`). **This is the only collision today — and it bit on first use.**
-  **SPEC WRITTEN 2026-08-06: `spec-harness-exact-match.md`** — exact `AutomationId` across all
-  candidates first, exact `Name` second, substring as fallback, and **a tie at any tier fails loudly
-  instead of picking**. Sonnet/medium, `tools/` only (H-6 §7a). This is the harness
-  commit-verification class ([[harness-commit-verification-trap]]): it reported the work it *did* do,
-  on the wrong control.
-  ⚠ **The `-Exact` switch this row used to ask for is SUPERSEDED and was the wrong shape** — a switch
-  is only correct when the caller remembers to pass it, so it converts a silent wrong-control into a
-  silent wrong-control-unless-you-remembered. Exact-first-by-default requires nothing of any caller
-  and is behaviour-preserving wherever the pattern is unambiguous. Spec §2.3.
+- ✅ **`Test-ElementMatch` exact-id match — CLOSED 2026-08-06** (`188bdab`, `3611d49`,
+  `spec-harness-exact-match.md`). `harness-common.ps1:109` used to match by `IndexOf >= 0`,
+  first match in enumeration order wins, and every drive script used it — `txtTrigger` is a
+  substring of `txtTriggerOffset`, which enumerates first, so on the C1 acceptance run asking for
+  `Trig. P.` silently set `Trig. O.` **and reported success**: `Set '' (id 'txtTriggerOffset', …) =
+  '300'`, leaving the SL ~$6 below market for a whole live position (survived only because price
+  moved the safe way). Fixed structurally: `Select-BestMatchIndex` (a pure function over plain
+  data, `harness-common.ps1`) now ranks exact `AutomationId` first, exact `Name` second, substring
+  third, and **any tie at the winning tier fails loudly** (exit 3, every tied candidate named)
+  instead of picking arbitrarily. All five call sites (`set-textbox.ps1`, `toggle-checkbox.ps1`,
+  `select-combo-item.ps1`, `click-button.ps1`, `click-PLACES-ORDER.ps1`) gather-then-decide via the
+  new `Select-MatchingElement` seam. Re-verified: 28 Edit AutomationIds, `txtTrigger` ⊂
+  `txtTriggerOffset` still the only collision; the regression case (`set-textbox txtTrigger`)
+  changes only `txtTrigger`; a bare `Trig` pattern now refuses loudly naming all three ties instead
+  of picking one. The deny check (`click-button.ps1`) and the TESTNET/harness-PID gate
+  (`click-PLACES-ORDER.ps1`) are untouched. This is the harness commit-verification class
+  ([[harness-commit-verification-trap]]): it reported the work it *did* do, on the wrong control.
+  ⚠ **The `-Exact` switch this row used to ask for was SUPERSEDED and was the wrong shape** — a
+  switch is only correct when the caller remembers to pass it, so it converts a silent
+  wrong-control into a silent wrong-control-unless-you-remembered. Exact-first-by-default requires
+  nothing of any caller and is behaviour-preserving wherever the pattern is unambiguous. Spec §2.3.
 - **FrmIndicators full retirement** — more attractive now: with the engine 24/7 on AWS the indicator
   fallback is nearly never exercised, so retiring it leaves payload ATR + the $70 constant only.
 - **Edit T.S. post-trigger rework** — 4-trap catalog; `EditStopLossTo` is the home.
@@ -79,7 +79,8 @@ sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
 - **Housekeeping smoke leftovers** — the 8b checkbox-OFF half, the 14g long-PnL observation.
 - **A2** manual-freeze observation · **B2** regression · **F1** rejected-edit re-sync (accepted LOW).
 - **TP post-fill manual-move gap.**
-- **Harness `txtTrigger` tree-order nit** · **fractional-offset loud rejection.**
+- ~~Harness `txtTrigger` tree-order nit~~ — same defect as the closed row above; folded in there.
+  **fractional-offset loud rejection** still open.
 
 ## §6 — Deliberately NOT building
 
