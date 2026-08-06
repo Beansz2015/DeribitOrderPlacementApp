@@ -62,10 +62,15 @@ sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
   Scope was measured, not asserted: all 28 Edit ids enumerated, and the `txt` prefix protects the
   other near-collisions (`txtStopLoss` is NOT a substring of `txtMarketStopLoss` or
   `txtPlacedStopLossPrice`). **This is the only collision today — and it bit on first use.**
-  **Fix: exact `AutomationId` match across all candidates FIRST, substring only as fallback** —
-  behaviour-preserving for every existing call site. **Sonnet, medium; `tools/` only, no trading
-  path** (H-6 §7a). This is the harness commit-verification class
-  ([[harness-commit-verification-trap]]): it reported the work it *did* do, on the wrong control.
+  **SPEC WRITTEN 2026-08-06: `spec-harness-exact-match.md`** — exact `AutomationId` across all
+  candidates first, exact `Name` second, substring as fallback, and **a tie at any tier fails loudly
+  instead of picking**. Sonnet/medium, `tools/` only (H-6 §7a). This is the harness
+  commit-verification class ([[harness-commit-verification-trap]]): it reported the work it *did* do,
+  on the wrong control.
+  ⚠ **The `-Exact` switch this row used to ask for is SUPERSEDED and was the wrong shape** — a switch
+  is only correct when the caller remembers to pass it, so it converts a silent wrong-control into a
+  silent wrong-control-unless-you-remembered. Exact-first-by-default requires nothing of any caller
+  and is behaviour-preserving wherever the pattern is unambiguous. Spec §2.3.
 - **FrmIndicators full retirement** — more attractive now: with the engine 24/7 on AWS the indicator
   fallback is nearly never exercised, so retiring it leaves payload ATR + the $70 constant only.
 - **Edit T.S. post-trigger rework** — 4-trap catalog; `EditStopLossTo` is the home.
