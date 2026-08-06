@@ -83,7 +83,12 @@ inputs must be set **together**, because they compose.
    whole §8.3 domain in the same pass — **OrderCheck 227/227 → 264/264**. ⚠ **The former "`ws` is
    knowingly permanently stale" warning is WITHDRAWN**, but note it has never been *observed* firing:
    §7.4 of the impl report now carries the observation step. Addendum: that report's **§8**.
-6b. **🚨 C1 defect D1 — ONE COMMIT OWED, and it comes BEFORE acceptance 7**
+6b. **✅ C1 defect D1 — FIXED (`cef0b9c`) and VERIFIED. CLOSED.** `WriteAtomic` gained `isFinal`;
+   `ShouldWrite(isFinal, disposed) = isFinal OrElse Not disposed` is a pure fixture-pinnable seam.
+   The reviewer checked the thing the fix could have broken: `_writeGate → _gate` is the only lock
+   nesting in the class and no path holds `_gate` while taking `_writeGate`, so there is no deadlock.
+   Gate 268/268. *(Original finding kept below for the record.)*
+   ~~**ONE COMMIT OWED, and it comes BEFORE acceptance 7**~~
    (`review-c1-feedback-emitter.md` §4). A worker pre-empted between taking its id under `_gate` and
    acquiring `_writeGate` can write **after** the graceful-close write, with an older snapshot and a
    **lower** `feedback_id`. So the on-disk id goes backwards (§8.4 requires monotonic) and the last
@@ -102,15 +107,15 @@ inputs must be set **together**, because they compose.
    (owner-only; `START` is on the harness deny list) and an engine stop, and it is the one that
    matters most now: **`mode` has still only ever been observed as `"OFF"`**, so E2's silent-failure
    string (`"LogOnly"` ≠ `"LOG_ONLY"`) is fixture evidence only. That record's §10 is the current
-   what-is-NOT-proven list. **Do D1 first.**
+   what-is-NOT-proven list. *(D1 is done — see 6b. Nothing gates acceptance 3 but ARM/START.)*
 8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
 9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
 
 ## 3. Queue
 
-**ACTIVE THREAD: C1 D1 fix (implementer, one commit) → C1 acceptances 3–7 (owner) →
-`ROADMAP-2026-08.md` §5 backlog.**
+**ACTIVE THREAD: C1 acceptance 3 (owner — the last one) → `ROADMAP-2026-08.md` §5 backlog.**
+C1 is otherwise DONE: implemented, reviewed, D1 fixed and verified, acceptances 4–7 passed.
 
 **INDEPENDENT, not queued behind anything: N2 enable (owner).** It is gated only on §2's three
 sizing knobs, and C1 is gated only on D1 — **neither blocks the other**, and both ship off/disabled.

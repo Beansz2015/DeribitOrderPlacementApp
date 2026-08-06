@@ -4,7 +4,40 @@
 **Spec:** `spec-c1-feedback-emitter.md` · **Schema:** contract §8 · **Report:**
 `impl-report-c1-feedback-emitter.md`.
 
-## VERDICT: code **APPROVED**, with **one defect (D1)** to fix before acceptance 7
+> ## ✅ ADDENDUM 2026-08-06 — D1 FIXED AND VERIFIED; ACCEPTANCES 4–7 PASSED. **C1 REVIEW CLOSED.**
+>
+> **D1 (`cef0b9c`) — fixed exactly as recommended, and verified by this seat.** `WriteAtomic` gained
+> `isFinal`; the pure seam `ShouldWrite(isFinal, disposed) = isFinal OrElse Not disposed` is
+> fixture-pinnable even though the race is not. Truth table checked: final proceeds with `_disposed`
+> latched (it is the write that latches it, so gating it on `_disposed` would gate it on itself);
+> a late worker is refused. **The new lock nesting was the thing to check and it is sound** —
+> `_writeGate → _gate` inside `WriteAtomic` is the ONLY nesting in the class, and no path holds
+> `_gate` while acquiring `_writeGate` (`Publish` :444, `OnHeartbeat` :476, `DrainQueue` :497,
+> `ShutdownWithFinalWrite` :582 all release first). No deadlock. The seat also declined to widen
+> `_writeGate`, which is what §4 warned against. Gate re-run: **268/268**.
+>
+> **Acceptances 4, 5, 6, 7 PASSED** (`runtime-record-c1-feedback-emitter-2026-08-06.md`); **only
+> acceptance 3 remains**, and it needs ARM/START. E6a's `ws` OK edge and E6b's trigger (f) were
+> **observed firing for the first time**, closing impl report §8.4's stated gap.
+>
+> **🚨 Acceptance 4 — the flat trap — is genuinely proven, and I re-derived the discriminator rather
+> than accepting it.** The record correctly rejects `Scratch close: P/L ≈ $0.00` as non-discriminating
+> (it also prints on an unseeded model). The real discriminator is that `CompletePositionClose` picks
+> `entryPriceAtClose = If(positionAvgEntry > 0D, positionAvgEntry, placedPrice)`
+> (`frmMainPageV2.vb:5390` — verified) and the two candidates differ here: `positionAvgEntry`
+> 64806.**50** vs `placedPrice` 64806.**00**. I queried the harness `trades.db` directly: **trade #75
+> records EntryPrice 64806.5.** Therefore `positionAvgEntry` was still non-zero at the flat echo while
+> the file published `avg_entry: 0`. **The defect this entire spec exists to prevent is demonstrated
+> prevented, on a real open→close cycle — which log-only inspection structurally could not have done.**
+>
+> **Still unobserved, and the record says so itself:** the `ws` DOWN edge · `mode` as `"LOG_ONLY"` or
+> `"LIVE"` (only ever `"OFF"` — and E2's failure mode is precisely a wrong `mode` string, so this is
+> the most valuable thing left) · `breaker_tripped` flipping · a SHORT `size_usd` · D1's race itself.
+> All of these ride on acceptance 3.
+>
+> §5's residual 4 ruling stands; §4's D1 text below is kept as the record of the finding.
+
+## VERDICT (at review time): code **APPROVED**, with **one defect (D1)** to fix before acceptance 7
 
 D1 is a narrow shutdown-ordering race, one line to fix, and it does not affect anything already
 landed. Everything else verifies — including the claim the report itself nominated as the one most
