@@ -329,9 +329,25 @@ Keep the seams pure and side-effect-free, as `ShouldSend` (`RemoteNotifier.vb:10
 2. **OFF-parity:** with no `feedback_output_path`, **no file is created**, and a diff of the app's
    observable behaviour against the pre-change build is empty. The disabled path must be
    byte-identical in effect.
-3. **Emit-only rollout step (§8.7):** enable the path, drive one bridge act on the harness, then
-   **inspect the file by hand** — `schema_version`, `feedback_id` monotonic, the engine's pair in
-   `last_signal`, `position` matching what the app shows.
+3. **Emit-only rollout step (§8.7) — the DEFAULT route is LOG-ONLY, and needs no ARM/START.**
+   *(AMENDED 2026-08-06, spec-back D1. The original wording said "drive one bridge act", which reads
+   as the Live placement path and sent a run sheet — and H-6 — through an owner-only gate for two
+   days. The code says otherwise: `TryStart` refuses non-Live outright, "log-only runs un-started by
+   design" (`SignalBridge.vb:308`), and **gate 4.5's dual-arm interlock is guarded
+   `_mode = BridgeMode.Live` (`:726`) so it is skipped entirely in log-only**. A payload therefore
+   runs the whole §4 gate chain in Log-only and yields a `would-act` — which fires trigger (a) and
+   populates `last_signal` — with neither toggle touched and no order placed.)*
+
+   Set mode **Log-only**, land a payload, then **inspect the file by hand**: `schema_version`,
+   `feedback_id` monotonic, the **engine's** pair in `last_signal`, its `disposition` matching the
+   x64 `bridge-dispositions.log` row character for character, `position` matching the app's display,
+   and `executor.mode` reading **`"LOG_ONLY"` — never `"LogOnly"`**, which is E2's silent failure.
+   **This route is the one that carries E2's evidence**, so it is not a lesser substitute: E2 fails
+   invisibly, and log-only is where the string first becomes observable.
+
+   **Optional extension, still the only way to see two things:** mode `"LIVE"` and an
+   `acted (id …)` disposition need Mode Live + ARM + START, which are owner-only. Everything else in
+   this acceptance is reachable without them.
 4. **🚨 The flat-trap acceptance, and it is the one that matters:** open a position, close it, then
    read the file **while flat**. `direction` must be `"FLAT"` and `avg_entry` must be `0` — with a
    *non-zero* `positionAvgEntry` still live in the app. **Log-only inspection cannot prove this**;

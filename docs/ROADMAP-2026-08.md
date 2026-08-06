@@ -50,9 +50,22 @@ sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
   is NOT that seam — `HandleQuoteUpdates` / `HandleOrderPositionUpdates` are `Async Sub`, so a hook
   there fires at their first `Await`, before their post-await writes: it would look complete and be
   wrong on the two hottest handlers.
-- **`set-textbox -Exact` switch** — `set-textbox` matches by SUBSTRING, so `txtTrigger` can never
-  address `txtTrigger` while `txtTriggerOffset` exists; it silently sets the wrong box and reports
-  success. *(Verified still absent 2026-08-02.)*
+- 🚨 **`Test-ElementMatch` exact-id match — PROMOTED OUT OF "anytime" 2026-08-06: THIS HAS NOW
+  BITTEN.** `harness-common.ps1:109` matches by `IndexOf >= 0`, first match in enumeration order
+  wins, and **every drive script uses it**. `txtTrigger` is a substring of `txtTriggerOffset`, which
+  enumerates first — so on the C1 acceptance run, asking for `Trig. P.` silently set `Trig. O.` **and
+  reported success**: `Set '' (id 'txtTriggerOffset', …) = '300'`.
+  **Consequence: the stop trigger stayed at 5 instead of 300, so the SL sat ~$6 below market for the
+  whole acceptance-4 position. The run survived only because price moved UP** (64806.5 → 64825.62).
+  Six dollars the other way and the position self-closes mid-test, and the flat-trap reading is taken
+  against a close nobody drove — which reads as a mystery rather than as this.
+  Scope was measured, not asserted: all 28 Edit ids enumerated, and the `txt` prefix protects the
+  other near-collisions (`txtStopLoss` is NOT a substring of `txtMarketStopLoss` or
+  `txtPlacedStopLossPrice`). **This is the only collision today — and it bit on first use.**
+  **Fix: exact `AutomationId` match across all candidates FIRST, substring only as fallback** —
+  behaviour-preserving for every existing call site. **Sonnet, medium; `tools/` only, no trading
+  path** (H-6 §7a). This is the harness commit-verification class
+  ([[harness-commit-verification-trap]]): it reported the work it *did* do, on the wrong control.
 - **FrmIndicators full retirement** — more attractive now: with the engine 24/7 on AWS the indicator
   fallback is nearly never exercised, so retiring it leaves payload ATR + the $70 constant only.
 - **Edit T.S. post-trigger rework** — 4-trap catalog; `EditStopLossTo` is the home.

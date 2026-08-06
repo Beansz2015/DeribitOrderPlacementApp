@@ -194,6 +194,23 @@ mtime, so a copy and a skipped copy look identical afterwards. **After ANY x64 r
 **The gate does NOT build the x64 bin** (AnyCPU only), and **a harness-bin observation says nothing
 about the owner's bin** — separate settings file, DB and journal.
 
+🚨 **…AND SEPARATE GATE CONFIG — the half that decides whether a payload is acted on at all**
+(spec-back D4, 2026-08-06; the clause above named settings/DB/journal and stopped short of this).
+Verified divergence:
+
+| | session policy | buckets |
+|---|---|---|
+| harness Debug bin | **OFF** | `NY = HIGH,MEDIUM \| any \| 0.5` |
+| owner x64 bin | **ENABLED** | `LONDON = MEDIUM\|CONFIRMED\|0.5` · `ASIA = HIGH,MEDIUM\|any\|0.75` · **NY absent → `DefaultRule`** |
+
+They are not merely different — they are **inverted on which bucket is unrestricted**. The payload
+that gives `would-act … size 10` with no clamp line on the harness would, in the owner's bin at the
+default `-Confidence HIGH` between UTC 08:00–12:59, come back `refused: policy(LONDON/tier)`: no
+would-act at all, and an acceptance that reads as a failure. **Read the gate config off the form
+before interpreting any harness bridge disposition.** Two riders: **`-Confidence MEDIUM` is the only
+value passing all three buckets** under the owner's config, and **the policy's enabled state is a
+CHECKBOX** — reading `txtSessionPolicy` alone tells you nothing about whether it is in force.
+
 ## 5. Runtime facts that bite — SUPERSEDES H-4 §5 (two of which were reversed)
 
 1. **The payload must LAND while the bridge is STARTED.** Evaluation is file-change-only; START
@@ -204,8 +221,18 @@ about the owner's bin** — separate settings file, DB and journal.
    *(H-4 §5's "never stop the engine" is INVERTED — owner ruling 2026-08-01.)* Two footguns, both
    hit for real: forgetting to restart (nothing warns you no signals are arriving), and — engine
    stopped — `write-payload.ps1` defaulting to the **LIVE** payload path, clobbering
-   `C:\Dev\DeribitBridge\verdict_signal.json`. Its first-write backup plus `restore-payload.ps1` is
-   the only safety net: **restore is mandatory, not cleanup.**
+   `C:\Dev\DeribitBridge\verdict_signal.json`.
+   ✅ **PREFERRED FORM (spec-back D2, 2026-08-06): point the running bin's `bridge.json` `path` at a
+   SCRATCH file and the live payload is never opened at all.** `write-payload.ps1` resolves the
+   payload path *from that key*, so with
+   `"path": "C:\\Dev\\DeribitBridge\\harness-signal.json"` there is nothing to clobber and nothing to
+   forget to restore. Verified on the 2026-08-06 run: `verdict_signal.json` byte- and
+   timestamp-identical across it, and `restore-payload.ps1` correctly reported *"nothing to restore"*.
+   Backup + restore remains the fallback **when running against the default path** —
+   *restore is mandatory, not cleanup, there.*
+   ⚠ **This does NOT touch the blunt-kill-rule ruling.** The refusal still gates on the engine
+   **process**, not the path (2026-08-01, and the path-aware variant stays rejected), so
+   **STOP → run → restore → RESTART is unchanged**. D2 removes a footgun; it does not remove a step.
 3. **Harness-driven placement IS permitted** on a TESTNET-titled, harness-launched session, through
    `tools/place-and-verify.ps1` only. *(H-4 §5's "owner mouse clicks only" is SUPERSEDED — the
    harness was exonerated 53/53.)* The owner still drives every **trade decision, ARM and START**.
