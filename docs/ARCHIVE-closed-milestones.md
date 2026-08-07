@@ -5,6 +5,12 @@ short: it holds the one-line verdict per closed milestone plus the doc chain tha
 detail. **Do not read this file to get up to speed** — read `HANDOVER-6.md`. Come here only when
 you need the reasoning behind a specific closed item.
 
+**It carries three things, all backward-looking:** ① the closed-milestone index (below), ② retired
+sentences, quoted and labelled rather than deleted, and ③ — added 2026-08-07 — **the trim
+archaeology: what each doc collapse removed, where it went, and the two commands that recover
+anything ever written here.** ③ is the answer to *"were the spent sections archived or just
+deleted?"* — and it is not a rhetorical question: three items were lost by trims and recovered.
+
 Rule of the house: **per-milestone detail lives in the spec → spec-back → impl-report → review →
 runtime-record chain**, never re-narrated in a handover or roadmap row. These entries are pointers.
 
@@ -65,6 +71,64 @@ no longer applies either; harness placement goes through `tools/place-and-verify
 
 *(Kept at the owner's instruction: a retired claim is safer quoted-and-labelled than silently
 deleted, because deletion is indistinguishable from "never written" to the next grep.)*
+
+## Trim archaeology — what the collapses removed, and how to get any of it back
+
+**Added 2026-08-07, because "was anything deleted rather than archived?" turned out to have a
+two-part answer.**
+
+**Part one — nothing was deleted from the REPO.** Every superseded handover (`HANDOVER.md`,
+`-2`…`-5`), the prior-era `ROADMAP-2026-07.md`, and all ~140 per-milestone
+`spec-` / `spec-back-` / `impl-report-` / `review-` / `runtime-record-` docs are **still tracked
+files**. The collapses re-pointed the read path; they did not remove history. Verified by listing
+`git ls-files docs` on 2026-08-07.
+
+**Part two — but text removed FROM a doc lives only in git history, and that has cost us three
+times.** A file that is rewritten in place (H-6 lost 173 lines to `24423dd`) leaves nothing behind
+in the working tree.
+
+**Recovery recipe — anything ever written in this repo is two commands away:**
+
+```bash
+git log --oneline --follow -- docs/HANDOVER-6.md
+```
+
+Then `git show <commit>^:docs/HANDOVER-6.md` for the file as it stood *before* that commit, or
+`git show <commit> -- docs/HANDOVER-6.md` for exactly what changed. To hunt a remembered phrase
+across all of history: `git log -S'the phrase' --oneline -- docs`.
+
+**Known losses and their dispositions — the ledger, so this is a pattern rather than three
+anecdotes:**
+
+| Removed by | What was lost | How it surfaced | Disposition |
+|---|---|---|---|
+| `24423dd` (H-4 §6 → H-6 §7) | The **model/effort tiering** table | The owner asked which model to use, a day later | Restored as H-6 **§7a** |
+| `24423dd` (live traps filed to this archive) | Three **runtime testing traps** needed *during* a run | Next runtime pass needed them | Pulled back into H-6 **§5** (`95e8658`) |
+| `24423dd` (H-6 §5's ATRSlip bullet) | *"…or **the bridge refuses to START in Live mode**"* — **it survived nowhere else** | 2026-08-07, by **diffing the trim**, not by reading | Restored as H-6 **§5.5(a)**, re-derived from `SignalBridge.vb:305-317` |
+| `24423dd` (ROADMAP §5) | The **descriptions** behind `A2` / `B2` / `F1` / fractional-offset — reduced to bare labels | 2026-08-07 ROADMAP audit | Restored from `HANDOVER-3.md` §3 |
+| `24423dd` (ROADMAP §5) | **cross-app ATR 7-vs-14** and the **`_autotradesettings` leftovers** — dropped from every list | 2026-08-07 ROADMAP audit | Both verified **settled in code**; recorded as answers in `ROADMAP-2026-08.md` §8.2 |
+
+🚨 **The rule this ledger earns: a trim commit MUST enumerate what it removed and say where each
+piece went — and "nothing was lost, the detail is in the chain" is a claim to be checked item by
+item, not asserted.** `24423dd`'s own message says *"with nothing lost — closed detail was already
+in the spec/review chains and is now indexed rather than re-narrated."* That was **true of the
+closed detail and false of at least one live clause**, and the gap went unnoticed for five days
+because the sentence sounded like a verification and was actually a prediction.
+
+**Corollary for the next trim: diff for IMPERATIVES, not for length.** The lost items were all
+sentences that told a future seat what to *do* — a tier to pick, a trap to avoid, a checkbox that
+blocks START. Prose compresses safely; instructions do not.
+
+## Where each kind of closed thing lives (the map, so nothing has to be hunted)
+
+| Kind | Home |
+|---|---|
+| Closed-milestone verdict + its doc chain | **this file's table**, above |
+| The real per-milestone detail | the `spec-` → `spec-back-` → `impl-report-` → `review-` → `runtime-record-` chain, all still tracked |
+| Superseded handovers | `HANDOVER.md`, `-2`…`-5` — still tracked, banner-marked, ⚠ two reversed facts in H-4 §5 |
+| Prior-era plan of record | `ROADMAP-2026-07.md` |
+| Retired *sentences* (quoted and labelled) | this file — the WATCH note above and the ledger here |
+| Text removed by a trim | git history, via the recipe above |
 
 ## Where the reusable lessons went (deliberately NOT duplicated here)
 

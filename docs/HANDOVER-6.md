@@ -59,6 +59,14 @@ inputs must be set **together**, because they compose.
    holds 91 live rows; after `#89` only these two remain. `#100` postdates N1c's #99 and appears in
    no doc. Owner's call, not a defect. *(The named list — #90–#93 / #96–#98 / #99 — is fully
    cleared.)*
+   ⚠ **NOT re-verified on 2026-08-07 — carried on its original evidence, which is exactly the
+   condition this document warns about.** Three routes were tried and all failed: `sqlite3` is not
+   on PATH; the bin's .NET 9 `System.Data.SQLite.dll` will not load into Windows PowerShell 5.1
+   (`ReflectionTypeLoadException` — the PS-5.1-is-.NET-Framework trap); and a throwaway `dotnet 9`
+   console against a **copy** of the DB got `CantOpen (14)` from the native interop under the
+   sandbox. **If this row matters, read it from the running app's View Trades grid** — that is the
+   one reader known to work. The x64 `trades.db` was last written 2026-07-31, so the claim is at
+   least not being invalidated by new rows.
 5. **✅ Engine relay DONE 2026-08-04 (engine `5d1bd02`) — mirror and canonical text agree.** Both
    corrections applied to their `signal-bridge-v1-proposal.md` §10.2: the §8.1 atomic-write wording
    (E1) and the §8.5 trigger list (E6 — `ws` into (c), new (f)). Verified read-only, not taken on
@@ -225,10 +233,23 @@ about the owner's bin** — separate settings file, DB and journal.
 (spec-back SB4, 2026-08-06; the clause above named settings/DB/journal and stopped short of this).
 Verified divergence:
 
-| | session policy | buckets |
-|---|---|---|
-| harness Debug bin | **OFF** | `NY = HIGH,MEDIUM \| any \| 0.5` |
-| owner x64 bin | **ENABLED** | `LONDON = MEDIUM\|CONFIRMED\|0.5` · `ASIA = HIGH,MEDIUM\|any\|0.75` · **NY absent → `DefaultRule`** |
+**Both `orderapp-settings.json` files read 2026-08-07. The divergence is wider than the session
+policy** — SB4 named the gate config, and the rest of the file diverges too:
+
+| key | harness Debug bin | owner x64 bin | why it matters |
+|---|---|---|---|
+| `session_policy.enabled` | **false** | **true** | the policy is structurally silent on one and gating on the other |
+| buckets | `NY = HIGH,MEDIUM \| any \| 0.5` | `LONDON = MEDIUM\|CONFIRMED\|0.5` · `ASIA = HIGH,MEDIUM\|any\|0.75` · **NY absent → `DefaultRule`** | **inverted on which bucket is unrestricted** |
+| `max_slippage_atr_checked` | **false** | **true** | 🚨 on the harness, **Live START refuses** (§5.5a) and neither chase-abort arm evaluates |
+| `risk_per_trade_usd` | `1.0` | `25.0` | any N2 sizing observed on the harness is 1/25th of the owner's |
+| `trigger` | `777.0` | `5.0` | harness sentinel values, not trading values |
+| `market_stop_loss` | `200.0` | `30.0` | the M.SL loss cap differs by ~7× |
+| `risk_size_bridge_trades` | `false` | `false` | the one thing that agrees |
+
+**And the owner's `bridge.json` carries `path` + `slippage_atr_mult` only — NO
+`feedback_output_path`**, i.e. **C1 is OFF in the owner's bin**, confirmed at the artefact rather
+than inferred from "it ships OFF" (`bin/x64/.../bridge.json`, read 2026-08-07). That key is the
+enable in `ROADMAP-2026-08.md` §1.5.
 
 They are not merely different — they are **inverted on which bucket is unrestricted**. The payload
 that gives `would-act … size 10` with no clamp line on the harness would, in the owner's bin at the
@@ -267,9 +288,21 @@ CHECKBOX** — reading `txtSessionPolicy` alone tells you nothing about whether 
    tightens geometry clobbers the owner's real trading values on exit, in the same file that holds
    the session policy and the breaker. Back up, restore, then VERIFY by relaunching and reading a
    box back.
-5. **ATRSlip must be CHECKED** or NEITHER chase-abort arm evaluates — both sit under that one
-   switch (`If(maxSlippageATRchecked, ChaseAbortReason(...), Nothing)`). Unchecked yields a silent
-   null that reads like a pass. Runbooks have omitted it twice.
+5. 🚨 **ATRSlip must be CHECKED — it has TWO consequences, and this bullet carried only one until
+   2026-08-07.**
+   (a) **The bridge REFUSES TO START in Live mode while it is unchecked.** `TryStart` is a
+   five-condition interlock and this is the fifth: `Not _host.IsMaxSlippageGuardChecked` ⇒
+   `"Max Slippage ATR guard (chkMaxSlippageATR) is unchecked"` (`SignalBridge.vb:305-317`). A seat
+   debugging *"why won't START take"* will not find that answer anywhere else in this document.
+   (b) **NEITHER chase-abort arm evaluates** — both sit under that one switch
+   (`If(maxSlippageATRchecked, ChaseAbortReason(...), Nothing)`, four sites). Unchecked yields a
+   silent null that reads like a pass. Runbooks have omitted it twice.
+   ⚠ **And the harness bin ships it OFF:** `max_slippage_atr_checked: false` in the Debug bin's
+   `orderapp-settings.json` versus `true` in the owner's x64 bin (read from both files 2026-08-07).
+   So (a) bites on the harness specifically — see §4.
+   *(Clause (a) existed in the pre-trim H-6 and was dropped by the 2026-08-02 collapse; it survived
+   nowhere else. Recovered by diffing the trim, not by reading. §7 lesson 7, and the first proven
+   case of that trim losing a LIVE fact rather than history.)*
 6. **Entry is reference-only** — the app enters at top-of-book, so a far `-Entry` cannot make a
    bridge entry rest (it fills in ~1 s). `rejected: position open` is UNREACHABLE (gate 4.6 reads
    the same `positionSizeUSD` as placement, so it stops at `refused: not_flat` first). The
@@ -318,16 +351,28 @@ CHECKBOX** — reading `txtSessionPolicy` alone tells you nothing about whether 
 9. **The loss-cap anchor** `emergencyBaseline` moves only on adopt / manual edit / restore — NEVER
    the chase. Post-trigger, `placedStopLossPrice` is the chase reference. Deliberately divergent.
 10. **Every atomic write is `File.WriteAllText(tmp)` + `File.Move(tmp, path, overwrite:=True)`, and
-    this repo uses `File.Replace` NOWHERE.** Swept 2026-08-04 at the engine seat's suggestion: three
-    sites, all conforming — `AppUserSettings.vb:207` · `SignalBridge.vb:407` (PersistState) ·
-    `ExecutorFeedback.vb:530` (C1). **Our pattern is TOTAL where theirs needs a guard** —
+    this repo uses `File.Replace` NOWHERE.** Swept 2026-08-04 at the engine seat's suggestion; **the
+    sweep was RE-RUN 2026-08-07 and still holds**: three sites, all conforming —
+    `AppUserSettings.vb:208` · `SignalBridge.vb:408` (PersistState) · `ExecutorFeedback.vb:562` (C1).
+    A grep for `File.Replace` returns **three hits, all COMMENTS** (`ExecutorFeedback.vb:520`,
+    `SignalBridge.vb:431`/`:433`) — check that before reading the count as a violation.
+    *(Those line numbers were `:207`/`:407`/`:530` here until 2026-08-07. **Line refs drift; the SITE
+    is the claim** — re-grep, never cite this doc's numbers at a reviewer.)*
+    **Our pattern is TOTAL where theirs needs a guard** —
     `File.Move(overwrite:=True)` works whether or not the destination exists, which is why E1 was
     never a code defect here. Append-only log writes (`crash.log`, `AutoTradeLog.txt`, the
     disposition log) are a different class and are deliberately not atomic.
-    ⚠ One inherited dependency, benign but worth knowing: `SignalBridge.vb:425`'s comment asserts
-    *"`File.Replace` on the engine side surfaces as rename/change"* — a claim about **another
-    repo's** internals. It is safe either way because the watcher subscribes to Changed, Created
-    **and** Renamed, but it is the mirror-drift class pointing inward.
+    ✅ **The inherited-dependency rider is RESOLVED — and this bullet was stale for three days.**
+    The retired sentence, quoted per the house rule: ~~*"`SignalBridge.vb:425`'s comment asserts
+    `File.Replace` on the engine side surfaces as rename/change — a claim about another repo's
+    internals"*~~. **It was already reworded on 2026-08-04**, the same day the sweep ran. The comment
+    now says the opposite and says why (`SignalBridge.vb:425-436`): *the writer's API is not ours to
+    assume*, the watcher subscribes to Changed, Created **and** Renamed because that is correct for
+    Replace, Move or a plain write alike — and it records that the engine seat is queuing a
+    `File.Replace → File.Move` swap **that would have falsified the old comment's stated reason while
+    leaving the code correct**. That is the mirror-drift class caught before it fired, not an open
+    one. *(Verified by reading the comment 2026-08-07 — this doc had gone on describing the version
+    it replaced.)*
 
 ## 7. Methodology + seat rules
 
@@ -436,3 +481,56 @@ high-effort pass that re-reads the god-form has spent its budget in the wrong pl
    archive summarises milestones, memory summarises H-6. Each layer is a chance to drop a caveat.
    **Mitigation: when you summarise a rule, carry its exception or do not carry the rule. And grep
    every copy before calling a correction done — code comments included, not only docs.**
+
+## 8. Audit record — 2026-08-07, against artefacts at HEAD `8f04c27`
+
+**Method: no claim in this file was cleared by reading another doc.** Config claims were read out of
+the two `orderapp-settings.json` files and `bridge.json`; code claims were re-derived by grep or by
+opening the site; the gate was executed. This section exists so the *next* audit inherits what was
+checked and what was not — an audit that reports only its finds silently implies total coverage.
+
+### 8.1 Corrected — three, each verified in code first
+
+1. **§5.5 was missing half of what it is for.** The pre-trim H-6 said ATRSlip-unchecked also makes
+   **`TryStart` refuse in Live mode**; the 2026-08-02 collapse dropped that clause and **it survived
+   nowhere else in the repo**. Confirmed at `SignalBridge.vb:305-317`. Restored, with the artefact
+   fact that the harness bin persists the guard OFF.
+2. **§6.10's rider described a code comment that had already been rewritten** on 2026-08-04 — the
+   same day the sweep it sits under was run. The comment now says the *opposite* of what the rider
+   quotes. Retired sentence quoted-and-labelled; resolution recorded.
+3. **§4's divergence table named the session policy and stopped**, when five other keys diverge —
+   including the one that blocks Live START on the harness. Table widened from the files themselves.
+
+Plus, earlier the same day: **§1's state block** (`origin/master`, and a gate count four generations
+stale) and **§3's queue line** (which contradicted §2.7 in the same file), and three line-number
+drifts in §6.10.
+
+### 8.2 Re-verified and HOLDING — listed so the next seat can skip them
+
+**From the artefacts:** §2.1/§2.2/§2.3 exactly as written (`risk_per_trade_usd` 25 · `max_size_usd`
+500 · breaker 10 · `session_policy.enabled` true with LONDON/ASIA configured and **NY absent**) ·
+§4's `Environment = testnet` in both bins · §5.11's disposition-log split (x64 223 KB, Debug 2 KB) ·
+§6.7's *persisted gate config = breaker + session policy only* — no cooloff, window or tiers appear
+in either settings file.
+
+**From the code:** §5.1 freshness `2.5 × exec_resolution_min` (`SignalBridge.vb:259`, `:602`) ·
+§5.6's 4-second cancel-pending window (`frmMainPageV2.vb:358`) · §6.1's `DefaultRule` fallback ·
+§6.2 *unity passes through untouched* — literally `If mult = 1D Then Return rawSizeUsd`
+(`SignalBridge.vb:1027-1029`) · §6.3's unconditional disposition append (`:1211`) · §6.4's debounce
+in **exactly six** placement sites and nowhere else · §6.5's notifier inert without `ntfy_url` ·
+§6.8's four `ChaseAbortReason` gates and ATR period 7 · §6.10's three atomic sites and no
+`File.Replace` in code · §5.4's 11 geometry fields, corroborated by both the handler
+(`frmMainPageV2.vb:6037-6058`) and the 11 keys ahead of the risk block in the settings file.
+
+### 8.3 NOT verified this pass — the honest list
+
+- **§2.4's journal rows `#95`/`#100`** — three read routes failed; see the ⚠ on that item. **This is
+  the only §2 item still carried on doc-evidence alone.**
+- **§5's runtime behaviours that need a running app**: the payload-landing rule (§5.1), the
+  stop/restore protocol (§5.2), harness placement (§5.3), the geometry clobber's *effect* (§5.4),
+  entry-is-reference-only (§5.6), the emergency fill-vs-trigger gap (§5.7), the placement-log trap
+  (§5.8), the min-10 blind spot (§5.9), payload timing (§5.10). Their *code* halves are verified
+  where a grep can reach them; their *runtime* halves are carried on the runtime records that
+  earned them.
+- **§6.6's signal-tag lifecycle** — six transitions across two threads; not traced this pass.
+- **§7's lessons** are methodology, not claims about code, and were not re-derived.
