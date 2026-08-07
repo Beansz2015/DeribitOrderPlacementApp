@@ -90,8 +90,11 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   ⚠ **The receive-loop dispatcher is NOT that seam** — `HandleQuoteUpdates` /
   `HandleOrderPositionUpdates` are `Async Sub`, so a hook there fires at their first `Await`, before
   their post-await writes: it would look complete and be wrong on the two hottest handlers.
-- **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window.** *(Verified
-  still present: `tools/harness-common.ps1:92` enumerates `TreeScope::Children` of `RootElement`.)*
+- **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window.**
+  🟢 **SPEC WRITTEN 2026-08-07 — `spec-harness-owned-window.md`. Ready for an implementer seat,
+  which the owner launches. Recommended: Sonnet, medium, fresh conversation; `tools/` only.**
+  *(Verified still present at HEAD `64fd613`: `tools/harness-common.ps1:92` enumerates
+  `TreeScope::Children` of `RootElement`.)*
   The window is `Show(Me)`-owned (`frmMainPageV2.vb:6090`), and that enumeration sometimes omits it
   even while Win32 `IsWindowVisible` says it is open — it *is* found under `TreeScope::Descendants`
   of the main form. A retry immediately after opening succeeded. Surfaced by the SB3 acceptance run
