@@ -217,6 +217,41 @@ function Select-MatchingElement {
     return @{ Element = $chosen; Window = $chosenWin; Result = $result; AllLabels = $allLabels; FullLabels = $fullLabels }
 }
 
+# Bounded poll around Select-MatchingElement (docs/spec-harness-owned-window.md section R8/R7) -
+# the settings window is NEVER a root child of the desktop (probe: Query A 0/39,
+# impl-report-harness-owned-window-probe.md), so a control search inside it depends on the main
+# form's OWN descendant search having resolved, which is a render-latency race, not a missing
+# window. This wraps Select-MatchingElement; it does not modify it or Select-BestMatchIndex
+# (do-not-touch table).
+#
+# Polls until Result.Kind is anything other than 'None', or the deadline expires - it does NOT
+# wait out an 'Ambiguous' result. An ambiguous match is a real, immediate refusal, and waiting on
+# it could let a late-appearing control silently change the answer, so it is returned the instant
+# it appears. On timeout the result is still 'None', so every caller's existing not-found handling
+# (exit 2, candidates printed) fires completely unchanged - loud, never silent.
+#
+# Defaults are the spec's: observed successes were 9-22 ms (impl-report-harness-owned-window-probe.md
+# section 3), so 500 ms is more than 20x margin; a genuine not-found now costs up to 500 ms.
+function Wait-ForMatchingElement {
+    param(
+        [Parameter(Mandatory=$true)]$Windows,
+        [Parameter(Mandatory=$true)][string]$TypeName,
+        [Parameter(Mandatory=$true)][string]$Pattern,
+        [scriptblock]$LabelBuilder,
+        [int]$DeadlineMs = 500,
+        [int]$IntervalMs = 25
+    )
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        $callParams = @{ Windows = $Windows; TypeName = $TypeName; Pattern = $Pattern }
+        if ($LabelBuilder) { $callParams.LabelBuilder = $LabelBuilder }
+        $m = Select-MatchingElement @callParams
+        if ($m.Result.Kind -ne 'None') { return $m }
+        if ($sw.ElapsedMilliseconds -ge $DeadlineMs) { return $m }
+        Start-Sleep -Milliseconds $IntervalMs
+    }
+}
+
 # True when two AutomationElements are the SAME control. RuntimeId is the reliable identity -
 # AutomationElement instances are not reference-equal across separate queries, so comparing the
 # objects (or their Names) gives wrong answers.
