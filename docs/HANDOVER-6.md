@@ -22,10 +22,16 @@ recipe.)
 `git rev-parse HEAD origin/master` · `tools/checks/verify-gate.ps1` · re-run the censuses.
 A docs commit can never state its own sha, so any number here is at least one short on arrival.
 
-- **origin/master `234131a`** (owner pushed 2026-08-02 01:38 +0800; owner is the only pusher).
-  HEAD is ahead by the docs commits since.
-- **Gate: GATE PASSED, OrderCheck 173/173** at `2308122`. Everything above it is **docs-only**
-  (`git log --name-only 2308122..HEAD` — no `.vb`/`.vbproj`), so it carries.
+- **origin/master `9ecf40d`** (owner pushed 2026-08-07 00:13 +0800; owner is the only pusher).
+  HEAD is ahead by the docs commits since. *(This bullet read `234131a` / 2026-08-02 until
+  2026-08-07 — corrected against `git rev-parse`, which is the only thing that can settle it.)*
+- **Gate: GATE PASSED, OrderCheck 268/268** — executed at HEAD `8f04c27` on 2026-08-07, not
+  inherited. *(173 → 227 → 264 → 268 as C1's fixtures landed; this bullet claimed 173/173 at
+  `2308122` for five days after the count had moved four times.)*
+- ⚠ **`git rev-parse --short HEAD origin/master` FAILS here** — `fatal: Needed a single revision`
+  on git 2.55.0.windows.3, which refuses multiple revisions under `--short` (`--short=7` fails the
+  same way). **Run the two revisions as separate calls.** The fatal is a git-version quirk, not a
+  broken repo — worth knowing before it reads as drift in your first sixty seconds.
 - **Censuses, `frmMainPageV2.vb`-scoped** — a repo-wide grep inflates several and reads as drift:
   `emergencyFired` 10 · `IsATRSlippageExcessive` 8 · `NextSlBackoff` 2 · `RecordCommandedSLPrice` 3
   · `slUpdateFailures = 0` 1 · `TakerFeeRate` 0 · `isPlacingOrder` 13 ·
@@ -143,8 +149,19 @@ inputs must be set **together**, because they compose.
 
 ## 3. Queue
 
-**ACTIVE THREAD: C1 acceptance 3 (owner — the last one) → `ROADMAP-2026-08.md` §5 backlog.**
-C1 is otherwise DONE: implemented, reviewed, D1 fixed and verified, acceptances 4–7 passed.
+**NOTHING IS IN FLIGHT. C1 IS COMPLETE — all five acceptances passed 2026-08-06, including 3.**
+The coordinator queue is `ROADMAP-2026-08.md` §5; the owner queue is that doc's §1.
+
+⚠ *Corrected 2026-08-07: this line read "ACTIVE THREAD: C1 acceptance 3 (owner — the last one)"
+while §2.7 of this same document already recorded acceptance 3 as PASSED — the two paragraphs
+contradicted each other for a day. **Fourth instance of §7 lesson 6 in this file**, and the same
+shape every time: the queue line is written once and then nothing re-reads it against the state
+section below it.*
+
+**Two owner actions were created by work FINISHING and were on no list until the 2026-08-07 audit:**
+the **N2 enable** (`Risk-size`) and the **C1 emitter enable** (`feedback_output_path` in
+`bridge.json`). Both now sit in `ROADMAP-2026-08.md` §1.4/§1.5. *A build that completes silently
+manufactures an owner action, and a queue audit that clears what is listed will never find it.*
 
 **INDEPENDENT, not queued behind anything: N2 enable (owner).** It is gated only on §2's three
 sizing knobs, and **C1 is now complete** (D1 fixed, all acceptances passed) — **neither ever blocked

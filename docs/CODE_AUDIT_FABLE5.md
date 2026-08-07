@@ -139,6 +139,23 @@ Two consequences: receive-loop throughput is serialized behind the UI message pu
 
 ## E. Known items confirmed still present (deferred by design)
 
+> 🚨 **RE-VERIFIED 2026-08-07 against HEAD `8f04c27` — this table is a JULY SNAPSHOT and is now
+> partly wrong. It is deliberately NOT rewritten** (a dated audit is evidence of what was true when
+> it ran; editing it in place destroys that), so read the banner, not the rows.
+>
+> **Still present:** `#9` parse-per-handler (14 `JObject.Parse` sites) · `#11` FrmIndicators'
+> unguarded reconnect (`FrmIndicators.vb:69`, `:161`) · `Option Strict Off` on the legacy files ·
+> `TradeRecord` slippage fields, still zero writers · secrets externalization (verified clean).
+> These are carried as live rows in `ROADMAP-2026-08.md` §5.
+>
+> **CLOSED since — do not act on these rows:** `#10`'s `PerformClick` coupling and
+> `ExecuteAutomatedOrder` (zero symbols in source) · the heartbeat-enabled-twice pair (one
+> `set_heartbeat`) · empty `ProcessEstimationData` / id-890 · the duplicate account-summary
+> functions · and from §C/§D: `F12`'s missing crash backstop (`ApplicationEvents.vb:19-41`),
+> `F14`'s dead code, `F16`'s 500 ms manual-entry delay, `F17`'s unused packages.
+>
+> Method and the full disposition list: `ROADMAP-2026-08.md` §8.2.
+
 | Item | Where | Status |
 |---|---|---|
 | #9 parse-per-handler (8× `JObject.Parse` per message) | `:656-672` | Confirmed; dispatcher spec exists, deferral recommended stands |

@@ -1,9 +1,15 @@
-# ROADMAP — August 2026 era (plan of record; trimmed 2026-08-02)
+# ROADMAP — August 2026 era (plan of record; trimmed 2026-08-02, **re-audited against code 2026-08-07**)
 
-**What this doc is for now: §4 (the centerpiece), §5 (the live backlog) and §6 (what we deliberately
-do NOT build).** Everything else has closed. Closed milestones are indexed in
-`ARCHIVE-closed-milestones.md`, which points at each one's real spec → review chain — they are no
-longer narrated here. Current state, open items and the queue live in `HANDOVER-6.md`.
+**Every row below was checked against the SOURCE or the artefact at HEAD `8f04c27`, not against
+another doc** (`HANDOVER-6.md` §7 lesson 6 — a doc is never evidence about a doc). Rows carry the
+file:line that establishes them so the next audit can re-derive rather than re-believe. What the
+pass changed, what it recovered from the 2026-08-02 trim, and what it could NOT verify statically:
+**§8**.
+
+**What this doc is for:** §1 (owner track), §4 (the centerpiece), §5 (the live backlog) and §6 (what
+we deliberately do NOT build). Closed milestones are indexed in `ARCHIVE-closed-milestones.md`,
+which points at each one's real spec → review chain — they are not re-narrated here. Current state,
+open items and the queue live in `HANDOVER-6.md`.
 
 **Standing constraints (binding):** the owner-rejected list stays rejected (session-end
 auto-flattening; app-side re-gating of engine logic; P2 SL policy; P3 hybrid chase; the emergency
@@ -18,7 +24,23 @@ the only pusher.
 2. **Size ladder** at FIXED size: 10 → 20–30 → normal. *(open)*
 3. **AWS London migration** — `production-cutover-checklist.md` §9; the key choreography kills the
    two-executor window. *(open)*
-4. Rulings as they arise; matrix/policy revisions on the engine seat's cadence (evidence discipline:
+4. 🚨 **N2 enable — tick `Risk-size`.** *(open; the only owner action left on N2, moved here from §3
+   where it was buried in prose.)* **Verified at HEAD:** the knob is `risk_size_bridge_trades` and
+   **an absent key is `False`** (`AppUserSettings.vb:142-143`), persisted at `:189`; the control is
+   `chkRiskSizeBridge` on the settings form (`AutoTradeSettings.Designer.vb:365`, tooltip `:369`).
+   **Three knobs compose and must be set TOGETHER** — `risk_per_trade_usd`/`max_size_usd`, the
+   circuit breaker, and the session policy whose NY bucket is unconfigured-hence-largest.
+   The full trap: `HANDOVER-6.md` §2.
+5. **C1 emitter enable — add `feedback_output_path` to `bridge.json`.** *(open, optional, and
+   nothing blocks it.)* **Verified at HEAD:** that key is the **only** switch — absent ⇒
+   `ExecutorFeedback.IsConfigured = False` ⇒ no timer, no worker, **no file created**
+   (`ExecutorFeedback.vb:32`, `:84-88`, `:110-113`; every entry point re-checks it at `:419`,
+   `:442`, `:475`, `:578`). Enabling ours does **not** depend on the engine: we publish, they
+   consume when their build lands. It is also the precondition for observing the five behaviours
+   still unobserved at runtime (§5, last row).
+   ⚠ **Standing obligation, not an open item:** C1's **E4 revisit trigger** re-opens before ANY
+   consumer *records* the `avg_entry` join rather than re-deriving it. `HANDOVER-6.md` §2.
+6. Rulings as they arise; matrix/policy revisions on the engine seat's cadence (evidence discipline:
    revise at regenerations, not week-to-week).
 
 ## §2 — Pre-ladder quick wins — **ALL DONE 2026-07-25** (Q1 ntfy · Q2 signal columns · Q3 ops tooling)
@@ -27,66 +49,115 @@ Owner-accepted; see the archive. **One optional item was never specced and remai
 
 | # | Item | Notes |
 |---|---|---|
-| Q4 | *(optional)* **Phase B item F — USE-ENGINE-LEVELS button** (manual trade borrows the latest payload's levels) | Modest value; the tie-in shape is stable, so the old "needs a fresh look" caveat is cleared. Take it if a pass has room. |
+| Q4 | *(optional)* **Phase B item F — USE-ENGINE-LEVELS button** (manual trade borrows the latest payload's levels) | **Verified genuinely unbuilt at HEAD** — zero `UseEngineLevels`-shaped symbols in source. Modest value; the tie-in shape is stable, so the old "needs a fresh look" caveat is cleared. Take it if a pass has room. |
 
-## §3 — Pre-normal-size — **ALL CLOSED except N2's owner enable**
+## §3 — Pre-normal-size — **ALL CLOSED; N2's owner enable now tracked as §1.4**
 
-N1 · N1b · N1c · EV · SF/SF2 · N2b are closed; **N2 is code-approved, unblocked and ships DISABLED,
-awaiting the owner's tick.** Verdicts and doc chains: `ARCHIVE-closed-milestones.md`. The three
-sizing knobs that must be set together before that tick: `HANDOVER-6.md` §2.
+N1 · N1b · N1c · EV · SF/SF2 · N2b are closed; **N2 is code-approved, unblocked and ships DISABLED**
+(verified above). Verdicts and doc chains: `ARCHIVE-closed-milestones.md`.
 
-## §4 — The next era's centerpiece
+## §4 — The era's centerpiece — C1
 
-| # | Item | Notes |
+| # | Item | Status |
 |---|---|---|
-| C1 | **v2 feedback file — documentation phase CLOSED both sides; the EMITTER BUILD IS THE LIVE QUEUE ITEM.** Exchange closed (proposal → engine ACCEPT → ack → trader tick T1–T8); **contract §8 is the binding spec**, engine mirror is their §10. Remaining: two implementation builds on separate queues — **our order-app emitter** (own Opus-HIGH pass, ships OFF; **spec written AND all §0 escalations RULED 2026-08-02 (`spec-c1-feedback-emitter.md`) — ready for an implementer seat, which the owner launches; contract §8.1 amended in the same pass, engine relay owed**) and engine consumption (behind its net-EV rider). **Phase 2 (ACTIONABLE EXITS — the largest remaining P/L lever) stays FENCED** as a future signal-schema-v2 amendment with a pinned field; **never parse `hold_status`.** Gated on the phase-1 display soak. |
+| C1 | **v2 feedback file** | **PHASE 1 IS COMPLETE ON OUR SIDE — documentation phase closed 2026-07-29, emitter closed 2026-08-06.** Specced (`spec-c1-feedback-emitter.md`), five escalations ruled **E1–E5** plus **E6** after, implemented, reviewed (`review-c1-feedback-emitter.md`), defect **D1 fixed and verified**, **all five acceptances 3–7 PASSED** (`runtime-record-c1-feedback-emitter-2026-08-06.md`), spec-back **SB1–SB5 upheld and folded** (`spec-back-c1-acceptance-2026-08-06.md`). **Contract §8 stays the binding schema** — the spec implements it and never restates it. **Ships OFF**; the enable is §1.5. Gate `GATE PASSED` at every commit, OrderCheck 173 → 268. |
+
+**What remains on C1, and what each thing waits for — the dependencies, stated as dependencies:**
+
+- **Engine consumption** — their queue, behind their net-EV rider. Not ours, not blocking.
+- **The owner enable** (§1.5) — unblocked *today*; it does not wait on the engine.
+- **Phase 1 display soak** — waits on the enable **and** on their consumption build. It is the gate
+  on Phase 2, so Phase 2's gate has moved from "the emitter exists" to "the emitter is switched on
+  and something is reading it."
+- **Phase 2 — ACTIONABLE EXITS, the largest remaining P/L lever — stays FENCED** as a future
+  signal-schema-v2 amendment with a pinned field. **Never parse `hold_status`.**
+- ⚠ **E4's revisit trigger** is the binding precondition on any consumer that *records* the
+  `avg_entry` join (a CSV column, a card binding, a stored achieved-entry, the T7/v2.1 field) rather
+  than re-deriving it. The mitigation then is an immutable snapshot published by reference, not a
+  lock. It expires on its own terms; nothing in the implementation or the acceptances went near it.
 
 ## §5 — Hygiene backlog (anytime, unscheduled, all on record)
 
-- **A `PositionModelChanged` seam** (observation from `impl-report-c1-feedback-emitter.md` §6, not a
-  proposal). The four position fields have **17 assignments across 10 methods on two threads**, so
-  C1's emitter needs 10 hooks and its completeness argument is an *enumeration* rather than a
-  structural guarantee. One seam would collapse that to a single hook. ⚠ The receive-loop dispatcher
-  is NOT that seam — `HandleQuoteUpdates` / `HandleOrderPositionUpdates` are `Async Sub`, so a hook
-  there fires at their first `Await`, before their post-await writes: it would look complete and be
-  wrong on the two hottest handlers.
-- ✅ **`Test-ElementMatch` exact-id match — CLOSED 2026-08-06** (`188bdab`, `3611d49`,
-  `spec-harness-exact-match.md`). `harness-common.ps1:109` used to match by `IndexOf >= 0`,
-  first match in enumeration order wins, and every drive script used it — `txtTrigger` is a
-  substring of `txtTriggerOffset`, which enumerates first, so on the C1 acceptance run asking for
-  `Trig. P.` silently set `Trig. O.` **and reported success**: `Set '' (id 'txtTriggerOffset', …) =
-  '300'`, leaving the SL ~$6 below market for a whole live position (survived only because price
-  moved the safe way). Fixed structurally: `Select-BestMatchIndex` (a pure function over plain
-  data, `harness-common.ps1`) now ranks exact `AutomationId` first, exact `Name` second, substring
-  third, and **any tie at the winning tier fails loudly** (exit 3, every tied candidate named)
-  instead of picking arbitrarily. All five call sites (`set-textbox.ps1`, `toggle-checkbox.ps1`,
-  `select-combo-item.ps1`, `click-button.ps1`, `click-PLACES-ORDER.ps1`) gather-then-decide via the
-  new `Select-MatchingElement` seam. Re-verified: 28 Edit AutomationIds, `txtTrigger` ⊂
-  `txtTriggerOffset` still the only collision; the regression case (`set-textbox txtTrigger`)
-  changes only `txtTrigger`; a bare `Trig` pattern now refuses loudly naming all three ties instead
-  of picking one. The deny check (`click-button.ps1`) and the TESTNET/harness-PID gate
-  (`click-PLACES-ORDER.ps1`) are untouched. This is the harness commit-verification class
-  ([[harness-commit-verification-trap]]): it reported the work it *did* do, on the wrong control.
-  ⚠ **The `-Exact` switch this row used to ask for was SUPERSEDED and was the wrong shape** — a
-  switch is only correct when the caller remembers to pass it, so it converts a silent
-  wrong-control into a silent wrong-control-unless-you-remembered. Exact-first-by-default requires
-  nothing of any caller and is behaviour-preserving wherever the pattern is unambiguous. Spec §2.3.
-- **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window** (surfaced by
-  the SB3 acceptance run; `review-harness-exact-match.md` §5.2). The window is `Show(Me)`-owned, and
-  `RootElement.FindAll(TreeScope.Children, …)` sometimes does not enumerate it even while Win32
-  `IsWindowVisible` says it is open — it *is* found under `TreeScope.Descendants` of the main form.
-  A retry immediately after opening succeeded. **Pre-existing and not an SB3 regression** (the old
-  code would have been blocked identically), but it makes any settings-window drive step flaky.
-- **FrmIndicators full retirement** — more attractive now: with the engine 24/7 on AWS the indicator
-  fallback is nearly never exercised, so retiring it leaves payload ATR + the $70 constant only.
-- **Edit T.S. post-trigger rework** — 4-trap catalog; `EditStopLossTo` is the home.
-- **Item G — stale-SL-box cosmetic** — mechanism documented in
+Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from source this pass.
+*Observational* = a runtime/UI behaviour that a static pass cannot settle either way (§8.3).
+
+- **A `PositionModelChanged` seam.** *(Verified.)* An observation from
+  `impl-report-c1-feedback-emitter.md` §6, **not** a proposal. The **four snapshot fields** —
+  `positionSizeUSD`, `positionAvgEntry`, `placedStopLossPrice`, `manualTPval` — carry **17
+  assignments across 10 methods on two threads**, re-counted at HEAD (11 + 2 + 2 + 2; comparison
+  forms excluded), so C1's emitter needs 10 hooks and its completeness argument is an *enumeration*
+  rather than a structural guarantee. One seam would collapse that to a single hook.
+  ⚠ **The receive-loop dispatcher is NOT that seam** — `HandleQuoteUpdates` /
+  `HandleOrderPositionUpdates` are `Async Sub`, so a hook there fires at their first `Await`, before
+  their post-await writes: it would look complete and be wrong on the two hottest handlers.
+- **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window.** *(Verified
+  still present: `tools/harness-common.ps1:92` enumerates `TreeScope::Children` of `RootElement`.)*
+  The window is `Show(Me)`-owned (`frmMainPageV2.vb:6090`), and that enumeration sometimes omits it
+  even while Win32 `IsWindowVisible` says it is open — it *is* found under `TreeScope::Descendants`
+  of the main form. A retry immediately after opening succeeded. Surfaced by the SB3 acceptance run
+  (`review-harness-exact-match.md` §5.2); **pre-existing, not an SB3 regression**, but it makes any
+  settings-window drive step flaky.
+- **FrmIndicators full retirement.** *(Verified: the form is headless but very much alive.)* It is
+  still constructed (`frmMainPageV2.vb:968`) and still runs **its own `ClientWebSocket` and
+  `ConnectAndStream` receive loop with an unguarded reconnect** (`FrmIndicators.vb:20`, `:69`,
+  `:161` — the old audit item #11), for one purpose: `CurrentATR` (`:38-41`) as the **fallback** ATR
+  source. The chain is payload ATR → `CurrentATR` → the `atrFallbackVal = 70D` constant
+  (`frmMainPageV2.vb:36`, `:3619-3623`). **So the dependency is now explicit: retiring the form
+  means accepting payload-ATR-or-70, nothing else.** More attractive with the engine 24/7 on AWS,
+  where the fallback is nearly never exercised. The `AutoTradeSettings` half of the old
+  "FrmIndicators/AutoTradeSettings retirement" item is **already done** — that window is owned and
+  re-parented by `frmMainPageV2` (`:975`, `:6084-6091`), so only the ATR source is left. The form
+  also still carries dead code (`UpdateEmaVwapLabels`, `FrmIndicators.vb:1281`, zero call sites).
+- **Edit T.S. post-trigger rework.** *(Verified the home exists: `EditStopLossTo`,
+  `frmMainPageV2.vb:6457`, `:6513`, `:6550`.)* 4-trap catalog in
+  `runtime-checklist-hybrid-session.md` §C.
+- **User-typed fractional / off-tick inputs — loud rejection.** *(Verified the boundary.)*
+  `RoundToTick` shipped and covers exactly the three autonomous-fractional sites plus the B.E.
+  trigger (`frmMainPageV2.vb:381`, `:3137`, `:6532`; `SignalBridge.vb:810`, `:976`).
+  **User-typed offsets on the manual edit buttons are deliberately OUT of that scope**
+  (`spec-tick-rounding.md` §2 and its "deliberately NOT changed" note): the exchange rejects them
+  loudly (`-32602 "must conform to tick size"`) and the user corrects. The open item is app-side
+  pre-validation so the rejection is ours rather than the exchange's.
+- **#9 parse-per-handler.** *(Verified still present: 14 `JObject.Parse` sites in
+  `frmMainPageV2.vb`, 12 of them `Parse(response)` per handler.)* Dispatcher spec exists
+  (`spec-medium-dispatcher.md`); **the deferral recommendation stands** — and its precondition is
+  unique JSON-RPC ids per request class (old audit F15), which any response-matching work needs
+  first. *(Recovered this pass — it lived only in `CODE_AUDIT_FABLE5.md` §E, which is not in the
+  read path.)*
+- **`TradeRecord.SlippageATR` / `MaxSlippageExceeded` are declared and never written.** *(Verified:
+  `TradeRecord.vb:18-19`, zero writers and zero readers at HEAD — the live slippage machinery is the
+  unrelated `maxSlippageATRmult`/`chkMaxSlippageATR` chain.)* Either populate them or delete them;
+  today they are two fields that read as data and are not. *(Recovered from the audit's §E.)*
+- **`Option Strict Off` on the legacy files.** *(Verified: `Option Strict On` in the seven newer
+  files — `AppSecrets` · `AppUserSettings` · `ApplicationEvents` · `ExecutorFeedback` ·
+  `RemoteNotifier` · `SessionPolicy` · `SignalBridge` — and absent from `frmMainPageV2.vb`,
+  `FrmIndicators.vb`, `TradeRecord.vb`.)* Convention, not a defect; recorded so the split is a
+  decision rather than an accident.
+- **Item G — stale-SL-box cosmetic.** *(Observational.)* Mechanism documented in
   `runtime-record-live-ladder-2026-07-23.md`.
-- **Housekeeping smoke leftovers** — the 8b checkbox-OFF half, the 14g long-PnL observation.
-- **A2** manual-freeze observation · **B2** regression · **F1** rejected-edit re-sync (accepted LOW).
-- **TP post-fill manual-move gap.**
-- ~~Harness `txtTrigger` tree-order nit~~ — same defect as the closed row above; folded in there.
-  **fractional-offset loud rejection** still open.
+- **Housekeeping smoke leftovers** — the **8b checkbox-OFF half** (both chase-abort arms sit under
+  the one `maxSlippageATRchecked` switch, `frmMainPageV2.vb:3705`; the OFF case was never observed)
+  and the **14g long-PnL observation**. *(Observational.)*
+- **A2 — manual-freeze best-effort live observation.** *(Observational.)* Recipe in
+  `runtime-checklist-hybrid-session.md`; **worst case if it is broken is A1 semantics**, which are
+  double-proven on trades #68/#71. *(Description restored — the trim had reduced this to the bare
+  label "A2 manual-freeze observation".)*
+- **B2 — M.SL-disarmed regression, opportunistic.** *(Observational.)* *(Description restored.)*
+- **F1 — rejected-edit re-sync, accepted LOW.** *(Observational.)* Note this `F1` is the
+  SL-reconciliation item, **not** `CODE_AUDIT_FABLE5.md`'s F1 (entry-price snapshot, long since
+  fixed) — a collision worth knowing before grepping.
+- **TP post-fill manual-move gap.** *(Observational; deferred.)*
+- **C1 runtime behaviours still unobserved** — `mode: "LIVE"` with an `acted (id …)` disposition ·
+  the `ws` **DOWN** edge · a `breaker_tripped` flip · a **SHORT** `size_usd` · D1's race. All
+  optional, none blocking; all gated on §1.5's enable (and the first on owner ARM/START). Lists:
+  `runtime-record-c1-feedback-emitter-2026-08-06.md` §10 + §11.5.
+- ~~Harness `Test-ElementMatch` exact-id match~~ — **CLOSED 2026-08-06**, `188bdab` / `3611d49`,
+  approved in `review-harness-exact-match.md`. Verified at HEAD: `Test-ElementMatch` is gone;
+  `Select-BestMatchIndex` (`tools/harness-common.ps1:116`) ranks exact `AutomationId` → exact `Name`
+  → substring and **fails loudly on a tie at the winning tier**, with `Select-MatchingElement`
+  (`:161`) as the gather-then-decide seam for all five call sites. Detail and the *why the `-Exact`
+  switch was the wrong shape* ruling: `ARCHIVE-closed-milestones.md`.
+- ~~Harness `txtTrigger` tree-order nit~~ — same defect as the row above; folded in there.
 
 ## §6 — Deliberately NOT building
 
@@ -96,11 +167,75 @@ engine's scope call, not this app's. Anything on the owner-rejected list above.
 
 ## §7 — Sequence of record
 
-Everything through N2b is done, **and C1 is COMPLETE** — implemented, reviewed, its D1 fixed, and
-all five acceptances 3–7 passed 2026-08-06. Current: **SB3's harness fix → §5 backlog**, with
-**N2 enable running independently** (owner; gated only on its three sizing knobs).
+**Everything through C1 phase 1 is done** — N1 · N1b · N1c · EV · SF/SF2 · N2b · the C1 emitter
+(implemented, reviewed, D1 fixed, all five acceptances passed 2026-08-06) and SB3's harness fix.
+
+**Nothing is in flight and no implementer seat is running.** What is left divides cleanly:
+
+| Track | Items | Waits on |
+|---|---|---|
+| **Owner** | push `8f04c27` · **N2 enable** (§1.4) · **C1 enable** (§1.5) · size ladder · AWS §9 | nothing but the owner |
+| **Coordinator** | the §5 backlog | a free pass |
+| **Engine seat** | C1 consumption | their net-EV rider |
 
 **The §8.7 reorder, recorded because it was exercised and never written down:** the contract slots
 the emitter "after N2 unless the trader reorders". The trader reordered — C1 was specced, built,
-and reviewed while N2 enable stayed pending — so the emitter is no longer downstream of N2 and
-never was in practice. Neither blocks the other; both ship off/disabled.
+reviewed **and accepted** while N2 enable stayed pending — so the emitter was never downstream of N2
+in practice. Neither blocks the other; both ship off/disabled.
+
+## §8 — Audit record — 2026-08-07, against HEAD `8f04c27`
+
+### 8.1 What the pass corrected
+
+- **§4 was stale in the way that matters.** It read *"the EMITTER BUILD IS THE LIVE QUEUE ITEM"*
+  while the emitter had been implemented, reviewed, fixed, accepted and spec-backed. The same
+  sentence survives in `ARCHIVE-closed-milestones.md`'s C1 row and is corrected there in the same
+  commit. **Lesson 6's class, third instance in this document stack.**
+- **N2's owner enable was tracked only in §3 prose and `HANDOVER-6.md` §2**, i.e. nowhere in the
+  owner-track section that exists to list owner actions. Now §1.4.
+- **The C1 emitter enable was tracked nowhere at all** — the switch (`feedback_output_path`) appears
+  in the impl report's run sheet and in the code, but no plan-of-record row said the owner has an
+  action. Now §1.5. *This is the "satisfied state that was never an open item" cause from lesson 6:
+  a build finishing silently creates an owner action that no queue audit will find.*
+- **§5's bare labels got their content back.** `A2`, `B2`, `F1` and the fractional-offset row had
+  been reduced to two- or three-word labels by the 2026-08-02 trim; the descriptions are restored
+  from `HANDOVER-3.md` §3 and re-verified. **A label is not a backlog item — nobody can act on
+  "B2 regression".**
+- **"The four position fields" was wrong wording** carried from a summary: two of the four
+  (`placedStopLossPrice`, `manualTPval`) are not position fields. The impl report says *snapshot*
+  fields. Corrected, and the 17/10 counts re-derived from source rather than repeated.
+
+### 8.2 Recovered from the 2026-08-02 trim (the check the owner asked for)
+
+`HANDOVER-3.md` §3's backlog paragraph was the richest pre-trim list. Every item traced:
+
+| Pre-trim item | Disposition, verified |
+|---|---|
+| Edit T.S. post-trigger rework | **carried** — §5, home confirmed at `frmMainPageV2.vb:6457` |
+| A2 manual-freeze · B2 regression · F1 re-sync · TP post-fill gap | **carried**, descriptions restored |
+| harness `txtTrigger` tree-order nit | **CLOSED** by SB3 |
+| user-typed fractional offsets (loud rejection) | **carried**, scope boundary now stated |
+| emergency-check hoist above the throttle (*"REQUIRES a single-fire latch first"*) | **CLOSED** — that is N1, done 2026-07-28 |
+| **cross-app ATR period 7 vs 14** — *dropped by the trim, on no list since* | **SETTLED app-side, not lost:** `atrLengthVal = 7` with a 7 default on the accessor (`frmMainPageV2.vb:35`, `:40`), mirroring the engine (`HANDOVER-6.md` §6.8). Any change now is an engine-side owner decision, so it is correctly *not* an app backlog row — recorded here so the next grep finds the answer instead of the question. |
+| **`_autotradesettings` naming leftovers** — *dropped by the trim* | **RESOLVED by the retirement pass:** the field is no longer the dead never-assigned one the audit flagged — it is assigned at `frmMainPageV2.vb:975` and drives the settings window at `:6084-6091`. Nothing to clean. |
+
+**`CODE_AUDIT_FABLE5.md` §E ("Known items confirmed still present") is itself partly stale** — it is
+a dated July snapshot, so it is not rewritten; a re-verification banner is added there. Re-checked
+at HEAD: **still present** — #9 parse-per-handler, `Option Strict Off` legacy files, the
+`TradeRecord` slippage fields, FrmIndicators' unguarded reconnect (#11). **Gone** — #10's
+`PerformClick` coupling and `ExecuteAutomatedOrder` (zero symbols), F14's dead code
+(`HandleOrderUpdates`, `ExportTradesToCSV`, `LogFailedEntry`, `MonitorConnectionHealth`,
+`GetTradeStatistics`, `ProcessEstimationData`), F16's 500 ms manual-entry delay, F12's missing
+crash backstop (`ApplicationEvents.vb:19-41`), F17's unused packages (the `.vbproj` now carries
+three), the twice-enabled heartbeat (one `set_heartbeat` at `:1558`), the duplicate account-summary
+pair.
+
+### 8.3 What this pass did NOT establish
+
+**Static verification cannot settle a runtime behaviour**, and saying so is the point of the row
+tags. The six *Observational* rows in §5 — item G, the 8b checkbox-OFF half, 14g, A2, B2, F1 and
+the TP post-fill gap — were **not** re-verified; they are carried on their original evidence and
+each needs a runtime pass to close. Likewise, `feedback_output_path`, `risk_size_bridge_trades` and
+the session-policy state were verified as **code contracts** (what an absent key means), **not** as
+values in the owner's x64 bin: the gate does not build that bin and it has its own settings, DB,
+journal **and gate config** (`HANDOVER-6.md` §4). Read them off the running form before acting.
