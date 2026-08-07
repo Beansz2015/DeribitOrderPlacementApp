@@ -107,58 +107,13 @@ function Merge-ProcessWindows {
 }
 
 # All top-level windows belonging to a process (the settings window "AutoTradeSettings" is a
-# separate top-level window of the same PID, reached only as a `Window`-type DESCENDANT of the
-# main form — an owned window is not reliably a direct child of the desktop root in the UIA
-# tree). Union of: 1) root children with the matching PID (what this returned before
-# docs/spec-harness-owned-window.md), and 2) Window-type descendants of each of those root
-# children, ALSO filtered to the matching PID (section 2.3 — the safety-relevant line: an
-# unfiltered descendant query could pick up a window belonging to a different process).
-# -Diagnostic (default off, no call site sets it — see spec section 2.6/§Acceptance 8) prints,
-# for every returned window, whether it was found via the root-children half or the
-# descendants half.
+# separate top-level window of the same PID — drive scripts search every window they own).
 function Get-ProcessWindows {
-    param(
-        [Parameter(Mandatory=$true)][int]$OwnerPid,
-        [switch]$Diagnostic
-    )
+    param([Parameter(Mandatory=$true)][int]$OwnerPid)
     $root = [System.Windows.Automation.AutomationElement]::RootElement
-    $pidCond = New-Object System.Windows.Automation.PropertyCondition(
+    $cond = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $OwnerPid)
-    $rootWindows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $pidCond)
-
-    $windowTypeCond = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-        [System.Windows.Automation.ControlType]::Window)
-    # AndCondition, not a second unfiltered query: the PID filter must be on BOTH halves.
-    $descCond = New-Object System.Windows.Automation.AndCondition($pidCond, $windowTypeCond)
-
-    $byId = @{}
-    $rootItems = New-Object System.Collections.Generic.List[object]
-    foreach ($w in $rootWindows) {
-        $id = ($w.GetRuntimeId() -join ',')
-        $byId[$id] = $w
-        $rootItems.Add(@{ Id = $id; Label = $w.Current.Name; Source = 'Root' })
-    }
-
-    $descItems = New-Object System.Collections.Generic.List[object]
-    foreach ($w in $rootWindows) {
-        foreach ($d in $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $descCond)) {
-            $id = ($d.GetRuntimeId() -join ',')
-            if (-not $byId.ContainsKey($id)) { $byId[$id] = $d }
-            $descItems.Add(@{ Id = $id; Label = $d.Current.Name; Source = 'Descendant' })
-        }
-    }
-
-    $merged = Merge-ProcessWindows -RootItems $rootItems -DescendantItems $descItems
-
-    $out = New-Object System.Collections.Generic.List[object]
-    foreach ($item in $merged) {
-        $out.Add($byId[$item.Id])
-        if ($Diagnostic) {
-            Write-Host "Get-ProcessWindows [$($item.Source)] '$($item.Label)'"
-        }
-    }
-    return ,$out
+    return $root.FindAll([System.Windows.Automation.TreeScope]::Children, $cond)
 }
 
 # Descendants of $Element with the given control type ("Button", "Edit", "CheckBox", ...).
