@@ -82,30 +82,6 @@ function Get-HarnessPid {
     }
 }
 
-# Pure decision seam (docs/spec-harness-owned-window.md section 2.4) — order-and-de-duplicate
-# over plain data, so this is exercisable with no running app. $RootItems and $DescendantItems
-# are each a list of @{ Id = <runtime-id-as-string>; Label = <string> }; extra fields (e.g. a
-# diagnostic Source tag) ride along unchanged. Every item from $RootItems precedes every item
-# from $DescendantItems (main-form-first is load-bearing — see spec section 2.2), and a window
-# whose Id appears in both lists is kept once, at its FIRST (root-side) occurrence.
-function Merge-ProcessWindows {
-    param(
-        [Parameter(Mandatory=$true)][AllowEmptyCollection()][object[]]$RootItems,
-        [Parameter(Mandatory=$true)][AllowEmptyCollection()][object[]]$DescendantItems
-    )
-    $seen   = New-Object System.Collections.Generic.HashSet[string]
-    $merged = New-Object System.Collections.Generic.List[object]
-    foreach ($item in $RootItems) {
-        if ($seen.Add($item.Id)) { $merged.Add($item) }
-    }
-    foreach ($item in $DescendantItems) {
-        if ($seen.Add($item.Id)) { $merged.Add($item) }
-    }
-    # Comma-wrap: see the note on Get-TierIndices above — an un-wrapped return unrolls a 0- or
-    # 1-element List on the pipeline and .Count breaks silently.
-    return ,$merged
-}
-
 # All top-level windows belonging to a process (the settings window "AutoTradeSettings" is a
 # separate top-level window of the same PID — drive scripts search every window they own).
 function Get-ProcessWindows {
