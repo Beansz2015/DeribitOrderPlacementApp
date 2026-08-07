@@ -143,9 +143,17 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   double-proven on trades #68/#71. *(Description restored — the trim had reduced this to the bare
   label "A2 manual-freeze observation".)*
 - **B2 — M.SL-disarmed regression, opportunistic.** *(Observational.)* *(Description restored.)*
-- **F1 — rejected-edit re-sync, accepted LOW.** *(Observational.)* Note this `F1` is the
-  SL-reconciliation item, **not** `CODE_AUDIT_FABLE5.md`'s F1 (entry-price snapshot, long since
-  fixed) — a collision worth knowing before grepping.
+- **F1 — state re-sync on edit rejection (rollback class), accepted LOW.** *(Observational.)*
+  Origin `spec-back-session-2026-07-07.md` §4, and **half of it is already resolved**: the
+  `emergencyBaseline` phantom-advance was **fixed by removal** 2026-07-08
+  (`spec-emergency-baseline-fix.md` — the owner found it disabled the M.SL loss-cap outright, not
+  merely delayed it). **What remains open is only the `placedStopLossPrice` half**, the pre-existing
+  runaway-fix trade-off: on a swallowed rejection that reference advances for a move that never
+  landed, self-correcting on the next successful edit or any echo. Same deferral family as Audit2's
+  F2 logging-only rule.
+  ⚠ Two unrelated `F1`s exist: this one, and `CODE_AUDIT_FABLE5.md`'s F1 (entry-price snapshot,
+  fixed long ago). Scope the ID before acting on a grep hit — the `E`/`D`/`SB` convention
+  (`HANDOVER-6.md` §7bb) exists because this exact collision already cost a day once.
 - **TP post-fill manual-move gap.** *(Observational; deferred.)*
 - **C1 runtime behaviours still unobserved** — `mode: "LIVE"` with an `acted (id …)` disposition ·
   the `ws` **DOWN** edge · a `breaker_tripped` flip · a **SHORT** `size_usd` · D1's race. All
