@@ -322,6 +322,18 @@ CHECKBOX** — reading `txtSessionPolicy` alone tells you nothing about whether 
 11. **The real `bridge-dispositions.log` is in the x64 bin** (the owner's VS profile). The AnyCPU bin
     has the harness's own copy — accidental but useful isolation.
 12. Worktree gate runs need SHORT paths (`SQLite.Interop.dll` 0x800700CE).
+13. 🚨 **SCREENSHOTS: capture the APP, never the desktop.** Owner ruling 2026-08-07, after a seat
+    took a desktop-wide capture while debugging and caught unrelated sensitive content on the
+    owner's screen. The seat deleted it and disclosed it, which is the right response — **but the
+    rule now exists so the judgement call does not have to be made again.**
+    - Use `tools/screenshot-mainform.ps1` (main form only, Win32 `PrintWindow`, works on a
+      non-foreground window) or `tools/screenshot-full.ps1`.
+    - ⚠ **`screenshot-full.ps1` is NOT a desktop capture despite the name** — it is a full-**form**
+      capture through the app's own hotkey, for content clipped off-screen.
+    - **Neither repo tool can capture the desktop. Do not reach outside them to do it.**
+    - The pre-existing rule inside both scripts — output to git-ignored `verify/out/`, deleted after
+      use — still applies and was never the issue. It simply never said *do not capture the
+      desktop*, because nobody had thought to.
 
 ## 6. Invariants — folded from H-4 §4, corrected
 

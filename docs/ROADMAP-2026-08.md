@@ -91,8 +91,14 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   `HandleOrderPositionUpdates` are `Async Sub`, so a hook there fires at their first `Await`, before
   their post-await writes: it would look complete and be wrong on the two hottest handlers.
 - **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window.**
-  🟢 **SPEC WRITTEN 2026-08-07 — `spec-harness-owned-window.md`. Ready for an implementer seat,
-  which the owner launches. Recommended: Sonnet, medium, fresh conversation; `tools/` only.**
+  🟡 **IN FLIGHT — spec written, IMPLEMENTED, and the fix WITHDRAWN on its own spec-back.**
+  `spec-harness-owned-window.md` §2's union rule was built exactly as specced (`1f4b931`,
+  `2c5e986`) and turned out to be a deterministic regression: it doubles every settings-window
+  control, so every drive script refuses. **D1 (a defect found in code) upheld 2026-08-07; the
+  defect was in the SPEC.** `2c5e986` reverted by `59de8c1`; the pure seam from `1f4b931` stays and
+  is currently unused. **Next step is a read-only timing probe, not a fix** — the cause is not
+  established. Ruling, probe requirements and outcome table:
+  `spec-harness-owned-window.md` §Ruling. Seat: Sonnet, medium, continued.
   *(Verified still present at HEAD `64fd613`: `tools/harness-common.ps1:92` enumerates
   `TreeScope::Children` of `RootElement`.)*
   The window is `Show(Me)`-owned (`frmMainPageV2.vb:6090`), and that enumeration sometimes omits it

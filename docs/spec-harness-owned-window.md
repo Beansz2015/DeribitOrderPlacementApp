@@ -13,6 +13,22 @@ allowed to touch.
 
 ---
 
+# 🚨 AMENDED 2026-08-07 — READ THIS BEFORE §1 AND §2
+
+**§2's union rule is WITHDRAWN. Do not implement it. It was implemented, it was correct to the
+letter of this spec, and it made things worse.**
+
+- Raised by the implementer seat as **D1** (a defect found in code):
+  `spec-back-harness-owned-window-duplicate-controls.md`, 2026-08-07.
+- **Owner ruling, same day: D1 UPHELD. The defect is in this spec, not in their code.**
+- Commit `2c5e986` (the union rewire) was **reverted** by `59de8c1`. Commit `1f4b931` (the
+  `Merge-ProcessWindows` pure seam and its check script) **stays** — it is correct and tested, and it
+  is currently **unused** pending the probe in §Ruling below.
+- The full ruling, the reasoning, and **what to do instead** are in **§Ruling** at the end of this
+  document. **Go there next.** §1 and §2 are kept for the record, with corrections marked in place.
+
+---
+
 ## 🚫 Do-not-touch — read this before editing anything
 
 These are safety machinery. They are **out of scope** and must be byte-identical when you are done.
@@ -53,7 +69,15 @@ function Get-ProcessWindows {
 
 It asks the desktop for its **direct children** whose process id matches.
 
-### 1.2 Why that misses the settings window
+### 1.2 Why that misses the settings window — ⚠ NOT ESTABLISHED, see §Ruling
+
+> ⚠ **Correction 2026-08-07.** This subsection states a *topology* cause as fact. It is a
+> hypothesis, and a competing one now fits the evidence better: **UIA render/tree-caching latency
+> immediately after `Show()`**. The implementer observed the main form's descendants search reaching
+> the settings window's controls reliably after about 800 ms. If the window had been reachable from
+> the main form at the original failure moment, the old code would have found the control — it did
+> not, so at that moment it was in **neither** place. **The cause is undecided. §Ruling's probe
+> decides it.** Everything below is retained as written.
 
 - The app opens its settings window with `Show(Me)` — `frmMainPageV2.vb:6090`. The window is
   **owned** by the main form.
@@ -90,7 +114,14 @@ From `impl-report-harness-exact-match.md` §4.5, during the SB3 acceptance run o
 
 ---
 
-## §2 — The fix
+## §2 — The fix — 🚫 WITHDRAWN 2026-08-07, KEPT FOR THE RECORD
+
+> 🚫 **Do not implement §2.1–§2.4.** They were implemented exactly as written and the result was a
+> deterministic regression. The one-line reason, proved by entailment from the code: **half 2 can
+> only return windows that are already inside a half-1 window's subtree, so it can never contribute
+> a control that half 1 could not already reach — it can only duplicate them.** §Ruling has the
+> full argument. §2.5's table of rejected alternatives is **partly wrong** and is corrected in
+> place below.
 
 ### 2.1 The rule
 
@@ -145,7 +176,7 @@ The UIA query cannot be tested without a running app. **The merge rule can.**
 
 | Alternative | Why not |
 |---|---|
-| **Retry loop** — call the existing query again after a short wait | It is a timing patch. The impl report shows a retry often works, but the window is genuinely absent from the root-children set, so a retry can fail again. It also adds latency to every call. **Do not ship this as the fix.** It is acceptable only as an extra safety net *on top of* §2.1, and only if you state it as such. |
+| **Retry loop** — call the existing query again after a short wait | ⚠ **THIS REJECTION WAS WRONG, corrected 2026-08-07.** Retired reasoning, quoted: ~~*"It is a timing patch… the window is genuinely absent from the root-children set, so a retry can fail again."*~~ **That reasoning assumed §1.2's topology cause, which is not established.** If the cause is render latency, then waiting is not a patch — it is the fix. **Distinguish two different things:** a *blind retry* (run it again and hope) stays rejected; a **bounded wait-for-condition** (poll until the target is present, with a deadline and a loud timeout) is a legitimate candidate and is now a live option in §Ruling. |
 | **`TreeScope::Descendants` on `RootElement`** | That walks every control of every application on the desktop. It is enormous, slow, and would make the harness depend on unrelated windows. Reject. |
 | **Win32 `EnumWindows` via P/Invoke, then `AutomationElement.FromHandle`** | It would work — the diagnostic in §1.3 used it. But it adds a second window-discovery mechanism in a file that already has one, and it needs new `Add-Type` P/Invoke. Hold it in reserve: use it only if §2.1 fails acceptance 1, and escalate before you do. |
 
@@ -288,3 +319,111 @@ this wrong:**
 **Answer this in the impl report, either way:** *was Sonnet at medium the right tier?* Name the
 places where more reasoning depth would have helped, or say plainly that it was not needed. That is
 how the tiering table in `HANDOVER-6.md` §7a earns corrections instead of drifting.
+
+---
+
+# §Ruling — 2026-08-07, owner-approved. This supersedes §2.
+
+## R1 — D1 is UPHELD. The defect is in this spec.
+
+The implementer's `spec-back-harness-owned-window-duplicate-controls.md` is correct. Their
+implementation was verified independently at the coordinator seat and is correct to the letter of
+§2: process-id filter on both halves via `AndCondition`, `RuntimeId` de-duplication, root-first
+order, a genuine pure seam, `-Diagnostic` off by default, do-not-touch list respected, zero `.vb`
+files touched.
+
+**The finding is stronger than the spec-back states.** Traced through the code:
+
+1. §2.1's half 2 collects `Window`-type descendants **of half-1 windows**.
+2. So every window half 2 returns is, by construction, already inside a half-1 window's subtree.
+3. `Find-ByControlType` (`tools/harness-common.ps1:96-105`) searches `TreeScope::Descendants` of
+   **every** returned window.
+4. **Therefore half 2 can never contribute a control that half 1 could not already reach. It can
+   only duplicate them.**
+
+So for the five control-searching call sites the union is not "a fix with a side effect". It is a
+**pure regression**: no new reachable control, and every settings-window control doubled, which
+`Select-BestMatchIndex` correctly reports as `Ambiguous` and refuses.
+
+**And it does not fix the original defect under either reading of the cause.** If the settings
+window is genuinely absent from the main form's subtree at failure time, half 2 finds nothing
+either.
+
+## R2 — Options ruled
+
+| Option from the spec-back | Ruling |
+|---|---|
+| **(a)** bound `Find-ByControlType` with a `TreeWalker` | **REJECTED for now.** It adds a manual tree walk to restore correct window attribution for a union that contributes no controls. It treats a problem this spec created. Reconsider only if the probe proves a union is needed. |
+| **(b)** de-dup inside `Select-MatchingElement` | **REJECTED.** It suppresses the symptom and needs the do-not-touch list lifted for no gain. |
+| **(c)** callers differ by purpose | **REJECTED**, for the reason the implementer gives — it is the shape §3 already rejected. |
+| **(d)** blind retry loop | **REJECTED as a fix.** But see §2.5's correction: a *bounded wait-for-condition* is a different thing and is now live. |
+
+**The implementer's judgement in stopping was right, and their lean toward (a) was reasonable on the
+information they had.** The argument that changes the answer — that half 2 is structurally
+incapable of adding a control — is not visible from inside the implementation.
+
+## R3 — Do this next: a read-only timing probe
+
+**Nothing gets fixed until the cause is known.** `HANDOVER-6.md` §7 lesson 2: an acceptance must test
+the defect, not the fix's theory of it. This spec skipped that step and shipped a theory.
+
+**Probe requirements:**
+
+1. **Read-only.** No control is set, toggled, clicked or selected. No trade. No `.vb` change.
+2. Launch through `tools/launch-app.ps1`. Confirm `— TESTNET` in the title.
+3. Open the settings window. Immediately begin polling, and record for each attempt:
+   - **Query A** — is the settings window in `RootElement.FindAll(Children, PID)`?
+   - **Query B** — does `Find-ByControlType(mainForm, ComboBox)` reach `cboBridgeMode`?
+4. Poll from 0 ms to about 2000 ms. Suggested interval 50–100 ms. Record the **first success time**
+   for A and for B, independently.
+5. **Repeat about 20 times**, closing and reopening the settings window each round.
+6. Report a table: round · first-success ms for A · first-success ms for B · never-succeeded.
+
+**What each outcome means:**
+
+| Outcome | Cause | Fix that follows |
+|---|---|---|
+| B succeeds within a bounded time, every round | **Render latency.** The main form's traversal always reaches the controls once the tree has settled. | A **bounded wait-for-condition** before the search, with a deadline and a loud timeout. **No union. No change to `Get-ProcessWindows`.** |
+| B never succeeds in some rounds, but A does | **Topology.** The window really is a separate top-level in those rounds. | A union *is* needed — and then option (a) becomes necessary to stop the double-count. Re-scope both together. |
+| Neither A nor B succeeds in some rounds | The window is absent from the UIA tree entirely for a while. | Bounded wait, plus the Win32 `EnumWindows` route held in reserve at §2.5. |
+
+**Report the numbers even if they are inconvenient.** If the fault does not reproduce at all in
+20 rounds, say exactly that. "Did not reproduce" is a result. A fix built on an unreproduced fault
+is what produced this ruling.
+
+## R4 — `Merge-ProcessWindows` stays, and is currently unused
+
+Commit `1f4b931` is kept. The seam is correct and its check script passes 5/5. It is **dead code as
+of `59de8c1`** — recorded here so nobody later reads it as mystery leftovers. If the probe rules out
+every union shape, remove it and its check script in the same commit.
+
+## R5 — Screenshot rule, owner-approved 2026-08-07
+
+The implementer disclosed a desktop-wide screenshot that captured unrelated sensitive content, and
+deleted it. **Disclosing it was correct.** The tooling was checked in response:
+
+- `tools/screenshot-mainform.ps1` captures **the main form only** (Win32 `PrintWindow`).
+- `tools/screenshot-full.ps1` is **not** a desktop capture despite the name — it is a full-**form**
+  capture through the app's own hotkey.
+- **Neither repo tool can capture the desktop.** That capture came from a method outside the harness.
+
+🚨 **Standing rule, now in `HANDOVER-6.md` §5: a seat captures the APP only, via
+`tools/screenshot-mainform.ps1` or `tools/screenshot-full.ps1`. Desktop-wide capture by any other
+means is not permitted.** The pre-existing rule in those scripts only said screenshots go to
+git-ignored `verify/out/` and are deleted after use — it never said *do not capture the desktop*,
+because nobody had thought to.
+
+## §Model and effort for the probe (`HANDOVER-6.md` §7b)
+
+> **Recommendation: Sonnet, medium effort — the SAME implementer seat, continued.**
+
+- **Why:** read-only diagnostics in `tools/`. No app change, no trade, no `.vb` file. The seat
+  already holds the context, has the app launch working, and has demonstrated it stops at the right
+  moment rather than working around a spec.
+- **Where the thinking should go:** (1) polling must not itself perturb what it measures — do not
+  foreground, click or focus anything between samples; (2) A and B must be timed **independently**,
+  because the whole question is whether they diverge; (3) the round count matters more than the
+  interval — an intermittent fault needs repetitions.
+- **What would change the answer:** if the probe shows the fault needs Win32 P/Invoke or any change
+  inside the app, **stop and escalate**. That moves the fix to **Opus, high effort**.
+- **Answer in the impl report:** was Sonnet at medium right for the probe?
