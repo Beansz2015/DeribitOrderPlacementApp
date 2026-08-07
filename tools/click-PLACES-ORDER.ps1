@@ -46,7 +46,7 @@ $labelBuilder = {
     if (-not $n) { return $null }
     "'$n' (id '$($Element.Current.AutomationId)', window '$($Window.Current.Name)')"
 }
-$m = Select-MatchingElement -Windows $windows -TypeName Button -Pattern $NamePattern -LabelBuilder $labelBuilder
+$m = Wait-ForMatchingElement -Windows $windows -TypeName Button -Pattern $NamePattern -LabelBuilder $labelBuilder
 if ($m.Result.Kind -eq 'Ambiguous') {
     $tied = $m.Result.Tied | ForEach-Object { $m.FullLabels[$_] }
     Write-Error "REFUSED: '$NamePattern' matches more than one button at the same tier — refusing to pick arbitrarily. Tied candidates:"

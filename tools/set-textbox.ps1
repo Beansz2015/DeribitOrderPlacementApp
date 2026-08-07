@@ -30,7 +30,7 @@ param(
 $form = Get-MainForm -RequireHarnessPid
 $windows = Get-ProcessWindows -OwnerPid $form.Current.ProcessId
 
-$m = Select-MatchingElement -Windows $windows -TypeName Edit -Pattern $NamePattern
+$m = Wait-ForMatchingElement -Windows $windows -TypeName Edit -Pattern $NamePattern
 if ($m.Result.Kind -eq 'Ambiguous') {
     $tied = $m.Result.Tied | ForEach-Object { $m.FullLabels[$_] }
     Write-Error "REFUSED: '$NamePattern' matches more than one textbox at the same tier — refusing to pick arbitrarily. Tied candidates:"

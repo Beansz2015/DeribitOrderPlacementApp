@@ -25,7 +25,7 @@ $form = Get-MainForm -RequireHarnessPid
 $isTestnet = $form.Current.Name.IndexOf("TESTNET", [StringComparison]::OrdinalIgnoreCase) -ge 0
 $windows = Get-ProcessWindows -OwnerPid $form.Current.ProcessId
 
-$m = Select-MatchingElement -Windows $windows -TypeName CheckBox -Pattern $NamePattern
+$m = Wait-ForMatchingElement -Windows $windows -TypeName CheckBox -Pattern $NamePattern
 if ($m.Result.Kind -eq 'Ambiguous') {
     $tied = $m.Result.Tied | ForEach-Object { $m.FullLabels[$_] }
     Write-Error "REFUSED: '$NamePattern' matches more than one checkbox at the same tier — refusing to pick arbitrarily. Tied candidates:"
