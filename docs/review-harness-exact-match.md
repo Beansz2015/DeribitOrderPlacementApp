@@ -73,7 +73,16 @@ likewise untouched.
    fine — and the seat's own `Get-TierIndices` returns a `List[int]` whose comma-wrap is for an
    unrelated (correct) reason. **Memory narrowed to `List[object]`.** *(Same shape as §7 lesson 7,
    inverted: a summary that broadens past its evidence rather than dropping a caveat.)*
-2. **`Get-ProcessWindows` intermittently misses the owned `AutoTradeSettings` window** — it is
+2. ⚠ **CORRECTED 2026-08-07 — the word "intermittently" below is WRONG, and it sent a whole spec
+   the wrong way.** A 39-round timing probe (`impl-report-harness-owned-window-probe.md`) found the
+   settings window is **NEVER** a root child — 0 successes in 39 rounds. `Get-ProcessWindows` has
+   therefore never returned it, on any run. That miss is **total, permanent and harmless**, because
+   control search reaches the window through the main form's descendants, which succeeds in 9–22 ms.
+   **The flakiness this row blames on enumeration was render latency in the descendants search.**
+   Ruling and the fix: `spec-harness-owned-window.md` §Probe verdict, R7. The original text is kept
+   below exactly as written.
+
+   **`Get-ProcessWindows` intermittently misses the owned `AutoTradeSettings` window** — it is
    `Show(Me)`-owned, and `RootElement.FindAll(TreeScope.Children, …)` sometimes does not enumerate
    it even while Win32 reports it visible; found under `TreeScope.Descendants` of the main form.
    Pre-existing, outside this spec's target list, and **it would equally have blocked the old code**

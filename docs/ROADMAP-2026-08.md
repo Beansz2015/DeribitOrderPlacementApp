@@ -91,7 +91,15 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   `HandleOrderPositionUpdates` are `Async Sub`, so a hook there fires at their first `Await`, before
   their post-await writes: it would look complete and be wrong on the two hottest handlers.
 - **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window.**
-  🟡 **IN FLIGHT — spec written, IMPLEMENTED, and the fix WITHDRAWN on its own spec-back.**
+  🟡 **IN FLIGHT — cause now ESTABLISHED by probe; the fix is specced and not yet built.**
+  **The original description of this defect was wrong.** A 39-round timing probe (`a0e59bf`,
+  `impl-report-harness-owned-window-probe.md`) found the settings window is **never** a desktop-root
+  child — 0/39 — so `Get-ProcessWindows` has never returned it and never needed to. Control search
+  reaches it through the main form's descendants in **9–22 ms**, succeeding 37/38 times. **The
+  flakiness was render latency, not window enumeration.** Fix specced as a bounded
+  wait-for-condition: `spec-harness-owned-window.md` §Probe verdict, R8 + §Acceptance. Seat: Sonnet,
+  medium, continued. *(History below.)*
+  **Spec written, IMPLEMENTED, and the first fix WITHDRAWN on its own spec-back.**
   `spec-harness-owned-window.md` §2's union rule was built exactly as specced (`1f4b931`,
   `2c5e986`) and turned out to be a deterministic regression: it doubles every settings-window
   control, so every drive script refuses. **D1 (a defect found in code) upheld 2026-08-07; the

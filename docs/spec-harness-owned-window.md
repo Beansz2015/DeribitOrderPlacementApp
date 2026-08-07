@@ -427,3 +427,117 @@ because nobody had thought to.
 - **What would change the answer:** if the probe shows the fault needs Win32 P/Invoke or any change
   inside the app, **stop and escalate**. That moves the fix to **Opus, high effort**.
 - **Answer in the impl report:** was Sonnet at medium right for the probe?
+
+---
+
+# §Probe verdict and the FIX — 2026-08-07. This is the live section.
+
+## R6 — The probe is ACCEPTED. Verified independently, not taken on report.
+
+`impl-report-harness-owned-window-probe.md`, commit `a0e59bf`. Checked at the coordinator seat:
+
+- **Query A and Query B measure what the report says they measure** —
+  `tools/probe-owned-window-timing.ps1:109-121`. Query B correctly uses the **main form** as its
+  search element.
+- **The headline is not a string artefact.** Query A matches on `Name -eq 'AutoTradeSettings'`, and
+  the form really is titled that: `AutoTradeSettings.Designer.vb:698` sets `Text = "AutoTradeSettings"`.
+  A wrong string would have produced the same 0/39, so this had to be checked.
+- **Read-only holds.** The only mutation anywhere in the script is `Invoke()` on the main form's own
+  Auto Settings toggle. No control inside the settings window is touched. Zero `.vb` files.
+- **Finding their own probe defect, discarding all 20 rounds, and rebuilding with independent Win32
+  ground truth was the right call** — and reporting the discard rather than quietly re-running is
+  the behaviour this house wants. It is the same discipline as `HANDOVER-6.md` §7 lesson 1.
+
+## R7 — The result is stronger than "render latency". The ORIGINAL defect description was wrong.
+
+**Query A succeeded 0 times in 39 rounds.** Not intermittently — **never**.
+
+The consequences run backwards through this whole feature:
+
+1. The settings window is **never** a child of the desktop root. It is always only a descendant of
+   the main form.
+2. So `Get-ProcessWindows` — root children only — has **never** returned it, on any run, ever.
+3. So the harness has **always** driven that window through the main form's descendants search.
+   Query B is exactly that path, and it succeeds in **37 of 38** rounds where the window was
+   confirmed open, in **9–22 ms**.
+4. **Therefore `review-harness-exact-match.md` §5.2's framing is wrong on causation.** It says
+   `Get-ProcessWindows` *"intermittently misses the owned window"* and that this *"makes any
+   settings-window drive step flaky."* The miss is **total, permanent and harmless**. The flakiness
+   was the descendants search not having resolved yet.
+5. **And §1.2 of this spec was wrong**, which is why §2 was wrong. I specified a fix for a
+   window-enumeration problem that was never the cause. The probe is what caught it.
+
+## R8 — The fix: a bounded wait. And state its limit honestly.
+
+**Shape:**
+
+- Add **one new function** to `tools/harness-common.ps1` that wraps `Select-MatchingElement` in a
+  bounded poll. Do not modify `Select-MatchingElement` or `Select-BestMatchIndex` — the do-not-touch
+  table stands.
+- Poll until the result `Kind` is anything other than `None`, or the deadline expires.
+- 🚨 **Never wait on `Ambiguous`.** An ambiguous match is a real, immediate refusal. Waiting on it
+  would delay a correct refusal and could let a late-appearing control change the answer. Return it
+  the instant it appears.
+- On timeout, fail exactly as today: exit 2, all candidates printed. **Loud, never silent.**
+- Convert the five drive scripts to the wrapper: `set-textbox.ps1`, `toggle-checkbox.ps1`,
+  `select-combo-item.ps1`, `click-button.ps1`, `click-PLACES-ORDER.ps1`.
+
+**Deadline: 500 ms, with a 25 ms poll interval.** Observed successes are 9–22 ms, so 500 ms is more
+than twenty times the worst observed case. A genuine not-found now costs 500 ms — acceptable, and
+the reason the deadline is not larger.
+
+🚨 **What this fix does NOT do, and the implementer must not claim it does.** In Set 1 round 1 the
+window was open for the **full 2000 ms** and Query B never resolved. **No deadline fixes that
+round.** So this fix converts a random failure into: deterministic success in about 97% of cases,
+and a **loud timeout** in the rest. It is an improvement, not a cure. Say so in the report.
+
+## R9 — Two things to clean up in the same pass
+
+1. **Remove `Merge-ProcessWindows` and `tools/checks/test-merge-process-windows.ps1`.** R4 said they
+   stay only if a union shape might still be needed. The probe rules out every union shape — a union
+   can only add a window whose controls are already reachable. Remove both in one commit, and say in
+   the message that they are being removed because the probe rules them out, not because they were
+   wrong.
+2. **Record a known limitation, do not fix it:** `close-popup.ps1` iterates `Get-ProcessWindows`, so
+   it **cannot close the settings window** — that window is never in the list. Use the main form's
+   Auto Settings toggle instead, which is what the probe does. Add a comment saying so at
+   `tools/close-popup.ps1`.
+
+## R10 — Left open deliberately
+
+- **Set 1 round 1** — window confirmed open by Win32 for 2000 ms, neither UIA query resolved. No
+  root cause. The implementer's guess is a UI-thread message race around the toggle. **Not
+  established, and not a blocker.** Recorded here so it is not rediscovered as new.
+- **Only `ComboBox` / `cboBridgeMode` was measured.** The pattern is assumed to hold for `Edit` and
+  `CheckBox`. The acceptance below tests all three, which closes this cheaply.
+
+## §Acceptance for the fix
+
+1. **The wait works.** With the settings window freshly opened, run `set-textbox.ps1`,
+   `toggle-checkbox.ps1` and `select-combo-item.ps1` against a settings-window control, **20 rounds
+   each**, opening the window immediately before each attempt. Report the success rate and the
+   observed wait time. Restore every value you change and read it back to prove the restore.
+   - ⚠ `HANDOVER-6.md` §5.4 first: the main form's `FormClosing` persists all 11 standing input
+     fields unconditionally. **Do not leave a harness value in a persisted field.**
+2. **`Ambiguous` still refuses instantly.** Use a pattern that ties — a bare `Trig` ties three ways.
+   Assert the refusal is immediate, not delayed by the deadline.
+3. **A genuine not-found still fails loudly** — exit 2, candidates printed, after about 500 ms.
+4. **The deny check and the TESTNET gate still refuse.** `click-button.ps1 "Limit BUY"` → exit 3.
+   Verify the `click-PLACES-ORDER.ps1` TESTNET refusal **by diff**, not by manufacturing a live
+   session.
+5. **`tools/checks/test-select-best-match.ps1`** → 7/7.
+6. **Gate** → `GATE PASSED`, OrderCheck **268/268**. **Censuses** → 68 occurrences across 64 lines.
+   You are touching no `.vb` file; run them anyway.
+
+## §Model and effort for the fix (`HANDOVER-6.md` §7b)
+
+> **Recommendation: Sonnet, medium effort — the same seat, continued.**
+
+- **Why:** `tools/` only. No `.vb` file. No order, stop-loss, receive, bridge or act path. The seat
+  has now built and debugged the probe, and has demonstrated it stops when a spec is wrong.
+- **Where the thinking should go:** (1) the `Ambiguous`-must-not-wait rule — it is the one place a
+  naive retry loop changes a safety-relevant answer; (2) the five call-site conversions must not
+  disturb the deny check or the TESTNET/PID gate; (3) the honest framing in R8 — do not report a
+  cure.
+- **What would change the answer:** if the fix needs anything inside the app, stop and escalate.
+  That moves it to **Opus, high effort**.
