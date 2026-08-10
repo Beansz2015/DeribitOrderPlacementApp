@@ -31,8 +31,23 @@ the only pusher.
    **Three knobs compose and must be set TOGETHER** — `risk_per_trade_usd`/`max_size_usd`, the
    circuit breaker, and the session policy whose NY bucket is unconfigured-hence-largest.
    The full trap: `HANDOVER-6.md` §2.
-5. **C1 emitter enable — add `feedback_output_path` to `bridge.json`.** *(open, optional, and
-   nothing blocks it.)* **Verified at HEAD:** that key is the **only** switch — absent ⇒
+5. ✅ **C1 emitter enable — DONE 2026-08-10, and the file is LIVE in the owner's bin.**
+   `feedback_output_path` set to the contract §8.2 default; startup line reads
+   `Executor feedback: configured - C:\Dev\DeribitBridge\executor_feedback.json`.
+   ⚠ **It needed an x64 REBUILD first** — the bin predated C1 by six days and the emitter was simply
+   not in the binary, so the correct config change produced *no startup line at all*.
+   `HANDOVER-6.md` §4 carries that trap now.
+   **First observations in the OWNER's bin** (previously only ever seen on the harness bin):
+   trigger (f) initial write · `executor.mode` = `"OFF"` · `executor.ws` = `"OK"` at connect (E6a's
+   connect edge) · the 10 s heartbeat republishing (`feedback_id` 6 → 16) · and **trigger (e), the
+   graceful-close final write — the file stopped dead on app exit and stayed stopped, which is
+   §8.1's "silence = dead executor" property observed for the first time.**
+   Schema conformance checked field-by-field against `integration-contract-verdictengine.md` §8,
+   including the pinned enums at its lines 176–177: `executor.mode` ∈ OFF/LOG_ONLY/LIVE ·
+   `executor.ws` ∈ OK/DOWN · `position.direction` ∈ LONG/SHORT/**FLAT** with zeros. All correct.
+   *(Original entry below.)*
+   ~~**C1 emitter enable — add `feedback_output_path` to `bridge.json`.**~~ *(was: open, optional,
+   and nothing blocks it.)* **Verified at HEAD:** that key is the **only** switch — absent ⇒
    `ExecutorFeedback.IsConfigured = False` ⇒ no timer, no worker, **no file created**
    (`ExecutorFeedback.vb:32`, `:84-88`, `:110-113`; every entry point re-checks it at `:419`,
    `:442`, `:475`, `:578`). Enabling ours does **not** depend on the engine: we publish, they
