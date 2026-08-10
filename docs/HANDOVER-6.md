@@ -493,6 +493,26 @@ high-effort pass that re-reads the god-form has spent its budget in the wrong pl
    archive summarises milestones, memory summarises H-6. Each layer is a chance to drop a caveat.
    **Mitigation: when you summarise a rule, carry its exception or do not carry the rule. And grep
    every copy before calling a correction done — code comments included, not only docs.**
+8. 🚨 **DO NOT SPECIFY A FIX FOR A CAUSE YOU HAVE NOT MEASURED. The probe that would have prevented
+   it costs one seat-hour.** Earned expensively 2026-08-07 on the harness owned-window item.
+   `spec-harness-owned-window.md` §1.2 asserted a *topology* cause — an owned window is not a
+   desktop-root child — from one line in an impl report. The fix built on it was correct to the
+   letter and made things **worse**: it doubled every settings-window control and every drive script
+   refused. A 39-round probe then showed the window is **never** a root child (0/39), so the
+   enumeration never mattered and the real cause was render latency.
+   **Three separate documents had already stated the wrong cause as fact** before anyone measured it.
+   *The implementer's spec-back caught the regression; the probe caught the wrong cause; the review
+   caught the fix that did nothing. Each was a different seat looking at the same feature.*
+9. 🚨 **A TIMEOUT SMALLER THAN ONE ATTEMPT IS A NO-OP — and it passes every acceptance.** Same item,
+   the follow-on defect. The bounded wait shipped with a 500 ms deadline taken from **in-process**
+   measurements of 9–22 ms. A real caller is a **fresh process**, where the first UIA query alone
+   costs **740–950 ms**. The deadline check ran after that first attempt, so the loop always returned
+   at one attempt and `Start-Sleep` was unreachable. **The retry path was dead in every real
+   invocation, and a 60/60 live acceptance passed anyway** — because process-start latency already
+   exceeded the race the wait existed to cover.
+   **Two rules out of it:** (a) **measure in the caller's real process**, never in-process, whenever
+   a number is going to become a timeout; (b) **a wait must guarantee its first attempt outside the
+   budget**, so the budget means retries.
 
 ## 8. Audit record — 2026-08-07, against artefacts at HEAD `8f04c27`
 

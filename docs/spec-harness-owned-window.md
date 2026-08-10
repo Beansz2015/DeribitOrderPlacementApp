@@ -641,3 +641,32 @@ plus the new check script, the gate and the censuses.
 
 > **Model and effort for the correction:** Sonnet, medium — same seat, continued. `tools/` only, and
 > the new check script needs no app.
+
+---
+
+# ✅ §R12 — D1 FIXED AND VERIFIED. FEATURE CLOSED 2026-08-07.
+
+`290af9e` (fix + check script) and `d6cac3f` (verification report). Verified at the coordinator seat:
+
+| Check | Result |
+|---|---|
+| The fix itself | Attempt 1 now runs **unconditionally**, before the stopwatch starts. The 500 ms / 25 ms budget governs retries only. |
+| `tools/checks/test-wait-for-matching.ps1`, run here | **5/5**, including D1's own regression case |
+| **My own independent stub**, the one that exposed D1 | 740 ms first attempt → **2 attempts** · 950 ms → **2 attempts**. Both were **1** before. |
+| `tools/checks/test-select-best-match.ps1`, run here | 7/7 |
+| `tools/checks/verify-gate.ps1`, executed here | **GATE PASSED**, OrderCheck **268/268** |
+| Nine censuses, run here | **68 occurrences across 64 lines** |
+| `.vb` / `.vbproj` touched | **0** |
+| `click-button.ps1` / `click-PLACES-ORDER.ps1` diff since `689a812` | **empty** — the deny check and the TESTNET/PID gate are provably untouched |
+
+**Two things the implementer did that the review did not ask for, and both raise the bar:**
+
+1. **They proved their regression test discriminates.** They stashed the fix, ran the check script
+   against the old code, and confirmed case 5 **fails** with exactly D1's signature (`calls=1`), then
+   restored and confirmed it passes. *A green test that would also be green against the bug is not a
+   test.* This is `HANDOVER-6.md` §7 lesson 2 applied to a fixture rather than to an acceptance.
+2. **They caught their own instrumentation error and said so** — their first attempt at measuring the
+   real function accidentally re-implemented the old loop inline, which would have produced a
+   confident, wrong number.
+
+**Nothing is owed on this feature.**

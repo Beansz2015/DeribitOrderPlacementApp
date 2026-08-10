@@ -91,8 +91,14 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   `HandleOrderPositionUpdates` are `Async Sub`, so a hook there fires at their first `Await`, before
   their post-await writes: it would look complete and be wrong on the two hottest handlers.
 - **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window.**
-  🟡 **IN FLIGHT — fix BUILT and REVIEWED; APPROVED with one defect, `D1`, which is the
-  coordinator's own.** `Wait-ForMatchingElement` landed (`2c6cb7b`, `4fe4a33`), the union seam was
+  ✅ **CLOSED 2026-08-07 — fixed, reviewed, `D1` fixed and verified. Nothing owed.** Final shape:
+  `Wait-ForMatchingElement` in `tools/harness-common.ps1`, attempt 1 outside the retry budget,
+  `Ambiguous` never waited out, loud timeout unchanged. Gate 268/268 and the censuses re-run at the
+  coordinator seat; zero `.vb` touched. **The specced cause never existed** — the settings window is
+  never a desktop-root child (probe: 0/39), so the flakiness was render latency. Full arc and doc
+  chain: `ARCHIVE-closed-milestones.md`, row `OW`. Lessons: `HANDOVER-6.md` §7 items 8 and 9.
+  *(History below, kept because the arc is instructive.)*
+  **Fix BUILT and REVIEWED; APPROVED with one defect, `D1`, which was the coordinator's own.** `Wait-ForMatchingElement` landed (`2c6cb7b`, `4fe4a33`), the union seam was
   removed (`9341888`) and the `close-popup.ps1` limitation recorded (`689a812`). Coordinator review
   executed the gate (**268/268**) and the censuses (**68/64**) and verified the harness-bin restores
   at the artefact. **`D1` (a defect found in code): the bounded wait can never retry in a real
