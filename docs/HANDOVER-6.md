@@ -48,7 +48,15 @@ inputs must be set **together**, because they compose.
    nothing risk-shaped. Fix before ticking, not after.
 2. **Circuit breaker `$10`** — gates the BRIDGE path; could stop a session fast at risk-sized
    notionals. Set deliberately.
-3. **🚨 Session policy is ENABLED, and the third bucket is the one that bites.** Configured:
+3. ✅ **OWNER RULING 2026-08-10 — NY stays UNCONFIGURED, deliberately. Do not re-raise it.**
+   The owner's words: *"NY is to be the most flexible, so don't add an explicit entry yet."* So the
+   fall-through below is now a **decision, not an oversight**, and a future seat should stop flagging
+   it as a footgun. **The mechanics still matter and are unchanged** — an absent key is not a
+   refusal, NY resolves to `HIGH,MEDIUM | any | 1.0`, and it is therefore both the least
+   tier-restricted and the only full-size bucket, landing 21:00–07:59 local. *(Note it is not
+   "unrestricted": `DefaultRule` still refuses LOW.)* Revisit only if the owner asks.
+   *(Original text below, kept because the mechanics are the thing to understand.)*
+   **🚨 Session policy is ENABLED, and the third bucket is the one that bites.** Configured:
    `LONDON = MEDIUM | CONFIRMED | 0.5`, `ASIA = HIGH,MEDIUM | any | 0.75`. The multiplier applies
    **on top of** the risk size, exactly once. **`NY` (UTC ≥ 13:00) has NO entry, and an absent key
    is not a refusal** — `RuleFor` (`SessionPolicy.vb:143`) falls back to `DefaultRule()` (`:56`) =

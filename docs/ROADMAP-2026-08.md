@@ -24,8 +24,23 @@ the only pusher.
 2. **Size ladder** at FIXED size: 10 → 20–30 → normal. *(open)*
 3. **AWS London migration** — `production-cutover-checklist.md` §9; the key choreography kills the
    two-executor window. *(open)*
-4. 🚨 **N2 enable — tick `Risk-size`.** *(open; the only owner action left on N2, moved here from §3
-   where it was buried in prose.)* **Verified at HEAD:** the knob is `risk_size_bridge_trades` and
+4. 🟡 **N2 enable — IN PROGRESS. Owner chose the values 2026-08-10: `risk_per_trade_usd = 0.1` ·
+   `max_size_usd = 500` · circuit breaker stays `$10` · NY stays unconfigured (deliberate ruling,
+   `HANDOVER-6.md` §2.3).** *"Will adjust after/during testing."*
+   **What those values actually produce** — the formula uses the PAYLOAD's own entry and stop
+   (`refPrice = p.Entry`, `dist = |p.Entry − p.StopLevel|`, `SignalBridge.vb:RiskSizedBaseForPayload`),
+   not the live market price. At risk `0.1` the shorthand is **`base = floor(entry ÷ dist ÷ 100) × 10`**.
+   At an entry near 64,000 that gives **90 at a $70 stop · 30 at $200 · 10 at $400 and wider**, with
+   the session multiplier folded in exactly once on top.
+   ⚠ **`max_size_usd = 500` is INERT at this risk level** — the cap only binds below a **$12.80**
+   stop distance, which no real signal produces. It is a backstop, not a control. **The control at
+   these settings is `risk_per_trade_usd`.**
+   ⚠ **The min-10 clamp swallows the session multiplier at small sizes** (`HANDOVER-6.md` §5.9): at
+   base 20, both ASIA ×0.75 and LONDON ×0.5 floor back to 10, so the multiplier is invisible unless
+   the base is 30 or more. Do not read "no divergence" as "the policy is off".
+   *(Original entry below.)*
+   ~~🚨 **N2 enable — tick `Risk-size`.**~~ *(was: open; the only owner action left on N2, moved here
+   from §3 where it was buried in prose.)* **Verified at HEAD:** the knob is `risk_size_bridge_trades` and
    **an absent key is `False`** (`AppUserSettings.vb:142-143`), persisted at `:189`; the control is
    `chkRiskSizeBridge` on the settings form (`AutoTradeSettings.Designer.vb:365`, tooltip `:369`).
    **Three knobs compose and must be set TOGETHER** — `risk_per_trade_usd`/`max_size_usd`, the
