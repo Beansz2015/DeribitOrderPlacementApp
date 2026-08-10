@@ -24,7 +24,29 @@ the only pusher.
 2. **Size ladder** at FIXED size: 10 → 20–30 → normal. *(open)*
 3. **AWS London migration** — `production-cutover-checklist.md` §9; the key choreography kills the
    two-executor window. *(open)*
-4. 🟡 **N2 enable — IN PROGRESS. Owner chose the values 2026-08-10: `risk_per_trade_usd = 0.1` ·
+4. ✅ **N2 LOG-ONLY DRY RUN PASSED 2026-08-10 — the formula is verified against a real payload.**
+   `[BRIDGE] signal #52 SHORT (MEDIUM/SHORT) -> would-act: SHORT @ 63894.00, stop 63929.70,
+   target 63838.00, size 170`. Recomputed independently at the coordinator seat:
+   dist = 35.70 · `0.1 × 63894 ÷ 35.70 = 178.97` · `floor(17.897) × 10` = **170**. Exact match.
+   Cap did not bind, min-10 did not clamp, NY's unity multiplier passed through untouched. Risk if
+   stopped = **$0.095** against a $0.10 target.
+   🚨 **REAL STOPS ARE FAR TIGHTER THAN THE PLANNING TABLE ASSUMED — $35.70, not $70–$400.** So
+   sizes run **~100–210**, not 30–90, and **N2 on is ~17× the Amount box (10)**. Anyone reasoning
+   about size from the earlier table will be low by a factor of five.
+   ⚠ **Both guards are INERT at risk 0.1:** the 500 cap needs a stop under $12.80, and the $10
+   breaker measures **session P/L** (`IsBreakerTripped(breakerUsd, SessionPnLUSD)`,
+   `SignalBridge.vb:1141`) so it needs ~105 full-stop losses. **`risk_per_trade_usd` is the only
+   active control during testing.**
+   **More first-observations in the owner's bin:** `executor.mode` = `"LOG_ONLY"` (second pinned
+   value) · **`last_signal` POPULATED — trigger (a) observed there for the first time** · the x64
+   `bridge-dispositions.log` grew, confirming `HANDOVER-6.md` §5.11 · one row per payload across
+   #52–#55 (cardinality freeze holds) · `instance_id` identical in the log and in `last_signal`,
+   so the contract's (instance_id, signal_id) join works end to end.
+   **Still NOT observed:** the session multiplier under N2 — #52 landed in NY, whose unity
+   multiplier is a no-op. ASIA (×0.75 ⇒ 120) needs 08:00–15:59 local; LONDON (×0.5 ⇒ 80) needs
+   16:00–20:59 local. At base 170 both clear the min-10 clamp, so the divergence would be visible.
+   *(Setup below.)*
+   🟡 **Owner chose the values 2026-08-10: `risk_per_trade_usd = 0.1` ·
    `max_size_usd = 500` · circuit breaker stays `$10` · NY stays unconfigured (deliberate ruling,
    `HANDOVER-6.md` §2.3).** *"Will adjust after/during testing."*
    **What those values actually produce** — the formula uses the PAYLOAD's own entry and stop
