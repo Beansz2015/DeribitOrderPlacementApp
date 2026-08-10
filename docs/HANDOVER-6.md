@@ -217,10 +217,35 @@ it was true when written and no single word of it was ever wrong; what changed w
   actionable exits stay fenced behind a separate signal-schema-v2 amendment — **never parse
   `hold_status`**.
 
-## 4. The owner's x64 bin — CURRENT as of 2026-08-02 01:33
+## 4. The owner's x64 bin — REBUILT 2026-08-10 21:04, and it now carries C1
 
-All four era symbols present (`RiskSizedBase`, `placedOrderSizeUsd`, `isPlacingOrder`,
-`lastPlacementAdmittedUtc`); `secrets.json` reads `Environment = testnet`, byte-identical to source.
+Verified in the binary, not inferred: `ExecutorFeedback` · `feedback_output_path` · the literal
+startup string `Executor feedback: disabled` are all present. `secrets.json` reads
+`Environment = testnet`.
+
+🚨 **This heading used to read "CURRENT as of 2026-08-02 01:33" and it was WRONG for six days —
+it cost a live debugging session on 2026-08-10.** The C1 emitter landed 2026-08-04/06 and **the x64
+bin was never rebuilt**, so the owner edited `bridge.json` correctly, started the app, and got **no
+startup line at all** — not "configured", not "disabled". The line is printed unconditionally
+(`frmMainPageV2.vb:927-928`), so its *absence* proved the running exe had no emitter in it.
+
+**Two rules out of that:**
+
+1. **"CURRENT as of <date>" is a claim with a silent shelf life.** It expires the moment anything
+   lands, and nothing re-reads it. **State what the bin CONTAINS, and re-derive it.** A symbol scan
+   is three seconds:
+   ```powershell
+   $p='...\bin\x64\Debug\net9.0-windows8.0\DeribitOrderPlacementApp.dll'
+   $b=[IO.File]::ReadAllBytes($p); ([Text.Encoding]::ASCII.GetString($b)) -match 'ExecutorFeedback'
+   ```
+2. **A missing log line is evidence about the BINARY, not about the config.** When a feature that
+   should announce itself says nothing at all, suspect the build before the settings. The config was
+   correct the whole time.
+
+⚠ **`[IO.File]::ReadAllBytes` and friends resolve RELATIVE paths against the process working
+directory, which PowerShell's `cd` does NOT change.** A relative path there silently reads the wrong
+file — or fails — and on this box it produced a confident `False` for a symbol that was present.
+**Use absolute paths with .NET file APIs.**
 
 ⚠ **Check the `Environment` key, not the file date.** "Did the rebuild overwrite `secrets.json`?"
 is **not decidable from timestamps** — MSBuild `PreserveNewest` stamps the copy with the *source's*
