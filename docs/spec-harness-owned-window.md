@@ -541,3 +541,103 @@ and a **loud timeout** in the rest. It is an improvement, not a cure. Say so in 
   cure.
 - **What would change the answer:** if the fix needs anything inside the app, stop and escalate.
   That moves it to **Opus, high effort**.
+
+---
+
+# §Coordinator review of the fix — 2026-08-07. APPROVED WITH ONE DEFECT (D1).
+
+Reviewing `impl-report-harness-owned-window-fix.md`, commits `2c6cb7b` · `4fe4a33` · `9341888` ·
+`689a812` · `6d207cd`. Per `HANDOVER-6.md` §7 the review verifies the code, executes the gate,
+re-runs the censuses, and runs an adversarial pass. All four were done at the coordinator seat.
+
+## R11.1 — Executed here, not taken on report
+
+| Check | Result |
+|---|---|
+| `tools/checks/verify-gate.ps1` | **GATE PASSED**, OrderCheck **268/268** |
+| Nine `frmMainPageV2.vb` censuses | **68 occurrences across 64 lines** |
+| `.vb` / `.vbproj` files touched | **0** |
+| Five call-site diffs | **one line each**, `-LabelBuilder` preserved on both button scripts |
+| `tools/close-popup.ps1` | comment-only, plus a stale usage example dropped |
+| Dangling references to the removed seam | none outside the historical spec-back, which is correct |
+| Harness bin settings after the run | `session_policy.enabled` False · `max_slippage_atr_checked` False · `trigger` 777 · `market_stop_loss` 200 — **identical to the values recorded before the run, so the restores held** |
+
+## R11.2 — What the implementation got right
+
+- The wrapper **wraps**. `Select-MatchingElement` and `Select-BestMatchIndex` are untouched.
+- `if ($m.Result.Kind -ne 'None') { return $m }` — **`Ambiguous` is returned instantly.** Verified in
+  the code, not just in their test.
+- The timeout path returns the same object, so every caller's exit-2 diagnostic fires unchanged.
+- The deadline check sits **after** the call, so at least one attempt always happens.
+- `-LabelBuilder` is passed through only when supplied, so `Select-MatchingElement`'s default still
+  applies for the three scripts that do not pass one. That is the correct handling and it is easy to
+  get wrong.
+- **§3 of their report is the best thing in this pass.** They instrumented three layers rather than
+  reporting the acceptance-1 round numbers, and said plainly that those numbers do not measure the
+  wait loop. They also reproduced the census trap on themselves and published the wrong first answer.
+
+## 🚨 R11.3 — D1: the bounded wait can NEVER retry in a real caller. It is a no-op as shipped.
+
+**This defect is in my spec R8, not in their code. They implemented R8 exactly.**
+
+The proof is structural and needs no app. Stubbing `Select-MatchingElement` with the first-attempt
+cost the implementer **measured** in a fresh process:
+
+| Scenario | First attempt | Deadline | Attempts made |
+|---|---|---|---|
+| Cold process, measured low | 740 ms | 500 ms | **1** |
+| Cold process, measured high | 950 ms | 500 ms | **1** |
+| Warm / in-process | 20 ms | 500 ms | 9 |
+
+- The first `Select-MatchingElement` call in a fresh process costs **740–950 ms** (their §3, nine
+  trials).
+- The deadline check runs after that call. `740 ≥ 500`, so the function returns immediately.
+- **`Start-Sleep` is never reached. The 25 ms interval is never used.**
+- **Every drive script is a fresh process.** So in every real invocation the loop makes exactly one
+  attempt — which is what the code did before this fix.
+
+**Consequence:** the fix cannot cover a render race that outlasts the first query, which is the only
+failure mode it exists for. Acceptance 1 passed 60/60 because process-start latency alone already
+exceeds the race, not because the wait engaged. That is `HANDOVER-6.md` §7 lesson 2 — an acceptance
+must test the defect, not the fix's theory of it.
+
+**Why this is my defect:** R8 set 500 ms from the probe's **in-process** 9–22 ms figures. The
+implementer measured the cold-process cost, and their §3 says outright that R8's framing "describes
+the probe's in-process measurement, not what a real cold-process caller experiences." **They got one
+step away from this finding and stopped.** The remaining step — *therefore the loop can never loop*
+— is what a review is for.
+
+## R11.4 — The correction. Two small changes.
+
+1. **Start the deadline clock AFTER the first attempt.** The first query's cost is fixed process
+   overhead and has nothing to do with the render race. `DeadlineMs` then means what R8 intended: a
+   retry budget. Keep 500 ms and 25 ms. Simulated with the same stub, a 740 ms first attempt then
+   yields **2+ attempts** instead of 1.
+2. **Add a retry test that proves the loop can loop** — `tools/checks/test-wait-for-matching.ps1`.
+   **I verified the mechanism before specifying it, per `HANDOVER-6.md` §7 lesson 1:** a test script
+   that dot-sources `harness-common.ps1` and then defines its own `Select-MatchingElement` **does**
+   shadow the real one for `Wait-ForMatchingElement`'s call. Confirmed working — 3 attempts, correct
+   result. Required cases:
+   - Returns on attempt 1 when the first result matches.
+   - **Retries and succeeds on attempt 3** when the first two return `None`.
+   - **Returns `Ambiguous` on attempt 1 without sleeping** — the safety-relevant case.
+   - Times out with `Kind = 'None'` after a bounded number of attempts, and does not hang.
+   - A slow first attempt that exceeds the deadline **still permits at least one retry**. This is
+     D1's regression test — it fails against the current code.
+
+**Do not re-run the 60-round live acceptance.** It passed, and D1 does not invalidate it: the
+shipped behaviour is *at worst* what the code did before. Re-run acceptance items 2, 3 and 4 only,
+plus the new check script, the gate and the censuses.
+
+## R11.5 — Recorded, not actioned
+
+- **The cold-process ~740–950 ms first-query cost is now a known harness property.** Every drive
+  script pays it. It is not a defect and it is out of scope, but it is the reason any future timing
+  work in `tools/` must measure from a fresh process, never in-process.
+- **Toggling `chkSessionPolicyOn` 20 times in acceptance 1 was riskier than it looks.** That
+  checkbox is persisted gate config (`HANDOVER-6.md` §6.7). The even-count argument is sound and the
+  restore was verified at the artefact — but an interrupted run would have left the harness bin's
+  session policy ON. **Prefer a non-persisted control for repeat-toggle tests.**
+
+> **Model and effort for the correction:** Sonnet, medium — same seat, continued. `tools/` only, and
+> the new check script needs no app.

@@ -91,7 +91,17 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   `HandleOrderPositionUpdates` are `Async Sub`, so a hook there fires at their first `Await`, before
   their post-await writes: it would look complete and be wrong on the two hottest handlers.
 - **`Get-ProcessWindows` intermittently misses the OWNED `AutoTradeSettings` window.**
-  🟡 **IN FLIGHT — cause now ESTABLISHED by probe; the fix is specced and not yet built.**
+  🟡 **IN FLIGHT — fix BUILT and REVIEWED; APPROVED with one defect, `D1`, which is the
+  coordinator's own.** `Wait-ForMatchingElement` landed (`2c6cb7b`, `4fe4a33`), the union seam was
+  removed (`9341888`) and the `close-popup.ps1` limitation recorded (`689a812`). Coordinator review
+  executed the gate (**268/268**) and the censuses (**68/64**) and verified the harness-bin restores
+  at the artefact. **`D1` (a defect found in code): the bounded wait can never retry in a real
+  caller** — a fresh process's first UIA query costs 740–950 ms, the deadline is 500 ms, so the loop
+  always returns after one attempt and `Start-Sleep` is unreachable. Proven structurally with a stub.
+  Cause is the spec's parameter choice, taken from in-process figures. Correction and its regression
+  test: `spec-harness-owned-window.md` §Coordinator review, R11.4. Seat: Sonnet, medium, continued.
+  *(History below.)*
+  **Cause ESTABLISHED by probe.**
   **The original description of this defect was wrong.** A 39-round timing probe (`a0e59bf`,
   `impl-report-harness-owned-window-probe.md`) found the settings window is **never** a desktop-root
   child — 0/39 — so `Get-ProcessWindows` has never returned it and never needed to. Control search
