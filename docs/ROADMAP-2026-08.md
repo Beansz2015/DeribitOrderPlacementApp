@@ -141,6 +141,14 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   "FrmIndicators/AutoTradeSettings retirement" item is **already done** — that window is owned and
   re-parented by `frmMainPageV2` (`:975`, `:6084-6091`), so only the ATR source is left. The form
   also still carries dead code (`UpdateEmaVwapLabels`, `FrmIndicators.vb:1281`, zero call sites).
+- **`backup-orderapp.ps1` fails confusingly when `-TargetDir` cannot be created.** *(Verified
+  2026-08-07, hit for real by the owner.)* Line 44 does
+  `New-Item -ItemType Directory -Force -Path $TargetDir`, but on some drives that **returns success
+  without creating anything** — reproduced on `D:\` on the owner's box: `New-Item` throws nothing,
+  `Test-Path` then reports `False`. The failure surfaces two lines later as
+  `Resolve-Path : Cannot find path … because it does not exist`, which points at line 47 and reads
+  like a bad argument rather than an un-writable target. **Fix:** re-test the path after creating it
+  and fail with one clear message naming the target. Tools-only, Sonnet/medium.
 - **Edit T.S. post-trigger rework.** *(Verified the home exists: `EditStopLossTo`,
   `frmMainPageV2.vb:6457`, `:6513`, `:6550`.)* 4-trap catalog in
   `runtime-checklist-hybrid-session.md` §C.
