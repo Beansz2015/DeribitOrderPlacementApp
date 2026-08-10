@@ -206,8 +206,14 @@ function Select-MatchingElement {
 # it appears. On timeout the result is still 'None', so every caller's existing not-found handling
 # (exit 2, candidates printed) fires completely unchanged - loud, never silent.
 #
-# Defaults are the spec's: observed successes were 9-22 ms (impl-report-harness-owned-window-probe.md
-# section 3), so 500 ms is more than 20x margin; a genuine not-found now costs up to 500 ms.
+# 🚨 D1 (docs/spec-harness-owned-window.md section R11.4): the deadline clock starts AFTER the
+# first attempt, not before. The first query's cost is fixed process/UIA-client-warmup overhead
+# (observed 740-950 ms from a fresh process, impl-report-harness-owned-window-fix.md section 3),
+# unrelated to the render-latency race the deadline exists to wait out. Starting the clock before
+# attempt 1 meant a slow-but-legitimate first attempt could already exceed the deadline on its
+# own, so the loop returned without ever reaching Start-Sleep - the retry path was dead in every
+# real (cold-process) caller. Attempt 1 always runs unconditionally; the 500 ms / 25 ms budget
+# governs only the retries after it.
 function Wait-ForMatchingElement {
     param(
         [Parameter(Mandatory=$true)]$Windows,
@@ -217,15 +223,19 @@ function Wait-ForMatchingElement {
         [int]$DeadlineMs = 500,
         [int]$IntervalMs = 25
     )
+    $callParams = @{ Windows = $Windows; TypeName = $TypeName; Pattern = $Pattern }
+    if ($LabelBuilder) { $callParams.LabelBuilder = $LabelBuilder }
+
+    $m = Select-MatchingElement @callParams
+    if ($m.Result.Kind -ne 'None') { return $m }
+
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($true) {
-        $callParams = @{ Windows = $Windows; TypeName = $TypeName; Pattern = $Pattern }
-        if ($LabelBuilder) { $callParams.LabelBuilder = $LabelBuilder }
+    while ($sw.ElapsedMilliseconds -lt $DeadlineMs) {
+        Start-Sleep -Milliseconds $IntervalMs
         $m = Select-MatchingElement @callParams
         if ($m.Result.Kind -ne 'None') { return $m }
-        if ($sw.ElapsedMilliseconds -ge $DeadlineMs) { return $m }
-        Start-Sleep -Milliseconds $IntervalMs
     }
+    return $m
 }
 
 # True when two AutomationElements are the SAME control. RuntimeId is the reliable identity -
