@@ -316,24 +316,34 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   (`HANDOVER-6.md` §7bb) exists because this exact collision already cost a day once.
 - **TP post-fill manual-move gap.** *(Observational; deferred.)*
 - 🚨 **The `executor.ws` DOWN edge is UNAUDITABLE AFTER THE FACT.**
-  🟡 **CODE LANDED 2026-08-14 — `090d88c` + `f9a9b2d`, report `impl-report-ws-edge-audit.md`. NOT
-  RUNTIME-ACCEPTED, and the DOWN edge is still UNOBSERVED.** `WsEdgeLog.vb` writes an append-only
-  `ws-edges.log` beside the exe on each transition, plus a gray host-log line; the two E6a publish
-  sites are untouched (the diff is 376 insertions, **0 deletions**).
-  ⚠ **Owner action outstanding — acceptance items 2, 3 and 4 of `spec-ws-edge-audit.md` were NOT
-  run.** Item 2 needs the network adapter disabled ~10 s and re-enabled (elevated, and it drops the
-  machine's connectivity), and `tools/launch-app.ps1` refused correctly because the owner's session
-  was already up. **Nothing is proven about a real disconnect until those rows exist** — the
-  procedure is `impl-report-ws-edge-audit.md` §6. Only the pure seam passed (OrderCheck 268/268 →
-  **289/289**, `GATE PASSED`, the nine censuses unchanged at 68 occurrences across 64 lines).
+  ✅✅ **BUILT AND RUNTIME-ACCEPTED 2026-08-14 — `090d88c` + `f9a9b2d`, report
+  `impl-report-ws-edge-audit.md`, evidence `runtime-record-ws-edge-audit-2026-08-14.md`.
+  ALL SIX acceptance items of `spec-ws-edge-audit.md` PASSED, including a REAL disconnect.**
+  `WsEdgeLog.vb` writes an append-only `ws-edges.log` beside the exe on each transition, plus a gray
+  host-log line carrying the identical text; the two E6a publish sites are untouched (376
+  insertions, **0 deletions**). OrderCheck 268/268 → **289/289**, `GATE PASSED`, the nine censuses
+  unchanged at 68 occurrences across 64 lines.
+  🚨 **THE ARTEFACT — the ws transition is now evidenced after the fact for the first time:**
+  `2026-08-13T20:45:39Z | DOWN | WebSocket exception: The remote party closed the WebSocket
+  connection without completing the close handshake.` then `2026-08-13T20:46:02Z | OK | connect`.
+  Four reconnect attempts failed in between and the app recovered on its own.
+  **Also established, and new:** E6a's DOWN publish site **is reached on a real disconnect** — until
+  now that edge was specified but never shown to execute.
+  ⚠ **STILL OPEN, and it is easy to misread this as closed:** the run used the **harness Debug bin
+  with the C1 emitter DISABLED**, so **`executor_feedback.json` publishing `"ws": "DOWN"` was NOT
+  observed** and stays on C1's still-unobserved list below. Closing that needs the **x64** bin
+  rebuilt with `feedback_output_path` set, then a drop —
+  `runtime-record-ws-edge-audit-2026-08-14.md` §5.
   ⚠ Three spec-back findings against `spec-ws-edge-audit.md` are open —
   **`SB1`** (a docs finding: acceptance item 4's stated mechanism, the emitter's disposed latch,
   does not cover a writer outside `ExecutorFeedback`; the guard implemented is `isClosing`),
   **`SB2`** (the "entirely inside `ExecutorFeedback`" route the spec offers is unreachable) and
   **`SB3`** ("beside the exe" is true of `bridge-dispositions.log` only — `crash.log` and
   `AutoTradeLog.txt` resolve against the working directory). Details in
-  `impl-report-ws-edge-audit.md` §5. **`SB1` is the one to watch: it is the finding most likely to
-  be wrong in a way a green gate cannot see.**
+  `impl-report-ws-edge-audit.md` §5. **`SB1` was CONFIRMED by the 2026-08-14 run** — the test bin had
+  the emitter disabled, so the latch the spec relies on was never set, and a guard built on it would
+  have failed acceptance item 4 there. All three want folding back into
+  `spec-ws-edge-audit.md`.
   *(Found 2026-08-13.)* A real
   disconnect happened during the LONDON log-only session — `Server closed connection - scheduling
   reconnect` → `Successfully reconnected`. Per E6a the emitter must have published `ws: "DOWN"` and
@@ -347,8 +357,10 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   (`SignalBridge.vb:701`) is the ENGINE's health from the payload, which drives
   `refused: ws_down`. Different things, same word.
 - **C1 runtime behaviours still unobserved** — `mode: "LIVE"` with an `acted (id …)` disposition ·
-  the `ws` **DOWN** edge *(still unobserved, but it now has an INSTRUMENT — `ws-edges.log`, landed
-  2026-08-14 and itself unverified at runtime; see the ws-edge bullet above)* · a `breaker_tripped`
+  the `ws` **DOWN** edge *(**still unobserved AS A C1 PUBLISH** — the 2026-08-14 run had the emitter
+  disabled. But it is no longer un-evidenceable: `ws-edges.log` is live and runtime-accepted, and the
+  transition itself WAS captured. Rebuild the **x64** bin with `feedback_output_path` set and the
+  next drop closes this —* `runtime-record-ws-edge-audit-2026-08-14.md` §5*)* · a `breaker_tripped`
   flip · a **SHORT** `size_usd` · D1's race. All
   optional, none blocking; all gated on §1.5's enable (and the first on owner ARM/START). Lists:
   `runtime-record-c1-feedback-emitter-2026-08-06.md` §10 + §11.5.

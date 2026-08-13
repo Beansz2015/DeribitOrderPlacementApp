@@ -6,14 +6,27 @@ sites) · this report.
 **Diff:** 376 insertions, **0 deletions** — across `DeribitOrderPlacementApp/WsEdgeLog.vb` (new),
 `DeribitOrderPlacementApp/frmMainPageV2.vb`, `tools/OrderCheck/Program.vb`, `.gitignore`.
 
-> ## 🚨 HEADLINE — the runtime acceptance was NOT run
+> ## ✅ HEADLINE — UPDATED 2026-08-14: the runtime acceptance RAN, and ALL SIX ITEMS PASSED
 >
-> `docs/spec-ws-edge-audit.md` §Acceptance item 2 requires a REAL disconnect, and it says: *"If you
-> cannot provoke a disconnect, say so and stop. Do not claim the acceptance on the pure seam alone."*
+> **Superseded.** This report was first written with items 2, 3 and 4 NOT RUN, because the owner's
+> session was up and the seat does not change network configuration. **The owner then closed their
+> session and provoked a real disconnect.** Full evidence:
+> **`docs/runtime-record-ws-edge-audit-2026-08-14.md`.**
 >
-> **I could not provoke one, so I am saying so.** Acceptance items 2, 3 and 4 are **NOT RUN**. The
-> code is written, gated and committed; it is **not runtime-accepted**. §6 of this report gives the
-> owner the exact procedure. Do not read the passing gate as evidence about a disconnect.
+> ```
+> 2026-08-13T20:35:17Z | OK | connect
+> 2026-08-13T20:45:39Z | DOWN | WebSocket exception: The remote party closed the WebSocket connection without completing the close handshake.
+> 2026-08-13T20:46:02Z | OK | connect
+> ```
+>
+> **`SB1` below was confirmed by the run**, and more sharply than argued: the emitter was DISABLED in
+> the test bin, so the mechanism `docs/spec-ws-edge-audit.md` §Acceptance item 4 relies on was never
+> latched. An implementation that trusted it would have **failed item 4 right there**.
+>
+> ⚠ **What is still NOT closed:** `executor_feedback.json` publishing `"ws": "DOWN"` was **not**
+> observed — the C1 emitter was disabled throughout. See §4 of this report and
+> `docs/runtime-record-ws-edge-audit-2026-08-14.md` §5. **Do not read this as closing C1's
+> still-unobserved list.**
 
 ---
 
@@ -129,11 +142,16 @@ to carry it **does not persist** (`docs/spec-ws-edge-audit.md` §1.3).
 | # | Item | Result |
 |---|---|---|
 | 1 | The pure seam, no app running | ✅ **PASS** — 21 new fixtures, and **proven failable** |
-| 2 | A REAL disconnect, end to end | 🚫 **NOT RUN — could not provoke.** §6 |
-| 3 | No flooding (5 min connected) | 🚫 **NOT RUN** — needs a session. §6 |
-| 4 | Graceful close is not a `DOWN` | 🚫 **NOT RUN** — needs a session. §6 |
+| 2 | A REAL disconnect, end to end | ✅ **PASS 2026-08-14** — two rows, `DOWN` then `OK` |
+| 3 | No flooding (5 min connected) | ✅ **PASS 2026-08-14** — zero rows, file byte-identical |
+| 4 | Graceful close is not a `DOWN` | ✅ **PASS 2026-08-14** — row count unchanged; **`SB1` confirmed** |
 | 5 | Nothing else regressed | ✅ **PASS** — `GATE PASSED`, OrderCheck **289/289**, censuses **unchanged** |
 | 6 | `.gitignore` | ✅ **PASS** |
+
+**Items 2, 3 and 4 ran on 2026-08-14 and are recorded in full — including the artefact, the host-log
+lines and the mechanism caveats — in `docs/runtime-record-ws-edge-audit-2026-08-14.md`.** §3.1 to
+§3.3 below describe only the items that were provable at the time of writing; the runtime record is
+the authority on the other three.
 
 ### 3.1 Item 1 — the pure seam ✅
 
@@ -191,20 +209,22 @@ is listed: an operator reading `.gitignore` should not have to infer it. Verifie
 
 **This section is the important one.** Read it before treating any of this as accepted.
 
-1. **🚨 NO REAL DISCONNECT WAS OBSERVED. Not one row of `ws-edges.log` has ever been written by a
-   running app.** Every claim about runtime behaviour in this report is derived from **reading code**
-   and from **pure fixtures**. The file has never been created outside a code path I reasoned about.
-   *This is precisely the state `docs/spec-ws-edge-audit.md` exists to end, and it is still true of
-   the fix itself.*
-2. **The gray host-log line has never been seen on screen.** `AppendColoredText`'s thread-safety was
-   re-verified by reading it (`frmMainPageV2.vb:5371-5375`) — **not by watching a line appear from
-   the receive thread**.
-3. **The five-minute no-flood test was not run.** Fixture 9 pins the *rule*; it does not prove the
-   *emitter's heartbeat* fails to reach this code, which is a claim about wiring, not logic.
-4. **The graceful-close guard was not exercised.** `isClosing` is set at `frmMainPageV2.vb:6108`,
-   before the token is cancelled and the socket closed, and the reconnect branch already trusts it
-   for the same ordering — but **I did not watch a shutdown produce no row.** This is the single
-   place I would look first if a runtime test surprises someone. See `SB1` in §5.
+> **UPDATED 2026-08-14.** Items 1–4 below were **CLOSED by the runtime run** —
+> `docs/runtime-record-ws-edge-audit-2026-08-14.md`. They are struck through rather than deleted, so
+> the record of what was and was not known at each point survives. **Items 5–8 still stand**, and
+> item 9 is new.
+
+1. ~~**🚨 NO REAL DISCONNECT WAS OBSERVED.**~~ **CLOSED 2026-08-14** — a real drop produced
+   `2026-08-13T20:45:39Z | DOWN | WebSocket exception: …` then `20:46:02Z | OK | connect`.
+2. ~~**The gray host-log line has never been seen on screen.**~~ **CLOSED 2026-08-14** — both lines
+   appeared, **character-identical to their file rows**, emitted from the receive threadpool thread.
+3. ~~**The five-minute no-flood test was not run.**~~ **CLOSED 2026-08-14** — zero rows, file
+   byte-identical. ⚠ But the C1 heartbeat was **not** running (emitter disabled), and that condition
+   of the item was therefore not met — see `docs/runtime-record-ws-edge-audit-2026-08-14.md` §3.2 for
+   why it does not change the result.
+4. ~~**The graceful-close guard was not exercised.**~~ **CLOSED 2026-08-14, and it was the finding of
+   the session** — row count unchanged across a real `FormClosing`, in a bin where the emitter's own
+   latch was never set. `SB1` confirmed. See `docs/runtime-record-ws-edge-audit-2026-08-14.md` §3.3.
 5. **The concurrency is argued, not demonstrated.** Two threads reaching `NoteState` at once is
    handled by a lock I read, not by a race I reproduced. OrderCheck cannot do this and should not
    pretend to (the same limit `docs/impl-report-c1-feedback-emitter.md` records for C1's fixture 9).
@@ -218,7 +238,22 @@ is listed: an operator reading `.gitignore` should not have to infer it. Verifie
    shows up in a real log.
 8. **The owner's x64 bin does not carry this.** `docs/HANDOVER-6.md` §4's bin is a separate build;
    `tools/checks/verify-gate.ps1` is **AnyCPU-only** and does not touch it. The x64 bin needs a
-   rebuild before any of this reaches the owner's session.
+   rebuild before any of this reaches the owner's session. **Still true after 2026-08-14** — the run
+   used the harness Debug bin.
+9. **🚨 NEW, and the one most likely to be misread: `executor_feedback.json` publishing
+   `"ws": "DOWN"` was NOT observed.** The C1 emitter was **disabled** for the whole 2026-08-14
+   session (`Executor feedback: disabled`), so it published nothing. What was proven is that the
+   **transition is now evidenceable** and that **E6a's DOWN call site is reached on a real
+   disconnect**. Those are different claims from "the emitter published DOWN". **The `ws` DOWN edge
+   stays on C1's still-unobserved list** in `docs/HANDOVER-6.md` item 7 and `docs/ROADMAP-2026-08.md`
+   §5. Full statement: `docs/runtime-record-ws-edge-audit-2026-08-14.md` §5.
+10. **Three of the four exit arms have never produced a real row.** The drop took the
+    `WebSocketException` arm. `server closed connection`, `receive cancelled` and
+    `socket no longer open` are unexercised at runtime.
+11. **A failed-reconnect `DOWN` was not suppressed at runtime — it was never offered.** Four reconnect
+    attempts failed on 2026-08-14 and produced no rows, but they failed inside `ConnectAsync` and so
+    reached **neither** call site. The `docs/spec-ws-edge-audit.md` §2.1 ⚠ — the field, not the call
+    site, making "transition" true — is still pinned by **ws-edge fixture 10 only**.
 
 ---
 
@@ -228,6 +263,12 @@ Per `docs/HANDOVER-6.md` §7bb. **These are `SB` — docs findings — not `D` c
 is a bug in shipped code.** They are scoped to the ws-edge audit feature.
 
 ### `SB1` — 🚨 `docs/spec-ws-edge-audit.md` §Acceptance item 4's stated mechanism does not cover this writer
+
+> **✅ CONFIRMED AT RUNTIME 2026-08-14.** Item 4 passed with the guard implemented as `isClosing`.
+> The test bin had the emitter **disabled**, so `ExecutorFeedback._disposed` was **never latched** —
+> a guard built on the spec's stated mechanism would have appended a spurious `DOWN` and **failed
+> item 4 in that exact configuration**. Evidence:
+> `docs/runtime-record-ws-edge-audit-2026-08-14.md` §3.3.
 
 **The requirement is right; the reason given for it is not transferable.** The spec says shutdown
 must not append a spurious `DOWN` *because* "the final write latches the emitter disposed before the
@@ -283,9 +324,18 @@ trail. Copying either of the other two would have been "house precedent" and wro
 
 ---
 
-## 6. 🚨 For the owner — running acceptance items 2, 3 and 4
+## 6. ✅ RESOLVED 2026-08-14 — how items 2, 3 and 4 actually got run
 
-**Why I did not run them. Two separate blocks, both hard:**
+> **This section is history now.** The owner closed their session and provoked the disconnect
+> themselves; the seat launched, observed and closed. Results and evidence:
+> **`docs/runtime-record-ws-edge-audit-2026-08-14.md`.** The split held — the seat did not change
+> network configuration, and the owner did not have to read a log.
+>
+> **The one thing §6.1 below still governs** is the emitter-enabled re-run described in
+> `docs/runtime-record-ws-edge-audit-2026-08-14.md` §5, which needs the **x64** bin rebuilt and
+> `feedback_output_path` set. That is still outstanding.
+
+**Why the items were blocked when this report was first written. Two separate blocks:**
 
 1. **`tools/launch-app.ps1` REFUSED, correctly.** The owner's session — *"Deribit Order Placement App
    V2.2 — TESTNET"*, PID 25800 — was already running, and the harness never drives a pre-existing

@@ -138,6 +138,12 @@ inputs must be set **together**, because they compose.
    **Still unobserved:** `mode: "LIVE"` + an `acted (id …)` disposition (needs ARM/START), the `ws`
    DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and D1's race. §10 + §11.5 are the
    current what-is-NOT-proven list. *(D1 is done — see 6b. Nothing gates acceptance 3 but ARM/START.)*
+   ⚠ **The `ws` DOWN edge entry needs care after 2026-08-14, because it is half closed.** The ws-edge
+   audit trail shipped and is runtime-accepted (`runtime-record-ws-edge-audit-2026-08-14.md`), and a
+   REAL disconnect was captured — so **E6a's DOWN publish site is now proven to execute**, which it
+   was not before. But that run used the harness bin with the **emitter DISABLED**, so
+   **`executor_feedback.json` carrying `"ws": "DOWN"` is still unobserved** and this entry stays
+   open. Two claims, one word: do not let "the DOWN edge was observed" collapse them.
 7b. **✅ C1 SPEC-BACK — ALL FIVE UPHELD AND FOLDED IN 2026-08-06**
    (`spec-back-c1-acceptance-2026-08-06.md`). **None was a code defect.** ⚠ **Numbered SB1–SB5, not
    D1–D5** — `D1` was already taken twice in live docs (the C1 review's write-ordering defect, and
