@@ -24,7 +24,30 @@ the only pusher.
 2. **Size ladder** at FIXED size: 10 → 20–30 → normal. *(open)*
 3. **AWS London migration** — `production-cutover-checklist.md` §9; the key choreography kills the
    two-executor window. *(open)*
-4. ✅ **N2 LOG-ONLY DRY RUN PASSED 2026-08-10 — the formula is verified against a real payload.**
+4. ✅✅ **N2 LOG-ONLY FULLY VERIFIED 2026-08-13 — the SESSION MULTIPLIER is now observed under N2,
+   which was the last unproven link in the sizing chain.**
+   `[BRIDGE] signal #10 SHORT (MEDIUM/SHORT) -> would-act: SHORT @ 63611.50, stop 63669.48,
+   target 63539.50, size 50`. Recomputed at the coordinator seat: dist = 57.98 ⇒ base **100** ⇒
+   **× LONDON 0.5 = 50**. Exact match, and both values clear the min-10 clamp so the divergence is
+   genuinely visible — the `HANDOVER-6.md` §5.9 blind spot does **not** bite at these sizes.
+   🚨 **THE MULTIPLIER SCALES THE RISK, NOT JUST THE SIZE.** That trade risks **$0.046**, not the
+   configured $0.10, because the size is halved while the stop distance is not.
+   **`risk_per_trade_usd` is the risk BEFORE the session multiplier; effective risk = risk × mult.**
+   LONDON delivers half, ASIA three-quarters, NY the full amount.
+   ✅ **The session policy REFUSED for the first time in the owner's bin** —
+   `refused: policy(LONDON/context)` on signals #7, #8, #33–#36, all `SHORT (MEDIUM/SHORT)`.
+   LONDON is `MEDIUM | CONFIRMED | 0.5`, so the tier passed and the **context** gate refused. #10
+   passed both, which is why it is the only would-act of the session.
+   ✅ **`bridge-state.json` now EXISTS in the owner's x64 bin** (`last_acted_signal_id: 10`),
+   created by this run — log-only advances the watermark, exactly as contract §4.3 specifies. Two
+   consequences: the next `backup-orderapp.ps1` will be **4/4**, and the deploy hazard is now live —
+   losing that file would let signal ≤10 re-act.
+   ✅ **An engine RESTART was handled correctly.** Signal ids reset to #1 while the app's restored
+   watermark still read `52 (engine e50f3db5…)`. Verified safe: the engine minted a new
+   `instance_id` (`0d268b88…`), and de-dupe identity is the **pair**, so nothing was falsely
+   suppressed. Four distinct engine instance ids now appear in the disposition log.
+   *(Earlier NY run below.)*
+   ✅ **N2 LOG-ONLY DRY RUN PASSED 2026-08-10 — the formula is verified against a real payload.**
    `[BRIDGE] signal #52 SHORT (MEDIUM/SHORT) -> would-act: SHORT @ 63894.00, stop 63929.70,
    target 63838.00, size 170`. Recomputed independently at the coordinator seat:
    dist = 35.70 · `0.1 × 63894 ÷ 35.70 = 178.97` · `floor(17.897) × 10` = **170**. Exact match.
@@ -248,6 +271,18 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   fixed long ago). Scope the ID before acting on a grep hit — the `E`/`D`/`SB` convention
   (`HANDOVER-6.md` §7bb) exists because this exact collision already cost a day once.
 - **TP post-fill manual-move gap.** *(Observational; deferred.)*
+- 🚨 **The `executor.ws` DOWN edge is UNAUDITABLE AFTER THE FACT.** *(Found 2026-08-13.)* A real
+  disconnect happened during the LONDON log-only session — `Server closed connection - scheduling
+  reconnect` → `Successfully reconnected`. Per E6a the emitter must have published `ws: "DOWN"` and
+  then `"OK"`, **but nothing can prove it**: `ws` is written only into `executor_feedback.json`
+  (`ExecutorFeedback.vb:322`), that file is overwritten on every publish, and **no host-log or
+  disposition line records the transition** (`frmMainPageV2.vb:1516` is the publish site, not a
+  log). So the one edge that was hardest to provoke happened, and left no evidence.
+  **Options:** one gray host-log line at each `ws` transition, or an append-only edge log. Either
+  makes E6a's DOWN edge verifiable instead of merely specified. Tools/app-side, needs a spec.
+  ⚠ **Do not confuse the two `ws` fields:** `executor.ws` is OUR socket to Deribit; `p.WsHealth`
+  (`SignalBridge.vb:701`) is the ENGINE's health from the payload, which drives
+  `refused: ws_down`. Different things, same word.
 - **C1 runtime behaviours still unobserved** — `mode: "LIVE"` with an `acted (id …)` disposition ·
   the `ws` **DOWN** edge · a `breaker_tripped` flip · a **SHORT** `size_usd` · D1's race. All
   optional, none blocking; all gated on §1.5's enable (and the first on owner ARM/START). Lists:
