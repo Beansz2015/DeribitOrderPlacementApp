@@ -1149,6 +1149,125 @@ Module Program
         Check("C1 fixture 9: ...and also on a live emitter, so (e) is unconditional",
               ExecutorFeedback.ShouldWrite(isFinal:=True, disposed:=False))
 
+        ' ---- ws-edge audit: the pure seam (docs/spec-ws-edge-audit.md, acceptance 1) ----
+        '
+        ' THIS IS THE ONLY ACCEPTANCE THAT DOES NOT NEED A DISCONNECT, so it carries the logic. The
+        ' file write and the gray host-log line are NOT exercised here: they need an app, and the
+        ' spec's own acceptance 2 covers them with a real network drop. What is pinned here is the
+        ' rule that decides whether a row is written at all.
+        Dim wsOk As String = WsEdgeLog.StateWire(wsConnected:=True)
+        Dim wsDown As String = WsEdgeLog.StateWire(wsConnected:=False)
+
+        ' The tokens are the EMITTER's, not a re-typing of them. If these ever diverge, this log stops
+        ' being evidence about executor.ws and becomes evidence about something else with the same
+        ' name - E2's failure mode exactly.
+        Check("ws-edge fixture 1: the wire tokens ARE ExecutorFeedback's own OK / DOWN",
+              wsOk = ExecutorFeedback.WsOk AndAlso wsDown = ExecutorFeedback.WsDown AndAlso
+              wsOk = "OK" AndAlso wsDown = "DOWN")
+
+        ' The five cases the spec names, in the order it names them.
+        Check("ws-edge fixture 2: the FIRST-EVER call has no prior state and IS logged (session opening state)",
+              WsEdgeLog.ShouldLogWsEdge("", wsOk) AndAlso WsEdgeLog.ShouldLogWsEdge(Nothing, wsDown))
+        Check("ws-edge fixture 3: OK -> OK is SUPPRESSED (this is the no-flood rule)",
+              Not WsEdgeLog.ShouldLogWsEdge(wsOk, wsOk))
+        Check("ws-edge fixture 4: OK -> DOWN is LOGGED (the edge the spec exists for)",
+              WsEdgeLog.ShouldLogWsEdge(wsOk, wsDown))
+        Check("ws-edge fixture 5: DOWN -> DOWN is SUPPRESSED (a failed reconnect re-enters the loop exit)",
+              Not WsEdgeLog.ShouldLogWsEdge(wsDown, wsDown))
+        Check("ws-edge fixture 6: DOWN -> OK is LOGGED (the recovery half of the transition)",
+              WsEdgeLog.ShouldLogWsEdge(wsDown, wsOk))
+
+        ' An unknown CURRENT state is never a row: a blank row is worse than no row, because it would
+        ' read as an edge in an audit trail whose whole value is that every row is one.
+        Check("ws-edge fixture 7: an unknown current state is never logged, whatever preceded it",
+              Not WsEdgeLog.ShouldLogWsEdge("", "") AndAlso
+              Not WsEdgeLog.ShouldLogWsEdge(wsOk, Nothing) AndAlso
+              Not WsEdgeLog.ShouldLogWsEdge(wsDown, ""))
+
+        ' Comparison is ORDINAL. Nothing should ever produce "ok", but a case-insensitive compare here
+        ' would silently accept a token that the feedback file would not, and the two artefacts must
+        ' agree exactly for the join to mean anything.
+        Check("ws-edge fixture 8: the comparison is ordinal - a differently-cased token is a change, not a match",
+              WsEdgeLog.ShouldLogWsEdge("ok", wsOk))
+
+        ' ---- the no-flood proof, in pure form (spec acceptance 3, without the five-minute wait) ----
+        ' Drive a realistic heartbeat sequence through the rule while keeping the field the way the
+        ' writer keeps it. 30 publishes of an unchanged state must decide to log ZERO times; the same
+        ' sequence with one disconnect and one recovery must decide to log EXACTLY twice.
+        Dim decisions As Integer = 0
+        Dim last As String = wsOk                     ' the connect row has already been written
+        For i As Integer = 1 To 30
+            If WsEdgeLog.ShouldLogWsEdge(last, wsOk) Then
+                decisions += 1
+                last = wsOk
+            End If
+        Next
+        Check("ws-edge fixture 9: 30 heartbeat republishes of an unchanged state decide to log ZERO rows",
+              decisions = 0, $"got {decisions}")
+
+        decisions = 0
+        Dim rows As New List(Of String)
+        Dim at As New DateTime(2026, 8, 13, 13, 22, 41, DateTimeKind.Utc)
+        ' connected x5, then the drop, then five failed reconnects that re-enter the loop exit, then
+        ' recovery, then connected x5. Exactly two rows, DOWN then OK.
+        Dim sequence As String() = {wsOk, wsOk, wsOk, wsOk, wsOk,
+                                    wsDown, wsDown, wsDown, wsDown, wsDown, wsDown,
+                                    wsOk, wsOk, wsOk, wsOk, wsOk}
+        last = wsOk
+        For i As Integer = 0 To sequence.Length - 1
+            If WsEdgeLog.ShouldLogWsEdge(last, sequence(i)) Then
+                decisions += 1
+                last = sequence(i)
+                rows.Add(WsEdgeLog.FormatRow(at.AddSeconds(i), sequence(i), "fixture"))
+            End If
+        Next
+        Check("ws-edge fixture 10: one disconnect and one recovery decide to log EXACTLY two rows, DOWN then OK",
+              decisions = 2 AndAlso rows.Count = 2 AndAlso
+              rows(0) = "2026-08-13T13:22:46Z | DOWN | fixture" AndAlso
+              rows(1) = "2026-08-13T13:22:52Z | OK | fixture",
+              $"got [{String.Join("  //  ", rows)}]")
+
+        ' ---- the row format ----
+        Check("ws-edge fixture 11: a row is utc | state | reason, ISO-8601 with a literal Z",
+              WsEdgeLog.FormatRow(at, wsDown, "server closed connection") =
+              "2026-08-13T13:22:41Z | DOWN | server closed connection")
+
+        ' Same reason as fixture 1 above: the 8956baa culture bug. This app runs on a d/M/yyyy machine
+        ' and an audit row that sorts differently per machine is not an audit row.
+        Dim savedWs As CultureInfo = CultureInfo.CurrentCulture
+        Try
+            For Each cultureName As String In {"en-MY", "de-DE", "en-GB", "en-US"}
+                CultureInfo.CurrentCulture = New CultureInfo(cultureName)
+                Check($"ws-edge fixture 12: the row is invariant-culture under {cultureName}",
+                      WsEdgeLog.FormatRow(at, wsDown, "x") = "2026-08-13T13:22:41Z | DOWN | x")
+            Next
+        Finally
+            CultureInfo.CurrentCulture = savedWs
+        End Try
+
+        ' A local DateTime must still render as UTC - the writer stamps DateTime.UtcNow, but nothing
+        ' in the signature stops a caller passing a local one, and a row in local time would silently
+        ' misdate the incident by the machine's offset.
+        Check("ws-edge fixture 13: a Local timestamp is converted to UTC, never rendered verbatim",
+              WsEdgeLog.FormatRow(at.ToLocalTime(), wsOk, "x") = "2026-08-13T13:22:41Z | OK | x")
+
+        ' ONE ROW PER EDGE is this file's whole contract, and the reason field is the one thing that
+        ' can break it: it carries exception messages, and those can contain line breaks.
+        ' Each control character becomes ONE space, so a CRLF becomes TWO - stated rather than
+        ' counted, because the first version of this fixture asserted one and failed.
+        Check("ws-edge fixture 14a: a bare LF in the reason becomes one space",
+              WsEdgeLog.FlattenReason("a" & vbLf & "b") = "a b")
+        Check("ws-edge fixture 14b: a CRLF becomes two spaces - one per control character",
+              WsEdgeLog.FlattenReason("a" & Environment.NewLine & "b") = "a  b")
+        Check("ws-edge fixture 14c: a trailing newline is trimmed, not left as trailing whitespace",
+              WsEdgeLog.FlattenReason("boom" & Environment.NewLine) = "boom")
+        Check("ws-edge fixture 14d: ...so a multi-line exception message can never split into two rows",
+              Not WsEdgeLog.FormatRow(at, wsDown, "receive error:" & Environment.NewLine & "  broken pipe").Contains(vbLf) AndAlso
+              Not WsEdgeLog.FormatRow(at, wsDown, "receive error:" & Environment.NewLine & "  broken pipe").Contains(vbCr))
+        Check("ws-edge fixture 15: a missing reason yields an empty third field, not a missing one",
+              WsEdgeLog.FormatRow(at, wsDown, Nothing) = "2026-08-13T13:22:41Z | DOWN | " AndAlso
+              WsEdgeLog.FormatRow(at, wsDown, Nothing).Split({WsEdgeLog.FieldSeparator}, StringSplitOptions.None).Length = 3)
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then
