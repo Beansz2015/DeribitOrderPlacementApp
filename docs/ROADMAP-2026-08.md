@@ -21,7 +21,21 @@ the only pusher.
 
 1. ~~Phase 3: enable the session policy~~ — **DONE**, verified `session_policy.enabled = True`.
    ⚠ NY is unconfigured and therefore *unrestricted at full size* — see `HANDOVER-6.md` §2.3.
-2. **Size ladder** at FIXED size: 10 → 20–30 → normal. *(open)*
+2. **Size ladder** at FIXED size: 10 → 20–30 → normal. *(open)* — **and it is NOT superseded by N2.
+   It is SCOPED by it.** *(Corrected 2026-08-13 at the owner's challenge; the coordinator had said
+   N2 "replaced the ladder", which is too broad and wrong for two of the three sizing paths.)*
+   Verified in code — the `Risk-size` checkbox is **bridge-only**:
+
+   | Path | Size source | Affected by `Risk-size`? |
+   |---|---|---|
+   | Manual order buttons | the **Amount box** (`orderAmountVal`, `frmMainPageV2.vb:517`) | **No — never.** The ladder always governs here. |
+   | The manual **SIZE** button | computes a risk size *into* the Amount box on demand (`ApplyRiskBasedSize`, `frmMainPageV2.vb:287`) | **No** — a separate, deliberate action |
+   | **Bridge** trades | Amount box when unticked · risk-derived when ticked (`SignalBridge.vb` act site) | **Yes — this is the only path it touches** |
+
+   `frmMainPageV2.vb` contains **no** read of `RiskSizeBridgeTrades` other than the property that
+   hands it to the bridge. **So: untick `Risk-size` and the ladder is fully in force again,
+   everywhere.** With it ticked, the ladder still governs every manual trade, and
+   `risk_per_trade_usd` becomes the rung for bridge trades only.
 3. **AWS London migration** — `production-cutover-checklist.md` §9; the key choreography kills the
    two-executor window. *(open)*
 4. ✅✅ **N2 LOG-ONLY FULLY VERIFIED 2026-08-13 — the SESSION MULTIPLIER is now observed under N2,
@@ -271,7 +285,12 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   fixed long ago). Scope the ID before acting on a grep hit — the `E`/`D`/`SB` convention
   (`HANDOVER-6.md` §7bb) exists because this exact collision already cost a day once.
 - **TP post-fill manual-move gap.** *(Observational; deferred.)*
-- 🚨 **The `executor.ws` DOWN edge is UNAUDITABLE AFTER THE FACT.** *(Found 2026-08-13.)* A real
+- 🚨 **The `executor.ws` DOWN edge is UNAUDITABLE AFTER THE FACT.**
+  🟢 **SPEC WRITTEN 2026-08-13 — `spec-ws-edge-audit.md`. Ready for an implementer seat, which the
+  owner launches. Recommended: Opus, HIGH, fresh conversation** (the DOWN site is in the receive
+  path, on a threadpool thread) — **but the spec asks the seat to first check whether the whole
+  change fits inside `ExecutorFeedback.vb`, which would drop it to Sonnet/medium.**
+  *(Found 2026-08-13.)* A real
   disconnect happened during the LONDON log-only session — `Server closed connection - scheduling
   reconnect` → `Successfully reconnected`. Per E6a the emitter must have published `ws: "DOWN"` and
   then `"OK"`, **but nothing can prove it**: `ws` is written only into `executor_feedback.json`
