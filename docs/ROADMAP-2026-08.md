@@ -286,10 +286,24 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   (`HANDOVER-6.md` §7bb) exists because this exact collision already cost a day once.
 - **TP post-fill manual-move gap.** *(Observational; deferred.)*
 - 🚨 **The `executor.ws` DOWN edge is UNAUDITABLE AFTER THE FACT.**
-  🟢 **SPEC WRITTEN 2026-08-13 — `spec-ws-edge-audit.md`. Ready for an implementer seat, which the
-  owner launches. Recommended: Opus, HIGH, fresh conversation** (the DOWN site is in the receive
-  path, on a threadpool thread) — **but the spec asks the seat to first check whether the whole
-  change fits inside `ExecutorFeedback.vb`, which would drop it to Sonnet/medium.**
+  🟡 **CODE LANDED 2026-08-14 — `090d88c` + `f9a9b2d`, report `impl-report-ws-edge-audit.md`. NOT
+  RUNTIME-ACCEPTED, and the DOWN edge is still UNOBSERVED.** `WsEdgeLog.vb` writes an append-only
+  `ws-edges.log` beside the exe on each transition, plus a gray host-log line; the two E6a publish
+  sites are untouched (the diff is 376 insertions, **0 deletions**).
+  ⚠ **Owner action outstanding — acceptance items 2, 3 and 4 of `spec-ws-edge-audit.md` were NOT
+  run.** Item 2 needs the network adapter disabled ~10 s and re-enabled (elevated, and it drops the
+  machine's connectivity), and `tools/launch-app.ps1` refused correctly because the owner's session
+  was already up. **Nothing is proven about a real disconnect until those rows exist** — the
+  procedure is `impl-report-ws-edge-audit.md` §6. Only the pure seam passed (OrderCheck 268/268 →
+  **289/289**, `GATE PASSED`, the nine censuses unchanged at 68 occurrences across 64 lines).
+  ⚠ Three spec-back findings against `spec-ws-edge-audit.md` are open —
+  **`SB1`** (a docs finding: acceptance item 4's stated mechanism, the emitter's disposed latch,
+  does not cover a writer outside `ExecutorFeedback`; the guard implemented is `isClosing`),
+  **`SB2`** (the "entirely inside `ExecutorFeedback`" route the spec offers is unreachable) and
+  **`SB3`** ("beside the exe" is true of `bridge-dispositions.log` only — `crash.log` and
+  `AutoTradeLog.txt` resolve against the working directory). Details in
+  `impl-report-ws-edge-audit.md` §5. **`SB1` is the one to watch: it is the finding most likely to
+  be wrong in a way a green gate cannot see.**
   *(Found 2026-08-13.)* A real
   disconnect happened during the LONDON log-only session — `Server closed connection - scheduling
   reconnect` → `Successfully reconnected`. Per E6a the emitter must have published `ws: "DOWN"` and
@@ -303,7 +317,9 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   (`SignalBridge.vb:701`) is the ENGINE's health from the payload, which drives
   `refused: ws_down`. Different things, same word.
 - **C1 runtime behaviours still unobserved** — `mode: "LIVE"` with an `acted (id …)` disposition ·
-  the `ws` **DOWN** edge · a `breaker_tripped` flip · a **SHORT** `size_usd` · D1's race. All
+  the `ws` **DOWN** edge *(still unobserved, but it now has an INSTRUMENT — `ws-edges.log`, landed
+  2026-08-14 and itself unverified at runtime; see the ws-edge bullet above)* · a `breaker_tripped`
+  flip · a **SHORT** `size_usd` · D1's race. All
   optional, none blocking; all gated on §1.5's enable (and the first on owner ARM/START). Lists:
   `runtime-record-c1-feedback-emitter-2026-08-06.md` §10 + §11.5.
 - ~~Harness `Test-ElementMatch` exact-id match~~ — **CLOSED 2026-08-06**, `188bdab` / `3611d49`,
