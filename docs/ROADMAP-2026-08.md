@@ -254,6 +254,17 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   unique JSON-RPC ids per request class (old audit F15), which any response-matching work needs
   first. *(Recovered this pass — it lived only in `CODE_AUDIT_FABLE5.md` §E, which is not in the
   read path.)*
+- **`SignalBridge.vb:154`'s cooloff-anchor comment is wrong.** *(Found 2026-08-13.)* It reads
+  *"cooloff anchor (acted / would-act)"*. `_lastActionUtc` is assigned in exactly one place —
+  `NotifyPositionClosed()` (`:1169`) — so it anchors on **position close** and on neither of the two
+  things the comment names. The behaviour is correct and deliberate; only the comment lies. One-line
+  fix, but it is in the bridge path so it should ride along with the next spec that touches
+  `SignalBridge.vb` rather than take its own seat. Full consequence: `HANDOVER-6.md` §5 item 13.
+- **`refused: not_connected` has never been exercised at runtime.** *(Noted 2026-08-13.)* It exists
+  and is correctly first in gate 4.6 (`SignalBridge.vb:742-743`). During the 2026-08-13 502 outage —
+  ten failed reconnects — every payload that arrived was `NO TRADE`/`WEAK` and refused earlier in
+  the chain at `direction`/`tier`, so the gate was never reached. **Correct by inspection,
+  unobserved in practice.** It would take an actionable signal arriving mid-outage to prove it.
 - **`TradeRecord.SlippageATR` / `MaxSlippageExceeded` are declared and never written.** *(Verified:
   `TradeRecord.vb:18-19`, zero writers and zero readers at HEAD — the live slippage machinery is the
   unrelated `maxSlippageATRmult`/`chkMaxSlippageATR` chain.)* Either populate them or delete them;

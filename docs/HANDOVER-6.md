@@ -355,7 +355,26 @@ CHECKBOX** — reading `txtSessionPolicy` alone tells you nothing about whether 
 11. **The real `bridge-dispositions.log` is in the x64 bin** (the owner's VS profile). The AnyCPU bin
     has the harness's own copy — accidental but useful isolation.
 12. Worktree gate runs need SHORT paths (`SQLite.Interop.dll` 0x800700CE).
-13. 🚨 **SCREENSHOTS: capture the APP, never the desktop.** Owner ruling 2026-08-07, after a seat
+13. 🚨 **A RUN OF `would-act` LINES IN LOG-ONLY IS NOT A RUN OF TRADES. Cooloff anchors on position
+    CLOSE, and log-only never opens a position, so the cooloff gate is STRUCTURALLY UNREACHABLE
+    there.** Found 2026-08-13 when a NY log-only session produced **ten consecutive would-acts**
+    (#207–#216) against a 5-minute cooloff default.
+    - `_lastActionUtc` — the cooloff anchor — is assigned in **exactly one place**:
+      `NotifyPositionClosed()` (`SignalBridge.vb:1169`). It is **never** set on `acted` or on
+      `would-act`.
+    - So in log-only it stays `DateTime.MinValue`, and the gate at `SignalBridge.vb:750` can never
+      fire. Every qualifying signal produces a `would-act`.
+    - **In LIVE the same stream behaves completely differently:** the first signal opens a position,
+      every later one refuses at **`refused: not_flat`** (`:746`) until it closes, and only then does
+      the cooloff start. **Ten would-acts in log-only = ONE trade in Live.**
+    - ⚠ **The field's own comment is WRONG** — `SignalBridge.vb:154` reads *"cooloff anchor (acted /
+      would-act)"*. It anchors on neither. Backlogged; do not trust it while it stands.
+    - ⚠ `HANDOVER-3.md:45` (superseded) says *"log-only advances watermark+cooloff"*. **Half right:**
+      the **watermark** does advance in log-only — proven, `bridge-state.json` took `10` from a
+      would-act — but the **cooloff cannot**. Do not carry that phrase forward intact.
+    - **Reading rule: to estimate Live activity from a log-only soak, count would-act CLUSTERS, not
+      would-act LINES.**
+14. 🚨 **SCREENSHOTS: capture the APP, never the desktop.** Owner ruling 2026-08-07, after a seat
     took a desktop-wide capture while debugging and caught unrelated sensitive content on the
     owner's screen. The seat deleted it and disclosed it, which is the right response — **but the
     rule now exists so the judgement call does not have to be made again.**
