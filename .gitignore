@@ -370,6 +370,11 @@ bridge.json
 bridge-state.json
 bridge-dispositions.log
 
+# ws DOWN/OK audit trail (beside the exe; docs/spec-ws-edge-audit.md). Operational output, never
+# tracked. Already covered by the *.log rule above and listed explicitly for the same reason
+# bridge-dispositions.log is: an operator reading this file should not have to infer it.
+ws-edges.log
+
 # UI-test-harness local config (beside the exe; ship the .example copy instead) and
 # harness working artifacts (PID files, screenshot markers/outputs — delete after use).
 harness.json

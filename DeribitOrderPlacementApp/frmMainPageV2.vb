@@ -776,6 +776,44 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+    ' ===== ws DOWN/OK AUDIT TRAIL (docs/spec-ws-edge-audit.md) =====
+    '
+    ' The companion to PublishExecutorFeedback above, and shaped like it for the same reason: it sits
+    ' beside the connect path and INSIDE the receive path, so every call site is a plain one-liner
+    ' with no wrapper, no Await and no throw.
+    '
+    ' WHAT IT IS FOR. PublishExecutorFeedback OVERWRITES executor_feedback.json, so the ws value it
+    ' carries is gone within 10 s of the next heartbeat. This makes each TRANSITION durable. The two
+    ' are additive and independent: this never gates, wraps or reorders the publish beside it.
+    '
+    ' TWO READERS, ONE DECISION (spec section 2.2). WsEdgeLog.NoteState owns the transition rule and
+    ' writes the append-only file - the audit trail, and the actual point. The gray host-log line is
+    ' emitted here FROM THE ROW IT RETURNS, so the screen and the file can never disagree. The gray
+    ' line alone would not do: txtLogs is a RichTextBox and does not persist (spec section 1.3).
+    '
+    ' THREADING. The DOWN call site is on the receive threadpool thread. NoteState touches no
+    ' control. AppendColoredText is safe from that thread - VERIFIED, not assumed: it marshals via
+    ' Me.BeginInvoke and drops the line when the handle is not created or the form is disposed
+    ' (see AppendColoredText's guard). Do not hand-roll an Invoke here.
+    '
+    ' 🚨 isClosing SUPPRESSES THE EDGE, and this is acceptance 4. A graceful close cancels the token
+    ' and closes the socket, so the receive loop exits with IsWebSocketConnected False - a DOWN that
+    ' is an artefact of shutdown, not a disconnect. The C1 emitter is immune to this by a different
+    ' mechanism (FormClosing latches it disposed before the socket closes, so its own publish at the
+    ' loop exit is a no-op), and THAT LATCH DOES NOT COVER THIS WRITER, which is outside
+    ' ExecutorFeedback and deliberately runs whether or not the emitter is configured. So the guard
+    ' is made here, on the form's own shutdown flag - the same flag the reconnect branch trusts.
+    Friend Sub LogWsEdge(reason As String)
+        If isClosing Then Return
+        Try
+            Dim row As String = WsEdgeLog.NoteState(IsWebSocketConnected, reason, DateTime.UtcNow)
+            If row Is Nothing Then Return   ' not a transition - the heartbeat case, and the common one
+            AppendColoredText(txtLogs, "ws edge: " & row, Color.Gray)
+        Catch
+            ' Fail-silent: telemetry must never be able to hurt the trading path.
+        End Try
+    End Sub
+
     ' The SL stop-limit execution offset (mirrors txtStopLoss). The bridge derives its manualSL
     ' (the LIMIT leg) one offset beyond the engine's stop so the TRIGGER lands exactly on it.
     Public ReadOnly Property StopLimitOffset As Decimal
@@ -1425,6 +1463,14 @@ Public Class frmMainPageV2
         ' because (d) republishes rather than re-reads.
         PublishExecutorFeedback()
 
+        ' The AUDIT half of that same OK edge (docs/spec-ws-edge-audit.md). Added BESIDE the publish
+        ' above - never moving, wrapping or conditioning it. The publish tells the ENGINE the current
+        ' state and is overwritten; this records that the state CHANGED, and is not.
+        ' Reached on first connect and on every reconnect alike, which is correct: WsEdgeLog decides
+        ' by comparing against the last state LOGGED, so a reconnect after a DOWN writes the OK row
+        ' and a redundant re-entry writes nothing.
+        LogWsEdge("connect")
+
         ' Start background tasks - use proper variable names
         Dim authTask = Task.Run(AddressOf MonitorAuthentication) ' Fire and forget
         Dim receiveTask = Task.Run(Function() ReceiveWebSocketMessagesAsync()) ' Fire and forget
@@ -1450,6 +1496,14 @@ Public Class frmMainPageV2
         Dim reconnectNeeded As Boolean = False
         Dim sb As New StringBuilder()
 
+        ' The ws-edge audit trail's reason column (docs/spec-ws-edge-audit.md section 2.2). A plain
+        ' local string, set in each exit arm below and read once at the loop exit - no control flow
+        ' depends on it. The default covers the fourth way out: the While condition itself going
+        ' non-Open, which takes no arm at all.
+        ' It is worth carrying because "why did the socket drop" is most of what an audit of a
+        ' disconnect is for, and the host log that used to carry it does not persist.
+        Dim exitReason As String = "socket no longer open"
+
         While webSocketClient.State = WebSocketState.Open
             Try
                 Dim result = Await webSocketClient.ReceiveAsync(
@@ -1461,6 +1515,7 @@ Public Class frmMainPageV2
                     ' isClosing (checked below) still suppresses this during user-initiated shutdown.
                     AppendColoredText(txtLogs, "Server closed connection - scheduling reconnect", Color.Yellow)
                     reconnectNeeded = True
+                    exitReason = "server closed connection"
                     Exit While
                 End If
 
@@ -1499,16 +1554,19 @@ Public Class frmMainPageV2
             Catch ex As WebSocketException
                 AppendColoredText(txtLogs, $"WebSocket exception: {ex.Message}", Color.Red)
                 reconnectNeeded = True
+                exitReason = $"WebSocket exception: {ex.Message}"
                 Exit While
 
             Catch ex As OperationCanceledException
                 ' Normal during shutdown
                 AppendColoredText(txtLogs, "Receive operation cancelled", Color.Gray)
+                exitReason = "receive cancelled"
                 Exit While
 
             Catch ex As Exception
                 AppendColoredText(txtLogs, $"Receive error: {ex.Message}", Color.Red)
                 reconnectNeeded = True
+                exitReason = $"receive error: {ex.Message}"
                 Exit While
             End Try
         End While
@@ -1521,6 +1579,16 @@ Public Class frmMainPageV2
         ' write (trigger e) and latches the emitter disposed BEFORE it closes the socket, so this
         ' cannot overwrite that final snapshot with a DOWN.
         PublishExecutorFeedback()
+
+        ' The AUDIT half of that same DOWN edge (docs/spec-ws-edge-audit.md). BESIDE the publish
+        ' above, never around it: the publish is E6a as ruled and runtime-accepted, and this changes
+        ' nothing about when or whether it fires.
+        ' This runs on the receive THREADPOOL thread. LogWsEdge touches no control directly, marshals
+        ' its host-log line, and swallows everything - telemetry may never be the reason this loop
+        ' dies. It also suppresses the edge while isClosing, so a graceful close does not record a
+        ' DOWN that is really a shutdown; the emitter's disposed latch cited above does not cover
+        ' this writer, so that guard is made in LogWsEdge itself.
+        LogWsEdge(exitReason)
 
         ' Only trigger reconnect if we detected a problem
 

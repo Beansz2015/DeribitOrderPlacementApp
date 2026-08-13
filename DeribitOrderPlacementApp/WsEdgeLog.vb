@@ -109,4 +109,76 @@ Friend NotInheritable Class WsEdgeLog
         Return If(reason, "").Replace(vbCr, " ").Replace(vbLf, " ").Trim()
     End Function
 
+    ' ================================ the writer ================================
+
+    Private Shared ReadOnly _gate As New Object()
+
+    ' "" = nothing logged yet in this process. This is THE state the transition rule turns on, and it
+    ' is per-process by design: a restart is a new session and its opening ws state is worth a row.
+    Private Shared _lastLogged As String = ""
+
+    ''' <summary>
+    ''' Beside the exe, exactly like bridge-dispositions.log (SignalBridge.DispositionLogPath).
+    ''' AppContext.BaseDirectory, NOT a bare relative name: crash.log and AutoTradeLog.txt resolve
+    ''' against the working directory, which is not reliably the bin, and an audit trail that lands
+    ''' somewhere else depending on how the app was launched is not an audit trail.
+    ''' </summary>
+    Friend Shared ReadOnly Property LogPath As String
+        Get
+            Return IO.Path.Combine(AppContext.BaseDirectory, FileName)
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Record a ws state if - and only if - it differs from the last one logged. Returns the row
+    ''' that was written, or Nothing when this was not a transition, so the caller can put the SAME
+    ''' row on the host log without re-deciding anything and the two artefacts cannot disagree.
+    '''
+    ''' SAFE FROM ANY THREAD, and the DOWN call site is on the receive threadpool thread. It touches
+    ''' no WinForms control - that rule is absolute in this app and breaking it once produced the
+    ''' edit-flood storm (docs/spec-cross-thread-fix.md). The gray line is the caller's job, through
+    ''' AppendColoredText, which marshals.
+    '''
+    ''' 🚨 IT MUST NEVER THROW INTO THE RECEIVE LOOP (spec section 2.4). The append has its own Try
+    ''' and swallows, exactly as ExecutorFeedback.WriteAtomic and RemoteNotifier.Post do, and the
+    ''' whole body has one more. TELEMETRY MUST NEVER BE THE REASON THE RECEIVE LOOP DIES: that would
+    ''' convert an observability gap into an outage, which is a strictly worse bug than the one this
+    ''' class exists to fix.
+    '''
+    ''' THE FIELD IS UPDATED BEFORE THE WRITE, and regardless of whether the write succeeds. A locked
+    ''' or unwritable file must cost one row, not turn one edge into a retry on every later publish.
+    '''
+    ''' The append happens INSIDE the lock so rows land in the order the edges were decided. The two
+    ''' call sites are cold and rare, so there is nothing to contend with; the lock is not nested and
+    ''' the append cannot re-enter, so there is no ordering hazard to trade for it.
+    ''' </summary>
+    Friend Shared Function NoteState(wsConnected As Boolean, reason As String, atUtc As DateTime) As String
+        Try
+            Dim state As String = StateWire(wsConnected)
+            Dim row As String = Nothing
+            SyncLock _gate
+                If Not ShouldLogWsEdge(_lastLogged, state) Then Return Nothing
+                _lastLogged = state
+                row = FormatRow(atUtc, state, reason)
+                Append(row)
+            End SyncLock
+            Return row
+        Catch
+            ' Fail-silent at dispatch. Nothing above this line may reach the caller.
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' The append. Deliberately not atomic and deliberately not buffered - the same shape as
+    ''' SignalBridge's disposition-log write (HANDOVER-6.md section 6.10). Fail-silent: an unwritable
+    ''' log costs the app nothing, and the disposition log's own guard is the precedent.
+    ''' </summary>
+    Private Shared Sub Append(row As String)
+        Try
+            IO.File.AppendAllText(LogPath, row & Environment.NewLine)
+        Catch
+        End Try
+    End Sub
+
 End Class
