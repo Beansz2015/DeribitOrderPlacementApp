@@ -260,11 +260,30 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   things the comment names. The behaviour is correct and deliberate; only the comment lies. One-line
   fix, but it is in the bridge path so it should ride along with the next spec that touches
   `SignalBridge.vb` rather than take its own seat. Full consequence: `HANDOVER-6.md` §5 item 13.
+- 🚨 **The "log-only advances watermark+cooloff" phrase is WRONG in two docs — and the ORIGINAL was
+  right all along.** *(Found 2026-08-13; every copy grepped, per `HANDOVER-6.md` §7 lesson 7.)*
+  **Only the watermark advances in log-only. The cooloff cannot** — it anchors on position close
+  (`NotifyPositionClosed`, `SignalBridge.vb:1169`) and log-only never opens a position.
+  Full mechanism: `HANDOVER-6.md` §5 item 13.
+
+  | Copy | Verdict |
+  |---|---|
+  | `runtime-record-live-ladder-2026-07-23.md:26` | ✅ **CORRECT, and it is the authority** — *"cooloff anchored on the position CLOSE (log line)"*, from a real session. It also records that `refused: cooloff` **has** been observed — 5 occurrences in the soak. |
+  | `HANDOVER-3.md:45` | ❌ wrong. Superseded doc, already banner-marked, **left as history** — do not silently edit a retired doc. |
+  | `spec-session-policy-gate.md:222` | ❌ wrong — *"log-only still advances watermark+cooloff exactly as today"*. Closed-milestone spec; **gets a correction banner, not a rewrite.** |
+  | `HANDOVER-6.md` §5 item 13 | ✅ carries the correction |
+
+  **The lesson, because it is the third instance in this repo:** the runtime record — the artefact
+  closest to the observation — was accurate, and two derivative summaries corrupted it by coupling
+  two facts that do not travel together. **Same shape as the `File.Replace` arc.**
 - **`refused: not_connected` has never been exercised at runtime.** *(Noted 2026-08-13.)* It exists
   and is correctly first in gate 4.6 (`SignalBridge.vb:742-743`). During the 2026-08-13 502 outage —
   ten failed reconnects — every payload that arrived was `NO TRADE`/`WEAK` and refused earlier in
   the chain at `direction`/`tier`, so the gate was never reached. **Correct by inspection,
   unobserved in practice.** It would take an actionable signal arriving mid-outage to prove it.
+  ✅ *Related non-finding, recorded so it is not re-opened: after `All reconnection attempts failed -
+  manual intervention required`, the app reconnected because **the owner clicked Connect once**. The
+  message was accurate and the recovery was owner-driven. There is no silent auto-recovery path.*
 - **`TradeRecord.SlippageATR` / `MaxSlippageExceeded` are declared and never written.** *(Verified:
   `TradeRecord.vb:18-19`, zero writers and zero readers at HEAD — the live slippage machinery is the
   unrelated `maxSlippageATRmult`/`chkMaxSlippageATR` chain.)* Either populate them or delete them;

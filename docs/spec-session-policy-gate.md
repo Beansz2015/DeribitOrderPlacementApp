@@ -218,8 +218,15 @@ selection grown up), never verdict re-gating.
 - Contract §4 chain order, every existing token, and the disposition file line format. The GLOBAL
   Tiers box, its `TiersCsv` mirror and `refused: tier` (D1: both gates, intersection).
 - `refused: size` still reads the raw `SizeUsd` (the mult applies after all gates).
-- Mode/ARM/Started never persist; the interlock (§6) untouched; log-only still advances
-  watermark+cooloff exactly as today.
+- Mode/ARM/Started never persist; the interlock (§6) untouched; ~~log-only still advances
+  watermark+cooloff exactly as today.~~
+  ⚠ **CORRECTED 2026-08-13 — the "+cooloff" half was never true.** Log-only advances the
+  **watermark** only. The **cooloff anchors on position CLOSE** (`NotifyPositionClosed`,
+  `SignalBridge.vb:1169`), and log-only never opens a position, so the cooloff gate is structurally
+  unreachable there. *This row's claim about THIS change still holds* — the session policy altered
+  neither behaviour — but its description of the behaviour was wrong, inherited from
+  `HANDOVER-3.md:45`. Authority: `runtime-record-live-ladder-2026-07-23.md:26`, which had it right
+  from a real session. Full mechanism: `HANDOVER-6.md` §5 item 13.
 - All existing `PlaceAutomatedOrder` call sites (the Optional default keeps them byte-identical).
 - `txtAmount` is never written by the bridge or the mult.
 - The receive path, SL paths, commanded-set count, reset-site counts — nothing here goes near them
