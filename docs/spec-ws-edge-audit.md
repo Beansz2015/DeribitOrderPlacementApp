@@ -202,3 +202,79 @@ It is the better design if it works.
 
 **Answer in the impl report:** was the tier right? Name where the depth was needed, or say plainly
 that it was not.
+
+---
+
+# ✅ §Coordinator review — 2026-08-14. APPROVED. No code defect.
+
+Opus/HIGH per `HANDOVER-6.md` §7a. Commits `090d88c` · `f9a9b2d` · `8eb9390` · `e0587af`.
+**All three spec-back findings are UPHELD, and all three are defects in THIS SPEC, not in the code.**
+
+## R1 — Executed at the coordinator seat, not taken on report
+
+| Check | Result |
+|---|---|
+| `tools/checks/verify-gate.ps1` | **GATE PASSED**, OrderCheck **289/289** (was 268 — the 21 new fixtures are real) |
+| Nine `frmMainPageV2.vb` censuses | **68 across 64** — unchanged, **and they edited that file**, so this is a genuine pass |
+| `frmMainPageV2.vb` deletions | **0**, against 64 insertions |
+| Both `PublishExecutorFeedback()` calls | **untouched**; the new calls sit beside them |
+| Receive-loop control flow | unchanged — `exitReason` is a local string, assigned in the exit arms, read once |
+| **Negative test** | **5 fixtures fail** under `Return True` — 3, 5, **7**, 9, 10 |
+| Runtime artefact | `ws-edges.log` exists with **exactly** the three quoted rows |
+| `.gitignore` | line 376; no untracked leak |
+
+⚠ **The negative test caught one more than predicted.** The review request named 3, 5, 9, 10;
+fixture **7** ("an unknown current state is never logged") also fails, because replacing the whole
+body removes the empty-state guard too. **Not a defect — the suite is *more* failable than claimed,
+which is the safe direction** — but the prediction was reasoned rather than run.
+
+## R2 — The design decision they asked to have challenged: they are right, and this spec was wrong
+
+§Model-and-effort offered "entirely inside `ExecutorFeedback`" as the route that would drop the tier.
+**That route is unreachable.** `Publish` returns on a single Boolean when `feedback_output_path` is
+absent, so an emitter-hosted trail **would not exist on an unconfigured bin — absent exactly when
+nobody is checking.** Verified independently at `ExecutorFeedback.vb:419`, `:442`, `:475`, `:578`,
+and **demonstrated at runtime**: the test bin logged `Executor feedback: disabled` and the ws-edge
+file wrote anyway. Rejecting the hatch was correct.
+
+## R3 — Spec-back rulings
+
+- **`SB1` UPHELD.** §Acceptance item 4 cited the emitter's disposed latch as the mechanism that stops
+  a graceful close writing a DOWN. That latch lives inside `ExecutorFeedback` and cannot cover an
+  external writer — and it is only ever set when the emitter is **configured**, so in the very
+  configuration they tested it would never have been set at all. `isClosing` is the correct guard.
+- **`SB2` UPHELD.** See R2.
+- **`SB3` UPHELD, and this spec was two-thirds wrong.** §2.2 offered `bridge-dispositions.log`,
+  `crash.log` and `AutoTradeLog.txt` as one "beside the exe" precedent. Verified: `crash.log`
+  (`ApplicationEvents.vb:41`) and `AutoTradeLog.txt` (`frmMainPageV2.vb:6031`) use **bare relative
+  names** and resolve against the **working directory**; only `bridge-dispositions.log`
+  (`SignalBridge.vb:361`) uses `AppContext.BaseDirectory`. They followed the only correct one.
+
+## R4 — Their five self-declared weak points, ruled
+
+1. **`Append` inside the `SyncLock` on the receive thread — ACCEPTED, and the risk is smaller than
+   they think.** The DOWN call site is at the receive-loop **exit**, after `Exit While` — the loop
+   has already ended, so a stalled disk delays the **reconnect**, not message processing. The OK site
+   runs before the receive task starts. Worst case is a bounded delay to connect, never a stall in
+   message handling. With ~2 rows a session and no lock nesting, row ordering is the right trade.
+2. **`isClosing` read unsynchronised — ACCEPTED.** It matches the pattern the reconnect branch two
+   lines below already uses. Cost of a stale read is one spurious DOWN row; synchronising it would be
+   novel machinery for a cosmetic gain.
+3. **No rotation — ACCEPTED.** ~2 rows per session against `bridge-dispositions.log`'s 225 KB of
+   per-payload rows. Decades from mattering.
+4. **OK reason always `connect` — ACCEPTED.** The preceding DOWN row disambiguates. A synthetic
+   first-vs-re-connect distinction could itself be wrong.
+5. **Editing inside the receive loop for `exitReason` — WARRANTED, and it earned its place.** Four
+   string assignments, no control flow touched, zero deletions. The captured DOWN row carries the
+   real `WebSocketException` text; without it that row would read `socket no longer open` and say
+   nothing.
+
+## R5 — The best thing in the submission
+
+**§6's first bullet, which they volunteered.** The ws DOWN edge **stays** on C1's unobserved list:
+the *transition* is now evidenceable, the *emitter publishing* `"ws": "DOWN"` is not. They wrote that
+distinction into `HANDOVER-6.md` §2 item 7 themselves — *"Two claims, one word: do not let 'the DOWN
+edge was observed' collapse them."* **That is the discipline this repo runs on, applied against their
+own result.** Verified present and correct.
+
+**Nothing is owed. The three SB findings are folded in above.**
