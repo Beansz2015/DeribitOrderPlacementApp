@@ -104,6 +104,28 @@ the only pusher.
    multiplier is a no-op. ASIA (×0.75 ⇒ 120) needs 08:00–15:59 local; LONDON (×0.5 ⇒ 80) needs
    16:00–20:59 local. At base 170 both clear the min-10 clamp, so the divergence would be visible.
    *(Setup below.)*
+   🟡 **VALUES REVISED 2026-08-14 — owner chose `risk_per_trade_usd = 1.0` · `max_size_usd = 2000`.
+   NOT YET APPLIED at the time of writing; verify the settings file before believing this.**
+   Projected against **all 15 real payloads** captured in the three soaks:
+
+   | | risk 0.1 / max 500 (as soaked) | **risk 1.0 / max 2000 (chosen)** |
+   |---|---|---|
+   | NY size range | 50–170 | **520–1780** |
+   | Risk per trade, NY | ~$0.095 | **$0.99–1.00, flat across the whole range** |
+   | Risk, ASIA ×0.75 / LONDON ×0.5 | ~$0.07 / ~$0.05 | **~$0.74 / ~$0.49** |
+   | Does the 2000 cap bind? | n/a | **No — on none of the 15.** It starts binding below a **$31.9** stop distance; the tightest ever observed was **35.70**. A genuine backstop that clears, but not by much. |
+   | Breaker at $10 | ~105 stopped trades — inert | 🚨 **~10 stopped trades — now an ACTIVE control** |
+
+   **This is the configuration N2 was built for:** size varies 3.4× across the observed stop range
+   while **risk stays flat at $1.00**. That is the whole point of risk-sizing, and it is the first
+   settings pair that actually delivers it — 0.1/500 was risk-shaped but tiny, 1.0/500 would have
+   pinned every trade at the cap.
+   ⚠ **Magnitude, stated plainly:** 520–1780 notional is **52×–178× the Amount box (10)**, and a 10×
+   step up from the soaked configuration. Owner is testing on testnet first.
+   ⚠ **`max_size_usd` can never be set to 0 from the form** — `frmMainPageV2.vb:98-99` guards both
+   writes with `> 0`, so a blank or zero is silently ignored. Since `maxSizeUsd <= 0` is the
+   documented way to spell *"no cap"* (`RiskSizedBase`), **uncapped is only reachable by hand-editing
+   the settings file.**
    🟡 **Owner chose the values 2026-08-10: `risk_per_trade_usd = 0.1` ·
    `max_size_usd = 500` · circuit breaker stays `$10` · NY stays unconfigured (deliberate ruling,
    `HANDOVER-6.md` §2.3).** *"Will adjust after/during testing."*
