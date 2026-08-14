@@ -222,9 +222,15 @@ inputs must be set **together**, because they compose.
    (`runtime-record-ws-edge-audit-2026-08-14.md` §1). The seat also never ARMs or STARTs. This test
    needs **no trade, no ARM and no START** — connectivity only.
    **Acceptance, and it is a JOIN, not a single reading:** the `ws-edges.log` `DOWN` row and a
-   sampled `executor_feedback.json` carrying `"ws": "DOWN"` must agree on the timestamp, **and that
-   sample must carry `started: true`** — that is what separates a mid-session drop from the
-   shutdown write.
+   sampled `executor_feedback.json` carrying `"ws": "DOWN"` must agree on the timestamp, **and the
+   `DOWN` sample must be FOLLOWED BY A LATER `OK` SAMPLE in the same session.**
+   ⚠ **That trailing `OK` is the whole discriminator, and it is the only one that works.** A
+   shutdown `DOWN` is by definition the **last** publish of its session; a mid-session `DOWN` has
+   the recovery after it, with a higher `feedback_id`. Nothing else in the document separates them.
+   🔴 **An earlier draft of this item named `started: true` as the discriminator. That was WRONG and
+   is withdrawn.** `executor.started` is the BRIDGE's started flag, so requiring it would force a
+   **START** — which this test does not need and which the seat may not do. The connectivity test
+   needs no bridge at all. The trailing-`OK` rule costs nothing and proves more.
 7b. **✅ C1 SPEC-BACK — ALL FIVE UPHELD AND FOLDED IN 2026-08-06**
    (`spec-back-c1-acceptance-2026-08-06.md`). **None was a code defect.** ⚠ **Numbered SB1–SB5, not
    D1–D5** — `D1` was already taken twice in live docs (the C1 review's write-ordering defect, and
