@@ -22,12 +22,17 @@ recipe.)
 `git rev-parse HEAD origin/master` · `tools/checks/verify-gate.ps1` · re-run the censuses.
 A docs commit can never state its own sha, so any number here is at least one short on arrival.
 
-- **origin/master `9ecf40d`** (owner pushed 2026-08-07 00:13 +0800; owner is the only pusher).
-  HEAD is ahead by the docs commits since. *(This bullet read `234131a` / 2026-08-02 until
-  2026-08-07 — corrected against `git rev-parse`, which is the only thing that can settle it.)*
-- **Gate: GATE PASSED, OrderCheck 268/268** — executed at HEAD `8f04c27` on 2026-08-07, not
-  inherited. *(173 → 227 → 264 → 268 as C1's fixtures landed; this bullet claimed 173/173 at
-  `2308122` for five days after the count had moved four times.)*
+🚨 **THIS BLOCK IS STALE BY CONSTRUCTION. It has now been corrected three times** — `234131a`
+(2026-08-02) → `9ecf40d` (2026-08-07) → the numbers below (2026-08-14). **Do not trust a single
+figure here. Run the three commands above and believe those.** The numbers are kept only so a
+successor can tell *movement* from *drift*.
+
+- **origin/master `9f041fe`** — last verified 2026-08-14. The owner is the only pusher, so this
+  moves only when they push, and the seat's commits sit ahead of it until then.
+- **Gate: GATE PASSED, OrderCheck 289/289** — executed at HEAD `1b7ab75` on 2026-08-14, not
+  inherited. *(173 → 227 → 264 → 268 → **289**; the last jump is the ws-edge feature's 21 fixtures.
+  This bullet claimed 173/173 for five days after the count had moved four times, and 268/268 for a
+  week after that.)*
 - ⚠ **`git rev-parse --short HEAD origin/master` FAILS here** — `fatal: Needed a single revision`
   on git 2.55.0.windows.3, which refuses multiple revisions under `--short` (`--short=7` fails the
   same way). **Run the two revisions as separate calls.** The fatal is a git-version quirk, not a
@@ -173,6 +178,22 @@ inputs must be set **together**, because they compose.
 
 **NOTHING IS IN FLIGHT. C1 IS COMPLETE — all five acceptances passed 2026-08-06, including 3.**
 The coordinator queue is `ROADMAP-2026-08.md` §5; the owner queue is that doc's §1.
+
+### 🔴 STATE AS AT 2026-08-14 — read this before the older paragraphs below
+
+**Both "pending enables" below are DONE. Do not re-raise them.**
+
+| Thing | State |
+|---|---|
+| **C1 emitter** | ✅ **ENABLED** in the owner's x64 bin 2026-08-10. `feedback_output_path` set; file live. |
+| **N2 risk sizing** | ✅ **ENABLED**, `risk_per_trade_usd = 1.0` · `max_size_usd = 2000` applied 2026-08-14. **Log-only verification COMPLETE — all three session buckets, 14/14 sizes exact.** |
+| **N2 LIVE** | ❌ Never run. **Owner's decision alone.** Nothing technical blocks it. |
+| **ws-edge audit** | ✅ Built, reviewed, **APPROVED** 2026-08-14 (`spec-ws-edge-audit.md` §Coordinator review). |
+| **Uncapped Max Size** | 🟢 **SPEC WRITTEN, SEAT NOT LAUNCHED** — `spec-max-size-uncapped.md`. Opus/HIGH. |
+
+🚨 **The owner's x64 bin does NOT carry the ws-edge code.** The gate is AnyCPU-only. Rebuild x64
+before relying on `ws-edges.log` in a real session, then re-check the `Environment` key **and** the
+`— TESTNET` title (§4).
 
 ⚠ *Corrected 2026-08-07: this line read "ACTIVE THREAD: C1 acceptance 3 (owner — the last one)"
 while §2.7 of this same document already recorded acceptance 3 as PASSED — the two paragraphs
