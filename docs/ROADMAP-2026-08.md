@@ -405,6 +405,13 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   Four reconnect attempts failed in between and the app recovered on its own.
   **Also established, and new:** E6a's DOWN publish site **is reached on a real disconnect** — until
   now that edge was specified but never shown to execute.
+  ✅✅✅ **FULLY CLOSED 2026-08-14 — `runtime-record-ws-down-emitter-2026-08-14.md`.** The x64 bin
+  was rebuilt, the emitter was enabled, and an owner-provoked mid-session drop published
+  `"ws": "DOWN"` — joined to the `ws-edges.log` row **to the second** at `2026-08-14T14:09:24Z`,
+  under one continuous `instance_id`, with a trailing `OK` proving it was not a shutdown write.
+  **Nothing is owed on this edge.** ⚠ Three sub-claims did NOT close — the failed-reconnect
+  suppression above all, which *looks* proven and is not. See that record's §5.
+  *(The previous status is below; it was correct when written.)*
   ⚠ **STILL OPEN, and it is easy to misread this as closed:** the run used the **harness Debug bin
   with the C1 emitter DISABLED**, so the DISCONNECT was not published by the emitter. Closing that
   needs the **x64** bin rebuilt with `feedback_output_path` set, then a drop —
@@ -444,13 +451,10 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   (`SignalBridge.vb:701`) is the ENGINE's health from the payload, which drives
   `refused: ws_down`. Different things, same word.
 - **C1 runtime behaviours still unobserved** — `mode: "LIVE"` with an `acted (id …)` disposition ·
-  the `ws` **DOWN** edge *(**narrowed 2026-08-14: the DOWN TOKEN in the file is now OBSERVED** —
-  `executor_feedback.json` carried `"ws": "DOWN"` at 15:59:20 +0800, but that is the **graceful-close
-  write**, proven by same-second mtime identity with `orderapp-settings.json`. **What remains
-  unobserved is a MID-SESSION disconnect published by the emitter** — the edge that actually matters.
-  The 2026-08-14 ws-edge run had the emitter disabled, and the x64 bin writes no `ws-edges.log`.
-  Rebuild the **x64** bin with `feedback_output_path` set and the next drop closes it —*
-  `runtime-record-ws-edge-audit-2026-08-14.md` §5*)* ·
+  ~~the `ws` **DOWN** edge~~ **✅ CLOSED 2026-08-14, struck from this list** *(the emitter published
+  `"ws": "DOWN"` on an owner-provoked MID-SESSION drop, joined to `ws-edges.log` to the second at
+  `14:09:24Z` under one continuous `instance_id` —* `runtime-record-ws-down-emitter-2026-08-14.md`*.
+  Every remaining entry on this list needs owner ARM/START; this one no longer does.)* ·
   a `breaker_tripped` flip · a **SHORT** `size_usd` · D1's race. All
   optional, none blocking; all gated on §1.5's enable (and the first on owner ARM/START). Lists:
   `runtime-record-c1-feedback-emitter-2026-08-06.md` §10 + §11.5.

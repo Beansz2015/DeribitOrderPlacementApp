@@ -88,7 +88,17 @@ inputs must be set **together**, because they compose.
    **`HIGH,MEDIUM | any | 1.0`**. So NY is at once the **least restricted** bucket and the
    **largest**: full size, **2× LONDON, 1.33× ASIA**. Owner runs UTC+8 ⇒ **NY is local
    21:00–07:59**, so the biggest, least-gated notional lands overnight.
-4. **Journal rows `#95` and `#100`** — testnet-era, named in no deletion list. The x64 `trades.db`
+4. ✅ **CLOSED 2026-08-14 — the owner DELETED both rows. Nothing is owed and this item is done.**
+   Deleted from the running x64 app's View Trades grid, one at a time
+   (`Database: Successfully deleted 1 trades`, twice). The grid showed **91 trades** before;
+   **89 remain**. The x64 `trades.db` mtime moved to 2026-08-14 22:12.
+   ⚠ **Closed by DELETION, not by verification — and the difference matters for anyone re-reading
+   this.** The rows were never read into any doc, so nothing here or anywhere else records what
+   `#95` and `#100` contained. **This item can now never be settled on its merits**; it can only be
+   recorded as decided. That was the owner's call, made knowingly. **Do not let a future pass read
+   the ✅ as "the rows were checked and found unremarkable."** They were not checked. They are gone.
+   *(Original text below, kept because it is the only surviving description of what they were.)*
+   **Journal rows `#95` and `#100`** — testnet-era, named in no deletion list. The x64 `trades.db`
    holds 91 live rows; after `#89` only these two remain. `#100` postdates N1c's #99 and appears in
    no doc. Owner's call, not a defect. *(The named list — #90–#93 / #96–#98 / #99 — is fully
    cleared.)*
@@ -160,9 +170,32 @@ inputs must be set **together**, because they compose.
    row character-for-character, and `last_signal` stayed byte-identical across heartbeats (the
    cardinality freeze, observed). The live `verdict_signal.json` was **never touched** — the harness
    `bridge.json` pointed `path` at a scratch file, verified byte-identical before and after.
-   **Still unobserved:** `mode: "LIVE"` + an `acted (id …)` disposition (needs ARM/START), the `ws`
-   DOWN edge, a `breaker_tripped` flip, a SHORT `size_usd`, and D1's race. §10 + §11.5 are the
+   **Still unobserved:** `mode: "LIVE"` + an `acted (id …)` disposition (needs ARM/START), a
+   `breaker_tripped` flip, a SHORT `size_usd`, and D1's race. §10 + §11.5 are the
    current what-is-NOT-proven list. *(D1 is done — see 6b. Nothing gates acceptance 3 but ARM/START.)*
+   ✅ **The `ws` DOWN edge has been REMOVED from this list — CLOSED 2026-08-14**, see the item below
+   and `runtime-record-ws-down-emitter-2026-08-14.md`. Every remaining entry needs owner ARM/START.
+   ✅✅ **THE `ws` DOWN EDGE IS FULLY CLOSED — 2026-08-14, owner-driven, x64 bin, TESTNET.**
+   `runtime-record-ws-down-emitter-2026-08-14.md`. **The emitter published `"ws": "DOWN"` on a real
+   MID-SESSION disconnect**, joined to `ws-edges.log` **to the second** at `2026-08-14T14:09:24Z`
+   (feedback `feedback_id: 21`), and the discriminator held: the `DOWN` is followed by `OK` at
+   `14:10:17Z` under `feedback_id: 27`, **same `instance_id` `85d7a53e…` from id 1 to id 41+**, so it
+   is provably one continuous process and not a shutdown write. All three claims on this edge now
+   hold. **Nothing further is owed on the DOWN edge itself.**
+   ⚠ **Three things did NOT close, and one of them looks closed:** the failed-reconnect `DOWN`
+   suppression is **still unproven** — one `DOWN` row across eight failed attempts is equally
+   consistent with suppression working and with `NoteState` never being called again, because a
+   failed connect never enters a receive loop and the DOWN publish site is at the loop *exit*.
+   Also unproven: the `While`-condition exit arm, and `NoteState` concurrency. Full list:
+   `runtime-record-ws-down-emitter-2026-08-14.md` §5.
+   🚨 **Two traps that session produced, both worth reading before the next one:**
+   **(i)** `ws-edges.log` is a history of TRANSITIONS, not of `ws`. A startup `DOWN` window existed
+   (`feedback_id` 1–6) with **no** `ws-edges.log` row, because "never connected yet" is a state and
+   not a transition. **Never read that log's silence as the socket being up.**
+   **(ii)** `feedback_id` went **2 → 1** on disk across the restart. That is **CORRECT** per contract
+   §8.4 — ids are monotonic *per process* and the GUID changed. **Check the `instance_id` before ever
+   reporting an id regression**, or it reads as C1's `D1` returning when it is the spec working.
+   *(History below, kept because the two-claim split is the reason this closed cleanly.)*
    ⚠ **The `ws` DOWN edge entry needs care after 2026-08-14, because it is half closed.** The ws-edge
    audit trail shipped and is runtime-accepted (`runtime-record-ws-edge-audit-2026-08-14.md`), and a
    REAL disconnect was captured — so **E6a's DOWN publish site is now proven to execute**, which it
@@ -720,8 +753,12 @@ in **exactly six** placement sites and nowhere else · §6.5's notifier inert wi
 
 ### 8.3 NOT verified this pass — the honest list
 
-- **§2.4's journal rows `#95`/`#100`** — three read routes failed; see the ⚠ on that item. **This is
-  the only §2 item still carried on doc-evidence alone.**
+- ~~**§2.4's journal rows `#95`/`#100`** — three read routes failed; see the ⚠ on that item. **This is
+  the only §2 item still carried on doc-evidence alone.**~~
+  ✅ **MOOT 2026-08-14 — the owner deleted both rows, so there is nothing left to verify.** The
+  entry is struck rather than removed because "it was never verified" stays true and is the
+  point: it closed by deletion, not by evidence. See §2 item 4.
+  **§2 now has no item carried on doc-evidence alone.**
 - **§5's runtime behaviours that need a running app**: the payload-landing rule (§5.1), the
   stop/restore protocol (§5.2), harness placement (§5.3), the geometry clobber's *effect* (§5.4),
   entry-is-reference-only (§5.6), the emergency fill-vs-trigger gap (§5.7), the placement-log trap

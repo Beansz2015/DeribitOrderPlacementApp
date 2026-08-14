@@ -165,6 +165,14 @@ Carried from `docs/impl-report-ws-edge-audit.md` §4, corrected against what act
 
 ## 5. 🚨 What this does NOT close — read before updating any status line
 
+> ✅ **SUPERSEDED IN PART, 2026-08-14 (same day, later session):
+> `runtime-record-ws-down-emitter-2026-08-14.md`.** The third row of the table below — *the emitter
+> publishes `"ws": "DOWN"`* — is now **PROVEN** on a mid-session drop in the rebuilt x64 bin, joined
+> to a `ws-edges.log` `DOWN` row to the second. **This section's status table is therefore stale for
+> that row only; the rest of it stands.** ⚠ `§4 item 3` of THIS record — the failed-reconnect `DOWN`
+> suppression — is **still open** and was NOT closed by that session either, though it superficially
+> looks like it was. Read that record's §5 before citing either document.
+
 **`executor_feedback.json` carrying `"ws": "DOWN"` is STILL UNOBSERVED.** The C1 emitter was
 **disabled** for this whole session, so it published nothing at all. Two distinct claims, and only
 the first was proven:
