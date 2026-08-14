@@ -38,7 +38,28 @@ the only pusher.
    `risk_per_trade_usd` becomes the rung for bridge trades only.
 3. **AWS London migration** — `production-cutover-checklist.md` §9; the key choreography kills the
    two-executor window. *(open)*
-4. ✅✅ **N2 LOG-ONLY FULLY VERIFIED 2026-08-13 — the SESSION MULTIPLIER is now observed under N2,
+4. ✅✅✅ **N2 LOG-ONLY VERIFICATION IS COMPLETE 2026-08-14 — ALL THREE session buckets observed
+   against real payloads. Log-only has nothing further to prove about sizing.**
+
+   | Bucket | Mult | Evidence | Result |
+   |---|---|---|---|
+   | **NY** | 1.0 | #52 and the whole NY run | unity passes through **untouched** |
+   | **LONDON** | 0.5 | #10 | base 100 → **50** |
+   | **ASIA** | 0.75 | #14 · #15 · #19 (base 80 → **60**) · #16 (base 70 → **50**) | 4/4 exact |
+
+   **`#16` is the best single line of evidence in the whole soak:** base 70 × 0.75 = 52.5, step-floored
+   to **50**. It proves the multiplier **and** the 10-USD floor in one observation.
+   ✅ **A natural experiment confirmed per-bucket config reads.** LONDON refused six MEDIUM SHORTs at
+   `policy(LONDON/context)` because LONDON demands `CONFIRMED`; ASIA refused **none**, because its
+   context is `any`. Same tier, same direction, different bucket, different outcome.
+   ✅ **The watermark survives an app restart, verified at the artefact, not from the log line.** The
+   restore line claimed *"last acted signal 266 (engine ef4b4d36…)"*; the disposition log shows that
+   engine produced **28 would-acts with a maximum id of exactly 266**. It then advanced to `19` under
+   a new engine instance.
+   **Running totals across the three soaks:** 9/9 NY sizes exact · 1/1 LONDON · 4/4 ASIA — **14/14,
+   zero mismatches**, over stop distances from 35.7 to 119.2, both directions, HIGH and MEDIUM tiers.
+   *(Session detail below.)*
+   ✅✅ **N2 LOG-ONLY FULLY VERIFIED 2026-08-13 — the SESSION MULTIPLIER is now observed under N2,
    which was the last unproven link in the sizing chain.**
    `[BRIDGE] signal #10 SHORT (MEDIUM/SHORT) -> would-act: SHORT @ 63611.50, stop 63669.48,
    target 63539.50, size 50`. Recomputed at the coordinator seat: dist = 57.98 ⇒ base **100** ⇒
