@@ -199,6 +199,32 @@ inputs must be set **together**, because they compose.
    That is the edge that makes E6a worth having, and no artefact on disk shows it. Nothing can settle
    it retroactively either, because that bin has **no `ws-edges.log`** — the x64 bin predates
    `WsEdgeLog.vb`. **Do not upgrade this to "the DOWN edge was observed."** Three claims, one word.
+
+   ✅ **HALF THE CLOSE IS DONE, 2026-08-14. The x64 bin was REBUILT and now carries the ws-edge
+   code**, proven at the binary rather than by dll date: before, `ExecutorFeedback` = True and
+   `WsEdgeLog` = False; after, `WsEdgeLog` / `NoteState` present (ASCII heap) and `ws-edges.log` /
+   `ws edge: ` present (UTF-16 heap). Method and the both-encodings trap: memory
+   `gate-does-not-build-x64-bin`. Config was untouched, and the standing post-rebuild secrets check
+   **passed** — bin `Environment: testnet`, `secrets.json` mtime unchanged.
+
+   🚨 **THE RUN NEEDS A SAMPLER, OR IT WILL FAIL THE SAME WAY AGAIN.**
+   `executor_feedback.json` is overwritten on every publish, so a mid-session `DOWN` survives only
+   from the disconnect to the reconnect — **23 seconds** in the 2026-08-14 session. Read the file by
+   hand and you will very probably miss it and find the graceful-close `DOWN` instead, which is the
+   ambiguous artefact this whole item is about. **Start `tools/sample-feedback.ps1` BEFORE the drop.**
+   It is read-only, opens with `FileShare` Read+Write+Delete so it can never block the emitter's
+   atomic replace, and archives every distinct publish plus a one-line index into the git-ignored
+   `verify/feedback-samples/`. Tested 2026-08-14 through a forced OK → DOWN → OK sequence: 4/4
+   publishes captured, including the transient `DOWN`.
+
+   **What still needs the OWNER, and why the seat cannot do it:** the disconnect is **owner-provoked
+   by standing rule — the seat does not change network configuration**
+   (`runtime-record-ws-edge-audit-2026-08-14.md` §1). The seat also never ARMs or STARTs. This test
+   needs **no trade, no ARM and no START** — connectivity only.
+   **Acceptance, and it is a JOIN, not a single reading:** the `ws-edges.log` `DOWN` row and a
+   sampled `executor_feedback.json` carrying `"ws": "DOWN"` must agree on the timestamp, **and that
+   sample must carry `started: true`** — that is what separates a mid-session drop from the
+   shutdown write.
 7b. **✅ C1 SPEC-BACK — ALL FIVE UPHELD AND FOLDED IN 2026-08-06**
    (`spec-back-c1-acceptance-2026-08-06.md`). **None was a code defect.** ⚠ **Numbered SB1–SB5, not
    D1–D5** — `D1` was already taken twice in live docs (the C1 review's write-ordering defect, and
