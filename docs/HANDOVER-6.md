@@ -22,14 +22,21 @@ recipe.)
 `git rev-parse HEAD origin/master` · `tools/checks/verify-gate.ps1` · re-run the censuses.
 A docs commit can never state its own sha, so any number here is at least one short on arrival.
 
-🚨 **THIS BLOCK IS STALE BY CONSTRUCTION. It has now been corrected three times** — `234131a`
-(2026-08-02) → `9ecf40d` (2026-08-07) → the numbers below (2026-08-14). **Do not trust a single
-figure here. Run the three commands above and believe those.** The numbers are kept only so a
-successor can tell *movement* from *drift*.
+🚨 **THIS BLOCK IS STALE BY CONSTRUCTION. It has now been corrected four times** — `234131a`
+(2026-08-02) → `9ecf40d` (2026-08-07) → `5ca8515` (2026-08-14) → the numbers below (2026-08-14,
+same day, one push later). **Do not trust a single figure here. Run the three commands above and
+believe those.** The numbers are kept only so a successor can tell *movement* from *drift*.
 
-- **origin/master `9f041fe`** — last verified 2026-08-14. The owner is the only pusher, so this
-  moves only when they push, and the seat's commits sit ahead of it until then.
-- **Gate: GATE PASSED, OrderCheck 289/289** — executed at HEAD `1b7ab75` on 2026-08-14, not
+- **origin/master `8232e9e` — THE OWNER HAS PUSHED.** Verified 2026-08-14 at the reflog, not from
+  a doc: `refs/remotes/origin/master@{2026-08-14 16:36:01 +0800}: update by push`, moving
+  `9f041fe` → `8232e9e`. **HEAD `8232e9e`, ahead by 0, tree clean — nothing is unpushed.**
+  The owner is the only pusher, so this moves only when they push, and the seat's commits sit
+  ahead of it until then.
+  ⚠ **The previous version of this block said `9f041fe` and 13 ahead.** It was written at
+  `5ca8515`, twelve minutes before the push. That is the ordinary case here, not a mistake:
+  a docs commit cannot state its own sha, and it certainly cannot state a push that has not
+  happened yet. **Re-derive both revisions before you believe any figure in this bullet.**
+- **Gate: GATE PASSED, OrderCheck 289/289** — executed at HEAD `8232e9e` on 2026-08-14, not
   inherited. *(173 → 227 → 264 → 268 → **289**; the last jump is the ws-edge feature's 21 fixtures.
   This bullet claimed 173/173 for five days after the count had moved four times, and 268/268 for a
   week after that.)*
@@ -42,17 +49,30 @@ successor can tell *movement* from *drift*.
   · `slUpdateFailures = 0` 1 · `TakerFeeRate` 0 · `isPlacingOrder` 13 ·
   `lastPlacementAdmittedUtc` 13 · `placedOrderSizeUsd` 18. **These are OCCURRENCE counts (68 total
   across 64 lines)** — a count-mode grep returns 64 and reads as four missing.
+  ✅ **Re-run at HEAD `8232e9e` on 2026-08-14: all nine exact, 68 occurrences across 64 lines.**
+  Method that produced these numbers, for repeatability: `Select-String -AllMatches -CaseSensitive`
+  per symbol, summing `Matches.Count`, and collecting `LineNumber` into a set for the 64.
 
 ## 2. Open — ALL owner-side. Nothing is in flight; no implementer seat is running.
 
 **Everything below gates the same thing: ticking `Risk-size` to enable N2.** The three sizing
 inputs must be set **together**, because they compose.
 
-1. **🚨 `risk_per_trade_usd` / `max_size_usd` = 25 / 500 — the live footgun.** A realistic $200 stop
+1. ✅ **CLOSED 2026-08-14. `risk_per_trade_usd` / `max_size_usd` = `1.0` / `2000` — CONFIRMED IN
+   FORCE by the owner AND re-derived at the artefact**, not taken on report:
+   `bin\x64\Debug\net9.0-windows8.0\orderapp-settings.json` (mtime 2026-08-14 15:59:20) reads
+   `risk_per_trade_usd = 1.0` · `max_size_usd = 2000.0` · `risk_size_bridge_trades = True` ·
+   `circuit_breaker_usd = 10.0`. **N2 is ENABLED in the owner's bin.**
+   ⚠ **The old text below is kept because it names the failure mode, not because the numbers are
+   live. They are not — 25 / 500 has not been the setting since 2026-08-14.**
+   ~~🚨 `risk_per_trade_usd` / `max_size_usd` = 25 / 500 — the live footgun.~~ A realistic $200 stop
    computes ~7875 and caps to 500, so **every signal gets a flat 500** and N2 is "on" while doing
-   nothing risk-shaped. Fix before ticking, not after.
+   nothing risk-shaped. **The shape of that trap still applies to any future pair: if the cap binds
+   on realistic stops, N2 is on and doing nothing risk-shaped.** At 1.0 / 2000 it does not bind —
+   a $200 stop on a 64k index computes ~320, well under 2000.
 2. **Circuit breaker `$10`** — gates the BRIDGE path; could stop a session fast at risk-sized
-   notionals. Set deliberately.
+   notionals. Set deliberately. *(Verified still `circuit_breaker_usd = 10.0` at the artefact,
+   2026-08-14.)*
 3. ✅ **OWNER RULING 2026-08-10 — NY stays UNCONFIGURED, deliberately. Do not re-raise it.**
    The owner's words: *"NY is to be the most flexible, so don't add an explicit entry yet."* So the
    fall-through below is now a **decision, not an oversight**, and a future seat should stop flagging
@@ -146,9 +166,39 @@ inputs must be set **together**, because they compose.
    ⚠ **The `ws` DOWN edge entry needs care after 2026-08-14, because it is half closed.** The ws-edge
    audit trail shipped and is runtime-accepted (`runtime-record-ws-edge-audit-2026-08-14.md`), and a
    REAL disconnect was captured — so **E6a's DOWN publish site is now proven to execute**, which it
-   was not before. But that run used the harness bin with the **emitter DISABLED**, so
-   **`executor_feedback.json` carrying `"ws": "DOWN"` is still unobserved** and this entry stays
-   open. Two claims, one word: do not let "the DOWN edge was observed" collapse them.
+   was not before. But that run used the harness bin with the **emitter DISABLED**.
+   🔴 **CORRECTED 2026-08-14 AT THE ARTEFACT. The sentence that stood here — "`executor_feedback.json`
+   carrying `"ws": "DOWN"` is still unobserved" — was FALSE AS WORDED when it was written.**
+   `C:\Dev\DeribitBridge\executor_feedback.json` was on disk carrying `"ws": "DOWN"` at
+   **2026-08-14 15:59:20 +0800** (`generated_at_utc: 2026-08-14T07:59:20Z`, `feedback_id: 2`,
+   `mode: "OFF"`, `armed: false`, `started: false`). That is **24 minutes before** this document's
+   own commit `5ca8515`, and 24 minutes before the `era-state-checkpoint` memory repeated the same
+   claim. Nobody opened the file. **Third-party lesson, §7 item 6 again: a doc is not evidence
+   about an artefact that is sitting right there.**
+   **What that artefact does and does not settle — do NOT merge these two rows:**
+
+   | Claim | Status |
+   |---|---|
+   | The emitter serializes `"ws": "DOWN"` into the real file | ✅ **OBSERVED** at the artefact, above |
+   | A **mid-session disconnect** is published as `"ws": "DOWN"` | ❌ **STILL UNOBSERVED** |
+
+   The second row is the one that matters and it is genuinely open. That snapshot reads
+   `mode: "OFF"` / `started: false`. Two readings were possible — **(a)** a process whose socket was
+   never connected, so `DOWN` is merely the initial state, or **(b)** the graceful-close write after
+   the bridge was stopped.
+   ✅ **(b) is ESTABLISHED, by timestamp identity, not by inference.** `executor_feedback.json` and
+   the x64 bin's `orderapp-settings.json` share the **same mtime to the second — 2026-08-14
+   15:59:20**. `FormClosing` persists settings unconditionally, and the emitter's trigger (e) is the
+   graceful-close write. One close event wrote both files. `bridge-state.json` (15:45:02,
+   `last_acted_signal_id: 31`) and `bridge-dispositions.log` (15:48) place a live bridge session
+   minutes earlier, so the socket was up during the session and `DOWN` is the shutdown state.
+   🚨 **This makes the open item SHARPER, not smaller: the emitter published DOWN at SHUTDOWN, which
+   is not the edge C1 exists to report.** A shutdown DOWN is expected and uninformative — the engine
+   learns nothing from it that `generated_at_utc` going stale would not also tell it. **What is still
+   unobserved is a MID-SESSION disconnect published as `"ws": "DOWN"` while the app keeps running.**
+   That is the edge that makes E6a worth having, and no artefact on disk shows it. Nothing can settle
+   it retroactively either, because that bin has **no `ws-edges.log`** — the x64 bin predates
+   `WsEdgeLog.vb`. **Do not upgrade this to "the DOWN edge was observed."** Three claims, one word.
 7b. **✅ C1 SPEC-BACK — ALL FIVE UPHELD AND FOLDED IN 2026-08-06**
    (`spec-back-c1-acceptance-2026-08-06.md`). **None was a code defect.** ⚠ **Numbered SB1–SB5, not
    D1–D5** — `D1` was already taken twice in live docs (the C1 review's write-ordering defect, and
@@ -170,7 +220,10 @@ inputs must be set **together**, because they compose.
    unrestricted; **§4 amended** (it had named only settings/DB/journal).
    **SB5** — a wildcard cleanup deleted `n2-settings.png`, unrecoverable; recorded, not excused, and
    the rule is now in memory `winforms-harness-quirks`.
-8. AWS §9 migration (`production-cutover-checklist.md`) · the size ladder.
+8. AWS §9 migration (`production-cutover-checklist.md`) — still open.
+   ✅ **The size ladder is NO LONGER an open item. OWNER RULING 2026-08-14:** the ladder is **active
+   when the `Risk-size` checkbox is UNTICKED** for N2. Full ruling and the code mechanics behind it:
+   `ROADMAP-2026-08.md` §1 item 2. Do not re-list it as owner work.
 9. Optional, non-blocking: a physical owner-mouse double-click on `Mkt. BUY` (the SF2 burst
    instrument is UIA-driven, so a human double-click is still unobserved).
 

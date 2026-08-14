@@ -21,7 +21,13 @@ the only pusher.
 
 1. ~~Phase 3: enable the session policy~~ — **DONE**, verified `session_policy.enabled = True`.
    ⚠ NY is unconfigured and therefore *unrestricted at full size* — see `HANDOVER-6.md` §2.3.
-2. **Size ladder** at FIXED size: 10 → 20–30 → normal. *(open)* — **and it is NOT superseded by N2.
+2. ✅ **Size ladder — RESOLVED. OWNER RULING 2026-08-14. Do not re-open it as an open item.**
+   **The ruling, in the owner's terms: the ladder is ACTIVE when the `Risk-size` checkbox is
+   UNTICKED for N2.** That is the whole disposition. Ticking `Risk-size` hands the bridge path to
+   `risk_per_trade_usd`; unticking it returns every path to the Amount box and the ladder governs
+   again. Nothing further is owed here, and no seat should carry it forward as work.
+   *(Mechanics kept below — they are the reason the ruling is safe, and they were verified in code.)*
+   **Size ladder** at FIXED size: 10 → 20–30 → normal. **It is NOT superseded by N2.
    It is SCOPED by it.** *(Corrected 2026-08-13 at the owner's challenge; the coordinator had said
    N2 "replaced the ladder", which is too broad and wrong for two of the three sizing paths.)*
    Verified in code — the `Risk-size` checkbox is **bridge-only**:
@@ -400,10 +406,21 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   **Also established, and new:** E6a's DOWN publish site **is reached on a real disconnect** — until
   now that edge was specified but never shown to execute.
   ⚠ **STILL OPEN, and it is easy to misread this as closed:** the run used the **harness Debug bin
-  with the C1 emitter DISABLED**, so **`executor_feedback.json` publishing `"ws": "DOWN"` was NOT
-  observed** and stays on C1's still-unobserved list below. Closing that needs the **x64** bin
-  rebuilt with `feedback_output_path` set, then a drop —
+  with the C1 emitter DISABLED**, so the DISCONNECT was not published by the emitter. Closing that
+  needs the **x64** bin rebuilt with `feedback_output_path` set, then a drop —
   `runtime-record-ws-edge-audit-2026-08-14.md` §5.
+  🔴 **NARROWED 2026-08-14 at the artefact.** This bullet used to say
+  "`executor_feedback.json` publishing `"ws": "DOWN"` was NOT observed". **As worded that is false.**
+  `C:\Dev\DeribitBridge\executor_feedback.json` carried `"ws": "DOWN"` at 2026-08-14 15:59:20 +0800
+  (`feedback_id: 2`, `mode: "OFF"`, `armed: false`, `started: false`). **The emitter demonstrably
+  writes the DOWN token to the real file.** That write is the **graceful-close** one — established
+  by timestamp identity, not inference: it shares its mtime **to the second** with the x64 bin's
+  `orderapp-settings.json`, and `FormClosing` persists settings unconditionally, so one close event
+  wrote both. **So the DOWN that exists on disk is a SHUTDOWN state, which is not the edge C1 exists
+  to report.** What is still unobserved is narrower and is the part worth proving: **a MID-SESSION
+  disconnect published as `"ws": "DOWN"` while the app keeps running.** Nothing can settle that
+  retroactively — the x64 bin predates `WsEdgeLog.vb` and so wrote **no `ws-edges.log`** to
+  correlate against. Full breakdown: `HANDOVER-6.md` §2 item 7.
   ⚠ Three spec-back findings against `spec-ws-edge-audit.md` are open —
   **`SB1`** (a docs finding: acceptance item 4's stated mechanism, the emitter's disposed latch,
   does not cover a writer outside `ExecutorFeedback`; the guard implemented is `isClosing`),
@@ -427,11 +444,14 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   (`SignalBridge.vb:701`) is the ENGINE's health from the payload, which drives
   `refused: ws_down`. Different things, same word.
 - **C1 runtime behaviours still unobserved** — `mode: "LIVE"` with an `acted (id …)` disposition ·
-  the `ws` **DOWN** edge *(**still unobserved AS A C1 PUBLISH** — the 2026-08-14 run had the emitter
-  disabled. But it is no longer un-evidenceable: `ws-edges.log` is live and runtime-accepted, and the
-  transition itself WAS captured. Rebuild the **x64** bin with `feedback_output_path` set and the
-  next drop closes this —* `runtime-record-ws-edge-audit-2026-08-14.md` §5*)* · a `breaker_tripped`
-  flip · a **SHORT** `size_usd` · D1's race. All
+  the `ws` **DOWN** edge *(**narrowed 2026-08-14: the DOWN TOKEN in the file is now OBSERVED** —
+  `executor_feedback.json` carried `"ws": "DOWN"` at 15:59:20 +0800, but that is the **graceful-close
+  write**, proven by same-second mtime identity with `orderapp-settings.json`. **What remains
+  unobserved is a MID-SESSION disconnect published by the emitter** — the edge that actually matters.
+  The 2026-08-14 ws-edge run had the emitter disabled, and the x64 bin writes no `ws-edges.log`.
+  Rebuild the **x64** bin with `feedback_output_path` set and the next drop closes it —*
+  `runtime-record-ws-edge-audit-2026-08-14.md` §5*)* ·
+  a `breaker_tripped` flip · a **SHORT** `size_usd` · D1's race. All
   optional, none blocking; all gated on §1.5's enable (and the first on owner ARM/START). Lists:
   `runtime-record-c1-feedback-emitter-2026-08-06.md` §10 + §11.5.
 - ~~Harness `Test-ElementMatch` exact-id match~~ — **CLOSED 2026-08-06**, `188bdab` / `3611d49`,
