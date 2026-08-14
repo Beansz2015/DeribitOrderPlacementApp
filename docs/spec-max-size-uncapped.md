@@ -112,6 +112,39 @@ Required, and deliberately bounded so it cannot flood:
 - 🚫 **Do NOT log per-signal.** A line on every sizing decision floods the host log and buries the
   disposition stream. **(a) + (b) is the whole requirement.**
 
+### 2.2b 🚨 The box must never keep showing something that is not in force
+
+**Owner requirement, 2026-08-14, and it fixes a divergence that exists TODAY — not one this spec
+introduces.**
+
+Verified:
+
+- `SeedRiskSizingFromHost()` is called from **one place only** — `InitialiseSettings()`
+  (`AutoTradeSettings.vb:143`).
+- The settings form is constructed **once** (`frmMainPageV2.vb:1013`) and thereafter reused via
+  `Show`/`Hide` (`:6158`).
+- **Therefore a cleared or garbage box keeps showing blank/garbage for the whole app session**, while
+  the engine goes on using the last good value. **Hiding and reopening the window does not resync
+  it.** Only an app relaunch does.
+
+That is a display-versus-reality divergence on the control that decides position size, and after
+§2.1 it gets sharper: `0` and blank will *look* similar and *mean* opposite things.
+
+**Requirement: after a commit, re-seed the box that raised it from the host.** The box then always
+shows what is actually in force — blank or garbage visibly snaps back to the last good value, and a
+typed `0` visibly stays `0`.
+
+- ✅ **This is safe because commits fire on `Leave`, not `TextChanged`** (`AutoTradeSettings.vb:168`,
+  `AddHandler tb.Leave, AddressOf CommitOnLeave`). The box has already lost focus, so nothing is
+  overwritten mid-typing.
+- 🚨 **Re-seed ONLY the sender.** Do **not** re-seed every box on every commit: a different box the
+  owner is part-way through typing into has not committed yet, so a blanket re-seed would silently
+  discard their keystrokes. **This is the one way to turn a display fix into data loss.**
+- **Scope for THIS spec: `txtRiskPerTrade` and `txtMaxSize` only** — the pair `SetRiskSizingValues`
+  governs. The same divergence affects the other eight `CommitOnLeave` boxes and is filed separately
+  (`ROADMAP-2026-08.md` §5); **do not widen this spec into them.** This change already removes a
+  safety ceiling, and its blast radius should stay small.
+
 ### 2.3 Why Risk / Trade is deliberately NOT changed
 
 They look symmetrical. They are not:
@@ -146,12 +179,25 @@ close the app cleanly, and assert `"max_size_usd": 0` in
 ⚠ `HANDOVER-6.md` §5.4 first — `FormClosing` persists all 11 standing fields. Restore anything else
 you touch and read it back.
 
-**2 — A BLANK box still keeps the last good value.** This is the behaviour the old guard existed for
-and it must survive. Set Max Size to `2000`, commit, then **clear the box**, commit, and assert the
-stored value is **still 2000**. **If this regresses, the change is wrong** — blank and `0` must now
-mean different things.
+**2 — A BLANK box still keeps the last good value, AND the box resyncs.** This is the behaviour the
+old guard existed for and it must survive. Set Max Size to `2000`, commit, then **clear the box** and
+tab away. Assert **both**:
+- the stored value is **still 2000**, and
+- 🚨 **the box now READS `2000`, not blank** (§2.2b). Then hide and reopen the settings window and
+  assert it still reads `2000`.
+**If either half regresses the change is wrong** — blank and `0` must now mean different things, and
+the box must never display something that is not in force.
 
-**3 — Garbage still keeps the last good value.** Type `abc`. Same assertion as 2.
+**2b — A typed `0` visibly STAYS `0`.** The mirror image of 2, and the one that proves the re-seed
+did not simply overwrite everything. Type `0`, tab away, assert the box still reads `0` and the
+stored value is `0`.
+
+**2c — Re-seeding does not eat keystrokes.** Type a new value into Max Size but **do not** leave it;
+click into Risk / Trade and tab away so *that* box commits. Assert Max Size **still shows what you
+typed** — only the sender re-seeds (§2.2b). This is the data-loss case.
+
+**3 — Garbage still keeps the last good value.** Type `abc`, tab away. Same two assertions as 2: the
+stored value is unchanged **and** the box resyncs to it.
 
 **4 — Commit and warning agree (§1.5's invariant).** With `0` in the box, assert the validation does
 **not** flag Max Size. With `abc`, assert it **does**. Then the same two checks for Risk / Trade,

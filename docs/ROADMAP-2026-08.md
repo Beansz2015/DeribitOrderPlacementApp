@@ -309,6 +309,21 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   warn, and a box that warns must not commit"*. ⚠ **Risk / Trade is deliberately excluded** — there
   `<= 0` falls back to the Amount box and would silently disable risk sizing with the checkbox still
   reading ON.
+- 🚨 **A settings box can display something that is NOT in force, for the whole app session.**
+  *(Found 2026-08-14, by the owner, while reviewing `spec-max-size-uncapped.md`.)* The boxes with the
+  keep-last-good convention silently ignore a blank or garbage entry — but **the box goes on showing
+  the blank/garbage**, because `Seed*FromHost` runs only from `InitialiseSettings()`
+  (`AutoTradeSettings.vb:143-155`) and the settings form is constructed **once**
+  (`frmMainPageV2.vb:1013`) and thereafter only `Show`/`Hide`n. **Hiding and reopening the window
+  does not resync it — only an app relaunch does.** So the control that decides position size can
+  disagree with the value the engine is using, and the owner has no way to see it.
+  **Fix: after a commit, re-seed the box that raised it** — safe because commits fire on `Leave`
+  (`AutoTradeSettings.vb:168`), never `TextChanged`. ⚠ **Re-seed the SENDER ONLY**; a blanket
+  re-seed would discard keystrokes from another box that is mid-edit and has not committed yet.
+  **`txtRiskPerTrade` and `txtMaxSize` are covered by `spec-max-size-uncapped.md` §2.2b.** This row
+  is the remaining **eight** `CommitOnLeave` boxes — `txtCooloff` · `txtCircuitBreaker` ·
+  `txtStartTime` · `txtEndTime` · `txtBridgeTiers` · `txtAtrLength` · `txtAtrFallback` ·
+  `txtMinNetMove`. Same class as **item G**, the stale-SL-box cosmetic, elsewhere in this section.
 - **`SignalBridge.vb:154`'s cooloff-anchor comment is wrong.** *(Found 2026-08-13.)* It reads
   *"cooloff anchor (acted / would-act)"*. `_lastActionUtc` is assigned in exactly one place —
   `NotifyPositionClosed()` (`:1169`) — so it anchors on **position close** and on neither of the two
