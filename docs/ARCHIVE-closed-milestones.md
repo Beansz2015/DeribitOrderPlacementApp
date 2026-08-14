@@ -121,6 +121,42 @@ because the sentence sounded like a verification and was actually a prediction.
 sentences that told a future seat what to *do* — a tier to pick, a trap to avoid, a checkbox that
 blocks START. Prose compresses safely; instructions do not.
 
+## Why session handovers are NOT retained as documents — asked and answered 2026-08-14
+
+The owner asked whether keeping a copy of each session handover would help future orchestrators.
+**Ruled: no.** Recorded here so it is not re-litigated every few sessions — and the reasoning is
+evidence, not preference.
+
+**The experiment already ran, and this repo is the result.** Six handover generations *are* retained:
+`HANDOVER.md` · `-2` · `-3` · `-4` · `-5` · `-6`. What that produced was **`HANDOVER-4.md` §5
+carrying two runtime instructions that had been REVERSED** — a seat following it as written would
+have done the opposite of the standing ruling, twice. Retention cost us SUPERSEDED banners, a
+read-path split, this archive file, and a §7 lesson. **Retained handovers here have caused more harm
+than they have prevented.**
+
+**A handover is a DERIVATIVE.** It summarises `HANDOVER-6.md`, `ROADMAP-2026-08.md` and memory —
+so it is one more layer for §7 lesson 7 to bite (a summary silently drops the caveat its source
+carried). And the split is asymmetric:
+
+- Anything durable in a handover **gets folded into `HANDOVER-6.md` anyway.** *"The real spend on
+  this repo is CONTEXT, not thinking depth"* began as handover prose and now lives at §7c.
+- What is left is **state**, which rots within days. §1's state block has been corrected **three
+  times**; §3's queue described two enables as pending after both were done.
+
+**Retaining the handover therefore retains only the part that rots.**
+
+**And the forensic value — "what did the seat believe, and when?" — is already served better by
+git.** Measured on 2026-08-14 over the last 40 commits: **mean message body 1,426 characters, median
+~1,469, 27 of 40 over 1,000, and zero empty.** Every one is tied to an exact tree state, which no
+prose document can claim. `git log` **is** the retained handover record, and it is a better one.
+
+**The rule: fold the durable part into `HANDOVER-6.md`; let git hold the rest. Do not create a
+handover archive.**
+
+⚠ **What would change this answer:** if commit messages ever thin out to one-liners, git stops
+carrying the narrative and this calculus flips. The detail in the log is doing real work — it is not
+ceremony.
+
 ## Where each kind of closed thing lives (the map, so nothing has to be hunted)
 
 | Kind | Home |
