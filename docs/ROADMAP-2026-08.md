@@ -297,6 +297,18 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   unique JSON-RPC ids per request class (old audit F15), which any response-matching work needs
   first. *(Recovered this pass — it lived only in `CODE_AUDIT_FABLE5.md` §E, which is not in the
   read path.)*
+- 🟢 **`Max Size = 0` must mean NO CAP from the form, and an uncapped state must announce itself.**
+  **SPEC WRITTEN 2026-08-14 — `spec-max-size-uncapped.md`. Ready for an implementer seat, which the
+  owner launches. Recommended: Opus, HIGH, fresh conversation.** Owner-requested. The engine already
+  treats `maxSizeUsd <= 0` as uncapped (`SignalBridge.vb:1109-1110`); only the form cannot express
+  it, because `AutoTradeSettings.vb:385` collapses a parse failure and a typed `0` to the same value
+  before `frmMainPageV2.vb:99`'s `> 0` guard sees them. **The house already does this twice** — the
+  circuit breaker and the EV chase budget both treat `0` as a deliberate, persistable OFF. Three
+  edits that must land together (`AutoTradeSettings.vb:385` · `frmMainPageV2.vb:99` ·
+  `AutoTradeSettings.vb:417`), because `:418` states the invariant *"a box that commits must not
+  warn, and a box that warns must not commit"*. ⚠ **Risk / Trade is deliberately excluded** — there
+  `<= 0` falls back to the Amount box and would silently disable risk sizing with the checkbox still
+  reading ON.
 - **`SignalBridge.vb:154`'s cooloff-anchor comment is wrong.** *(Found 2026-08-13.)* It reads
   *"cooloff anchor (acted / would-act)"*. `_lastActionUtc` is assigned in exactly one place —
   `NotifyPositionClosed()` (`:1169`) — so it anchors on **position close** and on neither of the two
