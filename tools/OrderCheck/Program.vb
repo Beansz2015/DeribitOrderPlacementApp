@@ -493,6 +493,33 @@ Module Program
         Check("risk size: a negative max_size_usd is also 'no cap', matching the button's maxUsd > 0 guard",
               SignalBridge.RiskSizedBase(25D, -1D, 64735D, 5000D) = 320D)
 
+        ' ---- Uncapped Max Size (docs/spec-max-size-uncapped.md §2.2) ----
+        ' The two fixtures ABOVE are what that spec's acceptance 8 asks for and they already existed,
+        ' so no new arithmetic pin was needed - maxSizeUsd = 0 and a negative are both pinned as NO
+        ' CAP. What was NOT pinned is the new visibility seam, and it is the half that can regress
+        ' silently: with no cap in force, NEITHER SignalBridge yellow line can fire (the clamp-up at
+        ' :1069 and the capped-by-max_size_usd at :1072 both require something to bind), so these two
+        ' lines are the ONLY thing that says an uncapped state exists. One formatter feeds both the
+        ' commit line and the startup line; pinning it is what stops them drifting apart.
+        Check("max size line: 0 announces NO CAP and states the value",
+              frmMainPageV2.BridgeMaxSizeLine(0D) = "Bridge max size: NO CAP (max_size_usd = 0)",
+              $"got '{frmMainPageV2.BridgeMaxSizeLine(0D)}'")
+        Check("max size line: a cap in force states the number, so the line is worth reading either way",
+              frmMainPageV2.BridgeMaxSizeLine(2000D) = "Bridge max size: 2000",
+              $"got '{frmMainPageV2.BridgeMaxSizeLine(2000D)}'")
+        Check("max size line: a NEGATIVE cap is uncapped too - it must not read as a 'max size: -1'",
+              frmMainPageV2.BridgeMaxSizeLine(-1D) = "Bridge max size: NO CAP (max_size_usd = -1)",
+              $"got '{frmMainPageV2.BridgeMaxSizeLine(-1D)}'")
+        ' The line renders INVARIANTLY. Under a comma-decimal culture a current-culture render would
+        ' print "2000,5", which is the same class of defect as fixture 1's day-first parse bug.
+        Check("max size line: rendered invariantly, never in the current culture",
+              frmMainPageV2.BridgeMaxSizeLine(2000.5D) = "Bridge max size: 2000.5",
+              $"got '{frmMainPageV2.BridgeMaxSizeLine(2000.5D)}'")
+        ' The two states must never collide: whatever the wording, "no cap" and "capped" have to be
+        ' distinguishable by a reader scanning the host log.
+        Check("max size line: the uncapped and capped renderings are distinct strings",
+              frmMainPageV2.BridgeMaxSizeLine(0D) <> frmMainPageV2.BridgeMaxSizeLine(2000D))
+
         ' The -1 sentinel arm: every input the formula cannot use. dist = 0 cannot occur past
         ' 'refused: levels', but entry CAN (the levels gate reads stop/target only) and a
         ' hand-edited risk_per_trade_usd of 0 can too - hence the act site's fail-safe.

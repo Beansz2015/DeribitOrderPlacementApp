@@ -92,6 +92,18 @@ Public Class frmMainPageV2
         userSettings.RiskSizeBridgeTrades = value
     End Sub
 
+    ' Uncapped Max Size §2.2 (docs/spec-max-size-uncapped.md): ONE formatter, shared by both
+    ' visibility lines - the commit line below and the startup line at frmMainPageV2_Load. Two
+    ' copies of this string would drift, and the drift would be silent in the worst direction: the
+    ' startup line would go on announcing a cap the commit path had already removed. Shared so
+    ' OrderCheck can pin it. The value is stated in BOTH states, so the line is worth reading when
+    ' the cap is in force too.
+    Friend Shared Function BridgeMaxSizeLine(maxSizeUsd As Decimal) As String
+        Dim v As String = maxSizeUsd.ToString(Globalization.CultureInfo.InvariantCulture)
+        If maxSizeUsd <= 0D Then Return $"Bridge max size: NO CAP (max_size_usd = {v})"
+        Return $"Bridge max size: {v}"
+    End Function
+
     ' THE TWO BOXES NO LONGER SHARE A CONVENTION, and the asymmetry is deliberate
     ' (docs/spec-max-size-uncapped.md §2.1 edit 2 and §2.3):
     '
@@ -111,7 +123,15 @@ Public Class frmMainPageV2
     Friend Sub SetRiskSizingValues(riskPerTrade As Decimal, maxSize As Decimal)
         If userSettings Is Nothing Then userSettings = New AppUserSettings()
         If riskPerTrade > 0D Then userSettings.RiskPerTradeUsd = riskPerTrade
-        userSettings.MaxSizeUsd = maxSize
+        ' §2.2 (a): one line when the cap actually CHANGES, so removing a size ceiling can never be
+        ' silent and the owner sees it the moment they do it. Guarded on a real change, which is
+        ' what keeps it bounded: the seed-then-commit in InitialiseSettings is a no-op, and every
+        ' other box's Leave re-commits the same value and says nothing. NOT logged per signal.
+        If maxSize <> userSettings.MaxSizeUsd Then
+            userSettings.MaxSizeUsd = maxSize
+            AppendColoredText(txtLogs, BridgeMaxSizeLine(maxSize),
+                              If(maxSize <= 0D, Color.Yellow, Color.Gray))
+        End If
     End Sub
 
     ' Circuit breaker (spec-breaker-persist-atr7-item8.md R1) - same arrangement as the risk keys:
@@ -998,6 +1018,15 @@ Public Class frmMainPageV2
             Else
                 AppendColoredText(txtLogs, "Trade defaults restored from orderapp-settings.json", Color.LimeGreen)
             End If
+            ' Uncapped Max Size §2.2 (b): exactly one line, PRESENT EITHER WAY - modelled on the
+            ' notifier / ExecutorFeedback startup pair above, and placed here because this is the
+            ' settings-derived neighbour. A restart must not be able to hide an uncapped state, and
+            ' with no cap in force neither SignalBridge yellow line (:1069 clamp-up, :1072 capped)
+            ' can ever fire, so without this the loudest possible setting is the quietest thing in
+            ' the app. Reads the property, not the box, so it states what is actually IN FORCE
+            ' (including the 500D fallback when the file would not load).
+            AppendColoredText(txtLogs, BridgeMaxSizeLine(MaxSizeUsd),
+                              If(MaxSizeUsd <= 0D, Color.Yellow, Color.Gray))
             ApplyUserSettingsToControls()
             ' EV chase budget §4: the knob + fee block are file-only reads, so they seed the plain
             ' hot-path fields directly rather than riding a control's TextChanged. Must precede the
