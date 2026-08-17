@@ -307,11 +307,26 @@ The coordinator queue is `ROADMAP-2026-08.md` §5; the owner queue is that doc's
 | **N2 risk sizing** | ✅ **ENABLED**, `risk_per_trade_usd = 1.0` · `max_size_usd = 2000` applied 2026-08-14. **Log-only verification COMPLETE — all three session buckets, 14/14 sizes exact.** |
 | **N2 LIVE** | ❌ Never run. **Owner's decision alone.** Nothing technical blocks it. |
 | **ws-edge audit** | ✅ Built, reviewed, **APPROVED** 2026-08-14 (`spec-ws-edge-audit.md` §Coordinator review). |
-| **Uncapped Max Size** | 🟢 **SPEC WRITTEN, SEAT NOT LAUNCHED** — `spec-max-size-uncapped.md`. Opus/HIGH. |
+| **Uncapped Max Size** | ✅ **BUILT, REVIEWED, APPROVED 2026-08-18** — `8831f62`/`d1d17ad`/`717eb9b`, report `impl-report-max-size-uncapped.md`, review `review-max-size-uncapped.md`. Gate 294/294, censuses unmoved. **Four findings, none blocking; `SB7` wants an owner ruling.** ⚠ **The x64 bin does not carry it yet.** |
+| **ws DOWN edge** | ✅ **FULLY CLOSED 2026-08-14** — `runtime-record-ws-down-emitter-2026-08-14.md`. ⚠ The failed-reconnect suppression is **still unproven** and looks proven. |
 
-🚨 **The owner's x64 bin does NOT carry the ws-edge code.** The gate is AnyCPU-only. Rebuild x64
-before relying on `ws-edges.log` in a real session, then re-check the `Environment` key **and** the
-`— TESTNET` title (§4).
+🚨 **THE GATE NEVER BUILDS x64, SO THE OWNER'S BIN ALWAYS LAGS HEAD BY WHATEVER LANDED SINCE THE
+LAST MANUAL REBUILD.** Written generally on purpose: this warning has now gone stale twice by naming
+one feature, which is `§7` lesson 6 in miniature. **Do not ask "does it have feature X" from memory —
+measure it.**
+
+```powershell
+$b = [IO.File]::ReadAllBytes("DeribitOrderPlacementApp\bin\x64\Debug\net9.0-windows8.0\DeribitOrderPlacementApp.dll")
+[Text.Encoding]::ASCII.GetString($b).Contains('WsEdgeLog')          # a TYPE name - no alignment hazard
+```
+
+**Current, measured 2026-08-18:** x64 **carries** `WsEdgeLog` (rebuilt 2026-08-14) · x64 **does NOT
+carry** `BridgeMaxSizeLine`. Rebuild with
+`dotnet build DeribitOrderPlacementApp\DeribitOrderPlacementApp.vbproj -c Debug -p:Platform=x64`,
+then re-check the `Environment` key **and** the `— TESTNET` title (§4).
+⚠ **Scan for a TYPE name, not a string literal.** Literals live in the UTF-16 `#US` heap and a
+naive offset-0 decode misses any that sit at an odd byte offset — that produced a **false negative**
+at this seat on 2026-08-18. Full method: memory `gate-does-not-build-x64-bin`.
 
 ⚠ *Corrected 2026-08-07: this line read "ACTIVE THREAD: C1 acceptance 3 (owner — the last one)"
 while §2.7 of this same document already recorded acceptance 3 as PASSED — the two paragraphs

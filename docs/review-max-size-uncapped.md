@@ -38,12 +38,38 @@ before the owner rebuilds x64.
 | **`SB1`** (spec §2.2b names only `Leave`) | ✅ **UPHELD** | Spec lines 137-139 cite `Leave` alone; `CommitOnEnterKey` is wired to the same ten boxes at `AutoTradeSettings.vb:169` and commits at `:275`. Implementing both paths was **required**, not optional |
 | **`SB2`** (acceptance 7's OrderCheck figure stale) | ✅ **UPHELD** | Spec line 221 asks **268/268**. It was already **289/289** at `8232e9e` — verified at this seat before the implementer started |
 | **`SB3`** (acceptance 8's fixture already existed) | ✅ **UPHELD, independently** | Both uncapped-arm fixtures appear in **this seat's own gate output at `8232e9e`**, before any of this work. Not taken from the report |
-| **`SB4`** (acceptance 2c cannot discriminate) | ✅ **UPHELD as reasoning** | The structural argument is sound and matches the code. ⚠ Not independently reproduced — needs the harness. See §4 |
+| **`SB4`** (acceptance 2c cannot discriminate) | ✅ **UPHELD — and now CONFIRMED AT THE CODE, not merely accepted as reasoning** | See §2.1 below |
 | **`SB5`** (two `tools/` harness findings) | ⚠️ **UPHELD on bullet 2; bullet 1's EVIDENCE is wrong** — see `SB8` below | `Get-FocusSink` (`tools/harness-common.ps1:266-275`) does return the **first** focusable, on-screen, non-excluded Edit. Confirmed |
 | **`SB6`** (commit line is a superset of §2.2 (a)) | ✅ **UPHELD, and the superset is the better behaviour** | Spec line 103 asks for a line *"when the setting changes to uncapped"*. Firing on **any** change is correct: a line only on the way in would leave the log's last word reading `NO CAP` while a cap was back in force |
 
-**On the design decision the report calls out (§2.1):** it is the right call and it is the load-bearing
-one. `SetRiskSizingValues` carries both settings, so the breaker's guard-the-call shape is genuinely
+### 2.1 `SB4` — confirmed at the code, and it had an unclosed consequence
+
+**The structural claim is TRUE, and it is now proven rather than argued.** Re-seeding fires from
+**exactly two call sites** — `CommitOnLeave` (`AutoTradeSettings.vb:268`) and `CommitOnEnterKey`
+(`:276`) — and **both pass the focused box as `sender`**. Enumerated at this seat: the form declares
+**no `TextChanged` handler at all**; its whole `AddHandler` set is the ten boxes'
+`Enter`/`Click`/`Leave`/`KeyDown` (`:166-169`), `txtSessionPolicy.Leave` (`:183`), two
+`CheckedChanged`, and three non-input handlers. All four `CommitToolingConfig` callers were checked
+(`:162`, `:267`, `:275`, `:501`) — **none can fire while a non-focused box is dirty.**
+
+⇒ With one keyboard focus, **the box holding uncommitted keystrokes is always the sender.** A blanket
+re-seed and a sender-only re-seed are behaviourally identical through this UI. `SB4` is right.
+
+🚨 **The consequence the report did not draw, and which this review acts on:** if 2c cannot fail,
+then **the spec still contains a live-looking acceptance that is unfalsifiable**, and the next seat
+greps the spec, finds it, and re-runs a test that proves nothing. The report's warning was in the
+*report*; the trap was in the *spec*. **`docs/spec-max-size-uncapped.md` acceptance 2c is now STRUCK
+in place**, with the reason, the code evidence, and — importantly — a note that the sender-scoping
+**stays**, because it now guards a *future* hazard (a `TextChanged` commit, a timer commit, a second
+editing surface) rather than a reachable one. Without that note the next simplification pass deletes
+the scoping on the grounds that nothing tests it.
+
+**A second-order point worth stating:** the spec's own justification for §2.2b — *"a blanket re-seed
+would silently discard their keystrokes"* — describes a state this UI cannot reach. The rule is
+right; its stated reason is not. That is recorded in the spec rather than left for rediscovery.
+
+**On the design decision the report calls out (§2.1 of the report):** it is the right call and it is
+the load-bearing one. `SetRiskSizingValues` carries both settings, so the breaker's guard-the-call shape is genuinely
 unavailable, and the obvious substitute — leaving `maxSize = 0D` on a parse failure — **would have made
 every typo mean UNCAPPED** after edit 2. Re-sending `_host.MaxSizeUsd` is correct and stays silent.
 

@@ -192,9 +192,31 @@ the box must never display something that is not in force.
 did not simply overwrite everything. Type `0`, tab away, assert the box still reads `0` and the
 stored value is `0`.
 
-**2c — Re-seeding does not eat keystrokes.** Type a new value into Max Size but **do not** leave it;
-click into Risk / Trade and tab away so *that* box commits. Assert Max Size **still shows what you
-typed** — only the sender re-seeds (§2.2b). This is the data-loss case.
+**2c — ~~Re-seeding does not eat keystrokes.~~ 🔴 STRUCK 2026-08-18. THIS ACCEPTANCE CANNOT FAIL —
+do not re-run it and do not read its ✅ in the impl report as evidence.**
+
+*Original wording, kept so a grep still finds it:* ~~Type a new value into Max Size but **do not**
+leave it; click into Risk / Trade and tab away so *that* box commits. Assert Max Size **still shows
+what you typed** — only the sender re-seeds (§2.2b). This is the data-loss case.~~
+
+**Why it is unfalsifiable** (implementer finding `SB4`; **confirmed at the code in the coordinator
+review**, `review-max-size-uncapped.md`): re-seeding fires from **exactly two places**,
+`CommitOnLeave` (`AutoTradeSettings.vb:268`) and `CommitOnEnterKey` (`:276`), and **both carry the
+focused box as `sender`.** There is **no `TextChanged` handler on this form at all**. With a single
+keyboard focus it follows that **the box holding uncommitted keystrokes is always the sender of the
+next commit** — so no other box can be mid-edit when a re-seed runs. **A blanket re-seed and a
+sender-only re-seed are therefore behaviourally identical through this UI**, and 2c passes either way.
+An acceptance that cannot fail is worse than none, because it reads as evidence (`HANDOVER-6.md` §7
+lesson 2).
+
+🚨 **The sender-scoping in §2.2b STAYS, and the reason has changed.** It is no longer guarding a
+reachable hazard — it is guarding a **future** one. Add any of these and it becomes load-bearing
+immediately: a `TextChanged`-driven commit · a timer or bridge-event commit · a second focusable
+surface editing the same pair. **Keep the scoping. Do not "simplify" it to a blanket re-seed on the
+grounds that no test covers it** — that is precisely backwards, and this paragraph exists to stop it.
+
+**If you need real coverage of the data-loss case, it has to be a unit-level fixture on
+`ReseedSenderFromHost`, not a UI acceptance.** The UI cannot express the input.
 
 **3 — Garbage still keeps the last good value.** Type `abc`, tab away. Same two assertions as 2: the
 stored value is unchanged **and** the box resyncs to it.
