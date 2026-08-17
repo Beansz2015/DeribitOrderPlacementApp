@@ -92,11 +92,26 @@ Public Class frmMainPageV2
         userSettings.RiskSizeBridgeTrades = value
     End Sub
 
-    ' Same convention as SetToolingValues: non-positive (= blank/garbage box) keeps the last good value.
+    ' THE TWO BOXES NO LONGER SHARE A CONVENTION, and the asymmetry is deliberate
+    ' (docs/spec-max-size-uncapped.md §2.1 edit 2 and §2.3):
+    '
+    '   * riskPerTrade keeps SetToolingValues' rule - non-positive (= blank/garbage box) keeps the
+    '     last good value. It MUST stay that way. risk <= 0 makes RiskSizedBase return -1, so
+    '     RiskSizedOrFallback falls back to the raw Amount box (SignalBridge.vb:1092-1095) while the
+    '     Risk-size checkbox still reads ON. A persistable "risk 0" would silently disable risk
+    '     sizing and disagree with its own checkbox, with nothing to tell the owner. The guard is
+    '     protecting the owner here; do not make the two symmetrical.
+    '
+    '   * maxSize takes WHATEVER the caller passes, INCLUDING 0. RiskSizedBase has always read
+    '     maxSizeUsd <= 0 as NO CAP (SignalBridge.vb:1109/:1127) - the form simply could not spell
+    '     it, because the old > 0D guard here discarded a deliberately typed 0. The caller
+    '     (AutoTradeSettings.CommitToolingConfig) is what now declines to change this value on a
+    '     PARSE FAILURE, exactly as the circuit breaker does. Blank still keeps the last good value;
+    '     it is now the parse, not this guard, that decides so.
     Friend Sub SetRiskSizingValues(riskPerTrade As Decimal, maxSize As Decimal)
         If userSettings Is Nothing Then userSettings = New AppUserSettings()
         If riskPerTrade > 0D Then userSettings.RiskPerTradeUsd = riskPerTrade
-        If maxSize > 0D Then userSettings.MaxSizeUsd = maxSize
+        userSettings.MaxSizeUsd = maxSize
     End Sub
 
     ' Circuit breaker (spec-breaker-persist-atr7-item8.md R1) - same arrangement as the risk keys:

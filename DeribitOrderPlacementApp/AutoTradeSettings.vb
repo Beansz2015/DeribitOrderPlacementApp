@@ -265,6 +265,7 @@ Public Class AutoTradeSettings
     Private Sub CommitOnLeave(sender As Object, e As EventArgs)
         CommitGateConfig()
         CommitToolingConfig()
+        ReseedSenderFromHost(sender)
     End Sub
 
     Private Sub CommitOnEnterKey(sender As Object, e As KeyEventArgs)
@@ -272,7 +273,46 @@ Public Class AutoTradeSettings
         e.SuppressKeyPress = True   ' no ding
         CommitGateConfig()
         CommitToolingConfig()
+        ReseedSenderFromHost(sender)
         RefreshBridgePanel()
+    End Sub
+
+    ' Uncapped Max Size §2.2b (docs/spec-max-size-uncapped.md): after a commit, re-seed the box that
+    ' RAISED it from the host, so the control can never go on displaying something that is not in
+    ' force. Blank or garbage visibly snaps back to the last good value; a typed 0 visibly stays 0.
+    '
+    ' This fixes a divergence that already existed. SeedRiskSizingFromHost runs from exactly ONE
+    ' place (InitialiseSettings, :143) and this form is constructed once and thereafter reused via
+    ' Show/Hide, so before this a cleared box kept showing blank for the whole app session while the
+    ' engine went on sizing off the last good value. Only an app relaunch resynced it. After the
+    ' commit change above that divergence gets sharper, because 0 and blank now LOOK similar and
+    ' MEAN opposite things.
+    '
+    ' 🚨 ONLY THE SENDER, and this is the one way to turn a display fix into data loss. A blanket
+    ' re-seed would overwrite a DIFFERENT box the owner is part-way through typing into - that box
+    ' has not committed yet, so its keystrokes would be discarded with nothing to show for it.
+    '
+    ' Safe because both callers are commit-completion points, not TextChanged: on Leave the box has
+    ' already lost focus, and on the Enter key the owner has just asked for the commit explicitly.
+    ' (§2.2b names only Leave; CommitOnEnterKey is a second commit path on the same boxes, and
+    ' leaving it out would have left exactly the divergence this requirement exists to close.)
+    '
+    ' Scope is deliberately the SetRiskSizingValues PAIR only. The same divergence affects the other
+    ' eight CommitOnLeave boxes and is filed separately (ROADMAP-2026-08.md §5) - this change
+    ' removes a safety ceiling, so its blast radius stays small. txtSessionPolicy also reaches here
+    ' and is correctly untouched.
+    Private Sub ReseedSenderFromHost(sender As Object)
+        If _host Is Nothing Then Return
+        Dim tb = TryCast(sender, TextBox)
+        If tb Is Nothing Then Return
+        ' Same formatting as SeedRiskSizingFromHost (:368-369) on purpose: the initial seed and the
+        ' re-seed must render an identical value identically, or reopening the form would look like
+        ' a change. .ToString() round-trips a 0 back as "0", never as blank (§2.4).
+        If tb Is txtMaxSize Then
+            txtMaxSize.Text = _host.MaxSizeUsd.ToString()
+        ElseIf tb Is txtRiskPerTrade Then
+            txtRiskPerTrade.Text = _host.RiskPerTradeUsd.ToString()
+        End If
     End Sub
 
     ' Reads the gate boxes into the mirrors. Invalid/blank input leaves the previous value in place
@@ -377,12 +417,28 @@ Public Class AutoTradeSettings
         If Not Decimal.TryParse(txtAtrFallback.Text, fallback) Then fallback = 0D
         _host.SetToolingValues(len, fallback)   ' host ignores non-positive values
 
-        ' §2: risk-sizing values - same contract (host ignores non-positive, so blank/garbage
-        ' keeps the last good value; persistence rides item A's save path, no new one here).
+        ' §2: risk-sizing values. THE TWO BOXES NOW FOLLOW DIFFERENT CONTRACTS
+        ' (docs/spec-max-size-uncapped.md §2.1 edit 1; the asymmetry is ruled in that spec's §2.3):
+        '
+        '   * risk/trade keeps SetToolingValues' contract - the host ignores non-positive, so blank
+        '     or garbage collapses to 0D here and keeps the last good value there.
+        '
+        '   * max size follows the CIRCUIT BREAKER's contract instead (:284-289): only a PARSE
+        '     FAILURE keeps the last good value, and whatever parsed is committed - INCLUDING 0,
+        '     which is how RiskSizedBase has always spelled "no cap". Collapsing a parse failure to
+        '     0D, which this code used to do for both boxes, destroyed the one distinction that
+        '     matters: Decimal.TryParse("") FAILS and Decimal.TryParse("0") SUCCEEDS. Blank and an
+        '     explicit 0 were already distinguishable, and the old line threw that away before the
+        '     host could act on it.
+        '
+        ' Persistence rides item A's save path for both; no new one here.
         Dim risk As Decimal
         Dim maxSize As Decimal
         If Not Decimal.TryParse(txtRiskPerTrade.Text, risk) Then risk = 0D
-        If Not Decimal.TryParse(txtMaxSize.Text, maxSize) Then maxSize = 0D
+        ' The setter is SHARED with risk/trade, so the breaker's "guard the call" shape is not
+        ' available here. Re-sending the value already in force is the same thing: the host sees no
+        ' change, keeps the last good value, and stays silent (no §2.2 (a) line for a typo).
+        If Not Decimal.TryParse(txtMaxSize.Text, maxSize) Then maxSize = _host.MaxSizeUsd
         _host.SetRiskSizingValues(risk, maxSize)
 
         ' EV chase budget §4. Two things are deliberately different from the boxes above:
@@ -414,7 +470,12 @@ Public Class AutoTradeSettings
         If Not Integer.TryParse(txtAtrLength.Text, len) OrElse len <= 0 Then problems.Add($"ATR length '{txtAtrLength.Text}'")
         If Not Decimal.TryParse(txtAtrFallback.Text, d) OrElse d <= 0D Then problems.Add($"ATR fallback '{txtAtrFallback.Text}'")
         If Not Decimal.TryParse(txtRiskPerTrade.Text, d) OrElse d <= 0D Then problems.Add($"risk/trade '{txtRiskPerTrade.Text}'")
-        If Not Decimal.TryParse(txtMaxSize.Text, d) OrElse d <= 0D Then problems.Add($"max size '{txtMaxSize.Text}'")
+        ' Uncapped Max Size §2.1 edit 3: a PARSE failure only. 0 now COMMITS as a deliberate,
+        ' persistable "no cap", so it must not be flagged - the invariant stated three lines below
+        ' for the EV box governs this one too: A BOX THAT COMMITS MUST NOT WARN, AND A BOX THAT
+        ' WARNS MUST NOT COMMIT. The risk/trade line above keeps its <= 0 arm precisely because it
+        ' does NOT commit a non-positive value. Do not unify the two.
+        If Not Decimal.TryParse(txtMaxSize.Text, d) Then problems.Add($"max size '{txtMaxSize.Text}'")
         ' EV chase budget §4: a PARSE failure only - 0 and negatives are valid ways to spell OFF.
         ' Checked invariantly, matching the commit above (a box that commits must not warn, and a
         ' box that warns must not commit).
