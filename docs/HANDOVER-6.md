@@ -307,7 +307,7 @@ The coordinator queue is `ROADMAP-2026-08.md` §5; the owner queue is that doc's
 | **N2 risk sizing** | ✅ **ENABLED**, `risk_per_trade_usd = 1.0` · `max_size_usd = 2000` applied 2026-08-14. **Log-only verification COMPLETE — all three session buckets, 14/14 sizes exact.** |
 | **N2 LIVE** | ❌ Never run. **Owner's decision alone.** Nothing technical blocks it. |
 | **ws-edge audit** | ✅ Built, reviewed, **APPROVED** 2026-08-14 (`spec-ws-edge-audit.md` §Coordinator review). |
-| **Uncapped Max Size** | ✅ **BUILT, REVIEWED, APPROVED 2026-08-18** — `8831f62`/`d1d17ad`/`717eb9b`, report `impl-report-max-size-uncapped.md`, review `review-max-size-uncapped.md`. Gate 294/294, censuses unmoved. **Four findings, none blocking; `SB7` wants an owner ruling.** ⚠ **The x64 bin does not carry it yet.** |
+| **Uncapped Max Size** | ✅ **BUILT, REVIEWED, APPROVED; ALL FOUR FINDINGS CLOSED 2026-08-19** — `8831f62`/`d1d17ad`/`717eb9b`, report `impl-report-max-size-uncapped.md`, review `review-max-size-uncapped.md`. Gate 294/294, censuses unmoved. **`SB6` and `SB7` owner-ruled 2026-08-19 and folded into the spec; `D1`/`D2` fixed.** ⚠ **The x64 bin does not carry it yet.** |
 | **ws DOWN edge** | ✅ **FULLY CLOSED 2026-08-14** — `runtime-record-ws-down-emitter-2026-08-14.md`. ⚠ The failed-reconnect suppression is **still unproven** and looks proven. |
 
 🚨 **THE GATE NEVER BUILDS x64, SO THE OWNER'S BIN ALWAYS LAGS HEAD BY WHATEVER LANDED SINCE THE

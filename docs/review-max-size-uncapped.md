@@ -147,3 +147,22 @@ focus"*. Severity LOW, report accuracy only.
   then re-check `Environment: testnet` **and** the `— TESTNET` title.
 - **Owner rulings wanted:** `SB7` (is uncapping the manual SIZE button intended, and should the two
   lines stop saying "Bridge"?) and `SB6` (keep the superset — this review recommends **keep**).
+
+---
+
+## 6. ✅ RULINGS RECEIVED AND LANDED — 2026-08-19
+
+**The owner accepted `SB6` and `SB7` as recommended. All four findings are now closed.**
+
+| Finding | Ruling | Landed as |
+|---|---|---|
+| **`SB7`** (`max_size_usd` also governs the manual SIZE button) | **ACCEPTED** — one setting, one meaning. Wording drops "Bridge" | `MaxSizeLine` (renamed from `BridgeMaxSizeLine`); lines now read `Max size: NO CAP (max_size_usd = 0)` / `Max size: 2000`. Spec §2.2c + the Do-not-touch table now name the button |
+| **`SB6`** (commit line is a superset of §2.2 (a)) | **KEEP the superset** | No code change. Ruling recorded at `frmMainPageV2.vb:130`-region and spec §2.2c, with an explicit *do not narrow this* |
+| **`D1`** (fixture asserts a nonexistent `maxUsd > 0` guard) | fix | Fixture renamed to *"and NOTHING guards maxUsd upstream"*, with the real guard list in a comment |
+| **`D2`** (invariant-culture fixture was vacuous) | fix | Now renders under **de-DE** inside a save/restore, asserting `2000.5` and **not** `2000,5`. Verified the two renderings genuinely differ under de-DE, so the pin has teeth |
+
+**Re-verified after these edits:** `GATE PASSED, OrderCheck 294/294` · nine censuses **68 across 64
+lines, zero drift** (`frmMainPageV2.vb` was edited, so they were re-run, not assumed).
+
+⚠ **Unchanged by all of this: the owner's x64 bin still does not carry the feature.** The rename does
+not alter that — `MaxSizeLine` is absent from the x64 assembly until it is rebuilt.

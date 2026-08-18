@@ -490,7 +490,12 @@ Module Program
         Check("risk size: max_size_usd = 0 means NO CAP (320), NOT a collapse to the 10-USD minimum",
               SignalBridge.RiskSizedBase(25D, 0D, 64735D, 5000D) = 320D,
               $"got {SignalBridge.RiskSizedBase(25D, 0D, 64735D, 5000D)}")
-        Check("risk size: a negative max_size_usd is also 'no cap', matching the button's maxUsd > 0 guard",
+        ' D1 (docs/review-max-size-uncapped.md): this line used to end "matching the button's
+        ' maxUsd > 0 guard". THERE IS NO SUCH GUARD. ApplyRiskBasedSize (frmMainPageV2.vb:322-364)
+        ' guards refPrice, dist, riskUsd and the min-10 result; maxUsd is read at :339 and passed
+        ' straight through at :353. Harmless while the form could not commit a 0 - load-bearing now
+        ' that it can, and the owner's SB7 ruling accepts a 0 uncaps the MANUAL SIZE BUTTON too.
+        Check("risk size: a negative max_size_usd is also 'no cap' - and NOTHING guards maxUsd upstream",
               SignalBridge.RiskSizedBase(25D, -1D, 64735D, 5000D) = 320D)
 
         ' ---- Uncapped Max Size (docs/spec-max-size-uncapped.md §2.2) ----
@@ -502,23 +507,33 @@ Module Program
         ' lines are the ONLY thing that says an uncapped state exists. One formatter feeds both the
         ' commit line and the startup line; pinning it is what stops them drifting apart.
         Check("max size line: 0 announces NO CAP and states the value",
-              frmMainPageV2.BridgeMaxSizeLine(0D) = "Bridge max size: NO CAP (max_size_usd = 0)",
-              $"got '{frmMainPageV2.BridgeMaxSizeLine(0D)}'")
+              frmMainPageV2.MaxSizeLine(0D) = "Max size: NO CAP (max_size_usd = 0)",
+              $"got '{frmMainPageV2.MaxSizeLine(0D)}'")
         Check("max size line: a cap in force states the number, so the line is worth reading either way",
-              frmMainPageV2.BridgeMaxSizeLine(2000D) = "Bridge max size: 2000",
-              $"got '{frmMainPageV2.BridgeMaxSizeLine(2000D)}'")
+              frmMainPageV2.MaxSizeLine(2000D) = "Max size: 2000",
+              $"got '{frmMainPageV2.MaxSizeLine(2000D)}'")
         Check("max size line: a NEGATIVE cap is uncapped too - it must not read as a 'max size: -1'",
-              frmMainPageV2.BridgeMaxSizeLine(-1D) = "Bridge max size: NO CAP (max_size_usd = -1)",
-              $"got '{frmMainPageV2.BridgeMaxSizeLine(-1D)}'")
-        ' The line renders INVARIANTLY. Under a comma-decimal culture a current-culture render would
-        ' print "2000,5", which is the same class of defect as fixture 1's day-first parse bug.
-        Check("max size line: rendered invariantly, never in the current culture",
-              frmMainPageV2.BridgeMaxSizeLine(2000.5D) = "Bridge max size: 2000.5",
-              $"got '{frmMainPageV2.BridgeMaxSizeLine(2000.5D)}'")
+              frmMainPageV2.MaxSizeLine(-1D) = "Max size: NO CAP (max_size_usd = -1)",
+              $"got '{frmMainPageV2.MaxSizeLine(-1D)}'")
+        ' D2 (docs/review-max-size-uncapped.md): this pin used to render under the AMBIENT culture.
+        ' This box is en-MY, whose decimal separator is ALREADY a dot, so it passed identically
+        ' whether the code was invariant or not - a fixture that could not fail. Switch the culture
+        ' the way fixture 1 (:108-119) and C1 fixture 6 (:964-972) do, or the pin proves nothing.
+        Dim savedMaxLine As CultureInfo = CultureInfo.CurrentCulture
+        Dim deMaxLine As String
+        Try
+            CultureInfo.CurrentCulture = New CultureInfo("de-DE")
+            deMaxLine = frmMainPageV2.MaxSizeLine(2000.5D)
+        Finally
+            CultureInfo.CurrentCulture = savedMaxLine
+        End Try
+        Check("max size line: rendered invariantly EVEN UNDER de-DE, never in the current culture",
+              deMaxLine = "Max size: 2000.5" AndAlso Not deMaxLine.Contains("2000,5"),
+              $"got '{deMaxLine}'")
         ' The two states must never collide: whatever the wording, "no cap" and "capped" have to be
         ' distinguishable by a reader scanning the host log.
         Check("max size line: the uncapped and capped renderings are distinct strings",
-              frmMainPageV2.BridgeMaxSizeLine(0D) <> frmMainPageV2.BridgeMaxSizeLine(2000D))
+              frmMainPageV2.MaxSizeLine(0D) <> frmMainPageV2.MaxSizeLine(2000D))
 
         ' The -1 sentinel arm: every input the formula cannot use. dist = 0 cannot occur past
         ' 'refused: levels', but entry CAN (the levels gate reads stop/target only) and a

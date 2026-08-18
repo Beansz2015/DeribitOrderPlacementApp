@@ -22,6 +22,7 @@ Make an explicitly typed `0` commit, and make the resulting uncapped state visib
 | The **Risk / Trade** box | everywhere | Deliberately excluded — see §2.3. |
 | The circuit-breaker commit path | `AutoTradeSettings.vb:284-289` | It is the **model** you are copying. Read it; do not modify it. |
 | `EffectiveSizeUsd`, the min-10 clamp, the session multiplier | `SignalBridge.vb` | Downstream of the cap and unaffected. |
+| The **manual SIZE button** (`ApplyRiskBasedSize`, `frmMainPageV2.vb:322-364`) | not edited, but **IN SCOPE BY CONSEQUENCE** | ⚠ **This table originally omitted it, and that was a scope defect** (`SB7`). It reads the same `MaxSizeUsd` (`:339`) and passes it to the same `RiskSizedBase` (`:353`) with **no guard**, so `Max Size = 0` uncaps this button too. **Owner-ruled ACCEPTED 2026-08-19** — see §2.2c. Do not add a guard here without reversing that ruling. |
 
 **Standing rules** (`HANDOVER-6.md` §7): a seat never places a trade and never arms the bridge ·
 **escalate a spec defect to the owner BEFORE implementing** · `E`/`D`/`SB` convention (§7bb) · the
@@ -111,6 +112,30 @@ Required, and deliberately bounded so it cannot flood:
   `Bridge max size: NO CAP (max_size_usd = 0)` · `Bridge max size: 2000`
 - 🚫 **Do NOT log per-signal.** A line on every sizing decision floods the host log and buries the
   disposition stream. **(a) + (b) is the whole requirement.**
+
+### 2.2c ✅ OWNER RULINGS 2026-08-19 — both folded in. Do not re-litigate either.
+
+**`SB6` — the commit line fires on ANY change, not only on the change TO uncapped. SUPERSET KEPT.**
+The wording in (a) above is the narrower thing this spec originally asked for and is **superseded**.
+Reason the superset wins: a line only on the way *in* leaves the way *out* silent, so the log's last
+word on max size would read `NO CAP` while a cap was back in force. An audit reading that session
+afterwards would conclude it ran uncapped when it did not. It stays bounded because it is
+change-guarded, not per-signal — a 10-payload soak added zero lines.
+🚫 **Do not narrow the guard to `If maxSize <= 0D`** without reversing this ruling.
+
+**`SB7` — `max_size_usd` is NOT bridge-only, and the lines must not say "Bridge".**
+Raised in `review-max-size-uncapped.md` §3. `ApplyRiskBasedSize` — **the MANUAL SIZE BUTTON** —
+reads the same `MaxSizeUsd` (`frmMainPageV2.vb:339`) and passes it to the same `RiskSizedBase`
+(`:353`), **with nothing guarding it on the way**. So `Max Size = 0` uncaps the button as well as the
+bridge act path. Ruled: **accept the uncapping** — one setting, one meaning; carving out an exception
+would make the key mean two different things depending on the reader.
+**Consequences, all landed:**
+- Wording is **`Max size: NO CAP (max_size_usd = 0)`** · **`Max size: 2000`**. The word *Bridge* is
+  gone. The suggested wording in (a)/(b) above is **superseded**.
+- The formatter was **renamed `BridgeMaxSizeLine` → `MaxSizeLine`**. The name is how the
+  misconception would come back.
+- ⚠ **This spec's scope statement was wrong by one path.** The Do-not-touch table never named that
+  button. It is in scope **by consequence**, not by edit — no line in `ApplyRiskBasedSize` changed.
 
 ### 2.2b 🚨 The box must never keep showing something that is not in force
 

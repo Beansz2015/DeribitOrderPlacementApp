@@ -98,10 +98,18 @@ Public Class frmMainPageV2
     ' startup line would go on announcing a cap the commit path had already removed. Shared so
     ' OrderCheck can pin it. The value is stated in BOTH states, so the line is worth reading when
     ' the cap is in force too.
-    Friend Shared Function BridgeMaxSizeLine(maxSizeUsd As Decimal) As String
+    '
+    ' 🚨 IT DOES NOT SAY "Bridge", DELIBERATELY. OWNER RULING 2026-08-19, spec-back SB7 in
+    ' docs/review-max-size-uncapped.md: max_size_usd is NOT bridge-only. ApplyRiskBasedSize - the
+    ' MANUAL SIZE BUTTON - reads the same property (:339) and passes it to the same RiskSizedBase
+    ' (:353), with NOTHING guarding it on the way. So a 0 uncaps the button as well as the bridge
+    ' act path, and a line reading "Bridge max size" would understate what the owner just changed.
+    ' The function name carries the same correction: it was BridgeMaxSizeLine, and the name is how
+    ' the misconception would come back. One setting, one meaning, one wording.
+    Friend Shared Function MaxSizeLine(maxSizeUsd As Decimal) As String
         Dim v As String = maxSizeUsd.ToString(Globalization.CultureInfo.InvariantCulture)
-        If maxSizeUsd <= 0D Then Return $"Bridge max size: NO CAP (max_size_usd = {v})"
-        Return $"Bridge max size: {v}"
+        If maxSizeUsd <= 0D Then Return $"Max size: NO CAP (max_size_usd = {v})"
+        Return $"Max size: {v}"
     End Function
 
     ' THE TWO BOXES NO LONGER SHARE A CONVENTION, and the asymmetry is deliberate
@@ -127,9 +135,15 @@ Public Class frmMainPageV2
         ' silent and the owner sees it the moment they do it. Guarded on a real change, which is
         ' what keeps it bounded: the seed-then-commit in InitialiseSettings is a no-op, and every
         ' other box's Leave re-commits the same value and says nothing. NOT logged per signal.
+        ' ✅ OWNER RULING 2026-08-19 (spec-back SB6): the change-guard fires on ANY change, which is
+        ' a SUPERSET of what the spec asked for ("when the setting changes to uncapped"). KEPT on
+        ' purpose. A line only on the way IN leaves the way OUT silent, so the log's last word on max
+        ' size would read NO CAP while a cap was back in force - an audit reading the session
+        ' afterwards would conclude it ran uncapped when it did not. Do not narrow this to
+        ' "If maxSize <= 0D" without reversing that ruling.
         If maxSize <> userSettings.MaxSizeUsd Then
             userSettings.MaxSizeUsd = maxSize
-            AppendColoredText(txtLogs, BridgeMaxSizeLine(maxSize),
+            AppendColoredText(txtLogs, MaxSizeLine(maxSize),
                               If(maxSize <= 0D, Color.Yellow, Color.Gray))
         End If
     End Sub
@@ -1025,7 +1039,7 @@ Public Class frmMainPageV2
             ' can ever fire, so without this the loudest possible setting is the quietest thing in
             ' the app. Reads the property, not the box, so it states what is actually IN FORCE
             ' (including the 500D fallback when the file would not load).
-            AppendColoredText(txtLogs, BridgeMaxSizeLine(MaxSizeUsd),
+            AppendColoredText(txtLogs, MaxSizeLine(MaxSizeUsd),
                               If(MaxSizeUsd <= 0D, Color.Yellow, Color.Gray))
             ApplyUserSettingsToControls()
             ' EV chase budget §4: the knob + fee block are file-only reads, so they seed the plain
