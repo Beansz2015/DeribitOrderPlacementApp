@@ -1,0 +1,50 @@
+' Isolated audit fixtures - NOT committed. Drop into tools/OrderCheck and call AuditFixtures.Run()
+' from Program.Main on Windows. Each check PRINTS FAIL when the app does the unsafe thing.
+' Uses only Friend Shared seams (OrderCheck already has InternalsVisibleTo access to them).
+Option Strict On
+Imports Newtonsoft.Json.Linq
+
+Module AuditFixtures
+    Private Sub Check(name As String, unsafe As Boolean, detail As String)
+        Console.WriteLine($"{If(unsafe, "FAIL", "ok  ")} {name}: {detail}")
+    End Sub
+
+    Private Function Payload(stopLevel As String, target As String, Optional execRes As Integer = 1) As DeribitOrderPlacementApp.SignalBridge.PayloadSnapshot
+        Dim txt As String = "{""schema_version"":1,""signal_id"":7,""generated_at_utc"":""2026-09-24T01:00:00Z""," &
+            """engine"":{""instance_id"":""x"",""autotrade_armed"":true},""signal_state"":""OK"",""verdict"":""STRONG LONG""," &
+            """confidence"":""HIGH"",""direction"":""LONG"",""exec_resolution_min"":" & execRes.ToString() & ",""atr"":120.2," &
+            """levels"":{""long"":{""entry"":59003.5,""stop"":" & stopLevel & ",""target"":" & target & "}}}"
+        Return DeribitOrderPlacementApp.SignalBridge.ParsePayload(DeribitOrderPlacementApp.SignalBridge.ParsePayloadJson(txt))
+    End Function
+
+    Public Sub Run()
+        ' F-SIDE: a LONG whose stop is ABOVE entry parses clean and clears the only level predicate the
+        ' gate chain has (SignalBridge.vb:687 - "StopLevel <= 0 OrElse Target <= 0", copied here verbatim).
+        Dim bad = Payload("59050.0", "59079.15")
+        Check("long stop above entry reaches placement", Not (bad.StopLevel <= 0D OrElse bad.Target <= 0D),
+              $"entry {bad.Entry} stop {bad.StopLevel}")
+        ' ...and risk sizing hides the sign with Math.Abs (SignalBridge.vb:1053).
+        Check("inverted stop is risk-sized as a normal trade",
+              DeribitOrderPlacementApp.SignalBridge.RiskSizedBase(25D, 0D, bad.Entry, Math.Abs(bad.Entry - bad.StopLevel)) > 0D,
+              "RiskSizedBase returns a size, not -1")
+
+        ' F-TIGHT: a 2-USD SWING_STOP with max_size_usd = 0 (documented NO CAP).
+        Dim tight = Payload("59001.5", "59079.15")
+        Dim uncapped As Decimal = DeribitOrderPlacementApp.SignalBridge.RiskSizedBase(25D, 0D, tight.Entry, tight.Entry - tight.StopLevel)
+        Check("2-USD stop uncapped size", uncapped > 100000D, $"{uncapped} USD notional for a 25 USD risk budget")
+
+        ' F-ROUND: nearest-tick rounding can move the TRIGGER toward entry (tighter stop than the engine asked).
+        ' 58811.13 rounds AWAY (58811.0, looser); 58811.30 rounds TOWARD entry (58811.5, tighter) -
+        ' nearest-tick is direction-blind, so neither side is guaranteed.
+        Dim lim As Decimal = DeribitOrderPlacementApp.SignalBridge.DeriveManualSl(True, 58811.3D, 30D)
+        Check("long stop rounded toward entry", lim + 30D > 58811.3D, $"engine 58811.30 -> trigger {lim + 30D}")
+        ' Non-half-tick offset -> off-grid trigger (limit on tick, trigger = limit + offset is not).
+        Dim lim2 As Decimal = DeribitOrderPlacementApp.SignalBridge.DeriveManualSl(True, 58811.13D, 12.3D)
+        Check("off-tick trigger with fractional offset", (lim2 + 12.3D) * 2D <> Math.Floor((lim2 + 12.3D) * 2D), $"trigger {lim2 + 12.3D}")
+
+        ' F-FRESH: the validity window is supplied by the payload being validated.
+        Dim longLived = Payload("58811.13", "59079.15", execRes:=60)
+        Check("producer-controlled freshness window", longLived.ExecResolutionMin = 60,
+              $"payload fresh for {2.5 * longLived.ExecResolutionMin} min (SignalBridge.vb:602, no upper clamp)")
+    End Sub
+End Module
