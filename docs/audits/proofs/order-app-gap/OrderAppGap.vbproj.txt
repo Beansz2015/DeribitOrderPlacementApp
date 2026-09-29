@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Isolated proof harness for docs/audits/2026-09-25-order-app-gap.md. NOT the app's build:
+       net8.0 console, no WinForms. src/Extracted.vb is generated verbatim from the app at 8232e9e
+       by gen.sh; src/app/*.vb are verbatim copies; src/Stubs.vb replaces only UI + socket. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>DeribitOrderPlacementApp</RootNamespace>
+    <StartupObject>DeribitOrderPlacementApp.Program</StartupObject>
+    <!-- The app's vbproj sets no OptionStrict, so it compiles Option Strict Off (VB default);
+         SignalBridge/SessionPolicy/etc. opt in per file. Mirror that. -->
+    <OptionStrict>Off</OptionStrict>
+    <OptionExplicit>On</OptionExplicit>
+    <OptionInfer>On</OptionInfer>
+    <Nullable>disable</Nullable>
+    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42020,42021,42022,40000,42104,42108,42109,42353,42354,42355,42356,42105,42106,42107</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Import Include="System.Drawing" />
+    <Import Include="System.Data" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Skender.Stock.Indicators" Version="2.6.1" />
+  </ItemGroup>
+</Project>

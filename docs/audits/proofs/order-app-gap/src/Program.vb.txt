@@ -1,0 +1,643 @@
+Option Strict Off
+' Scenario driver for docs/audits/2026-09-25-order-app-gap.md. Every decision below is taken by
+' app code (src/Extracted.vb = verbatim frmMainPageV2.vb ranges; src/app/*.vb = verbatim files).
+' This file only (a) writes payload files, (b) delivers exchange JSON in the receive loop's
+' dispatch order, (c) sleeps, and (d) prints what the app sent, logged and holds.
+Imports System.IO
+Imports System.Net.WebSockets
+Imports System.Reflection
+Imports System.Threading
+Imports Newtonsoft.Json.Linq
+Imports Skender.Stock.Indicators
+
+Module Program
+    Private inv As Globalization.CultureInfo = Globalization.CultureInfo.InvariantCulture
+    Private payloadDir As String
+    Private t0 As DateTime
+
+    Sub Main(args As String())
+        Threading.Thread.CurrentThread.CurrentCulture = inv
+        Globalization.CultureInfo.DefaultThreadCurrentCulture = inv
+        Dim only As String = If(args.Length > 0, args(0), "all")
+        payloadDir = Path.Combine(Path.GetTempPath(), "order-app-gap-payload")
+        Directory.CreateDirectory(payloadDir)
+        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "bridge.json"),
+                          New JObject From {{"path", Path.Combine(payloadDir, "verdict_signal.json")}}.ToString())
+        Dim run = Function(name As String) only = "all" OrElse only = name
+        If run("trace") Then ScenarioTrace(mslOn:=True, emergencySendFails:=False)
+        If run("trace-msl-off") Then ScenarioTrace(mslOn:=False, emergencySendFails:=False)
+        If run("trace-emergency-send-fails") Then ScenarioTrace(mslOn:=True, emergencySendFails:=True)
+        If run("emergency-rejected") Then ScenarioEmergencyRejected()
+        If run("q1") Then ScenarioQ1("rejected") : ScenarioQ1("cancelled")
+        If run("restore") Then ScenarioRestore()
+        If run("close-in-gap") Then ScenarioCloseInGap()
+        If run("partial") Then ScenarioPartial(tpFirst:=True) : ScenarioPartial(tpFirst:=False)
+        If run("standdown") Then ScenarioStandDown()
+        If run("q5") Then ScenarioQ5()
+        If run("mode-flip") Then ScenarioModeFlip()
+        If run("atr") Then ScenarioAtr()
+    End Sub
+
+    ' ================================ plumbing ================================
+    Private Sub H1(title As String)
+        Console.WriteLine()
+        Console.WriteLine("=====================================================================")
+        Console.WriteLine("== " & title)
+        Console.WriteLine("=====================================================================")
+    End Sub
+    Private Sub Say(s As String)
+        Console.WriteLine($"[t={(DateTime.UtcNow - t0).TotalSeconds,6:F2}s] {s}")
+    End Sub
+    Private Function D(x As Decimal) As String
+        Return x.ToString(inv)
+    End Function
+
+    ' What PublishExecutorFeedback would write for this instant (executor_feedback.json position block).
+    Private Function Fb(h As frmMainPageV2) As String
+        Dim f = h.CaptureFeedbackSnapshot()
+        Return $"feedback: started={f.Started} direction={f.Direction} size_usd={f.SizeUsd} avg_entry={f.AvgEntry} working.stop={f.WorkingStop} working.target={f.WorkingTarget}"
+    End Function
+    Private Function Qt(bid As Decimal, ask As Decimal) As String
+        Return $"{{""jsonrpc"":""2.0"",""method"":""subscription"",""params"":{{""channel"":""quote.BTC-PERPETUAL"",""data"":{{""best_bid_price"":{D(bid)},""best_ask_price"":{D(ask)}}}}}}}"
+    End Function
+    Private Function Ord(id As String, label As String, state As String, direction As String, amount As Decimal,
+                         Optional price As Decimal? = Nothing, Optional trig As Decimal? = Nothing,
+                         Optional avg As Decimal? = Nothing, Optional filled As Decimal? = Nothing) As JObject
+        Dim o As New JObject From {{"order_id", id}, {"label", label}, {"order_state", state}, {"direction", direction}, {"amount", amount}}
+        If price.HasValue Then o("price") = price.Value
+        If trig.HasValue Then o("trigger_price") = trig.Value
+        If avg.HasValue Then o("average_price") = avg.Value
+        If filled.HasValue Then o("filled_amount") = filled.Value
+        Return o
+    End Function
+    Private Function Pos(size As Decimal, avg As Decimal) As JObject
+        Return New JObject From {{"instrument_name", "BTC-PERPETUAL"}, {"size", size}, {"average_price", avg}}
+    End Function
+    Private Function Changes(orders As JObject(), Optional positions As JObject() = Nothing) As String
+        Dim data As New JObject From {{"instrument_name", "BTC-PERPETUAL"}, {"orders", New JArray(orders)}, {"trades", New JArray()}}
+        If positions IsNot Nothing Then data("positions") = New JArray(positions)
+        Return New JObject From {{"jsonrpc", "2.0"}, {"method", "subscription"},
+            {"params", New JObject From {{"channel", "user.changes.BTC-PERPETUAL.raw"}, {"data", data}}}}.ToString(Newtonsoft.Json.Formatting.None)
+    End Function
+    Private Function Snap778(orders As JObject()) As String
+        Return New JObject From {{"jsonrpc", "2.0"}, {"id", 778}, {"result", New JArray(orders)}}.ToString(Newtonsoft.Json.Formatting.None)
+    End Function
+    Private Function Pos777(size As Decimal, avg As Decimal) As String
+        Return New JObject From {{"jsonrpc", "2.0"}, {"id", 777}, {"result", New JObject From {
+            {"size", size}, {"average_price", avg}, {"mark_price", avg}}}}.ToString(Newtonsoft.Json.Formatting.None)
+    End Function
+
+    Private Sub WritePayload(signalId As Long, Optional state As String = "OK", Optional armed As Boolean = True,
+                             Optional atr As Decimal = 120.2D, Optional ageMinutes As Double = 0,
+                             Optional entry As Decimal = 59003.5D, Optional stopLvl As Decimal = 59001.5D,
+                             Optional target As Decimal = 59079.15D)
+        Dim p As New JObject From {
+            {"schema_version", 1}, {"signal_id", signalId},
+            {"engine", New JObject From {{"instance_id", "engine-A"}, {"autotrade_armed", armed}}},
+            {"generated_at_utc", DateTime.UtcNow.AddMinutes(-ageMinutes).ToString("yyyy-MM-ddTHH:mm:ssZ", inv)},
+            {"signal_state", state}, {"verdict", "STRONG LONG"}, {"confidence", "HIGH"}, {"direction", "LONG"},
+            {"verdict_context", "CONFIRMED"}, {"mtf_blocked", False}, {"exec_resolution_min", 1}, {"atr", atr},
+            {"health", New JObject From {{"ledger_mismatch", False}, {"ws", "OK"}}},
+            {"levels", New JObject From {{"long", New JObject From {{"entry", entry}, {"stop", stopLvl}, {"target", target}}}}}}
+        Dim path As String = IO.Path.Combine(payloadDir, "verdict_signal.json")
+        File.WriteAllText(path & ".tmp", p.ToString())
+        File.Move(path & ".tmp", path, True)
+    End Sub
+
+    ' The bridge's own entry point (the FSW handler's target). Invoked directly so the run does not
+    ' depend on inotify timing; the de-dupe inside suppresses the FSW's own later re-read.
+    Private Sub Evaluate(b As SignalBridge)
+        GetType(SignalBridge).GetMethod("EvaluateNow", BindingFlags.NonPublic Or BindingFlags.Instance).Invoke(b, Nothing)
+    End Sub
+
+    Private Function NewHost() As frmMainPageV2
+        For Each f In {"bridge-state.json", "bridge-dispositions.log"}
+            Dim p = Path.Combine(AppContext.BaseDirectory, f)
+            If File.Exists(p) Then File.Delete(p)
+        Next
+        Dim h As New frmMainPageV2()
+        h.signalBridge = New SignalBridge(h, Sub(m, c) SyncLockAdd(h.Logs, $"{DateTime.UtcNow:HH:mm:ss.fff} [{c.Name}] [BRIDGE] {m}"))
+        Return h
+    End Function
+    Private Sub SyncLockAdd(l As List(Of String), s As String)
+        SyncLock l
+            l.Add(s)
+        End SyncLock
+    End Sub
+
+    Private Function SentCount(h As frmMainPageV2) As Integer
+        SyncLock h.webSocketClient.Sent
+            Return h.webSocketClient.Sent.Count
+        End SyncLock
+    End Function
+    Private Function SentSince(h As frmMainPageV2, idx As Integer) As List(Of String)
+        SyncLock h.webSocketClient.Sent
+            Return h.webSocketClient.Sent.Skip(idx).Select(Function(x) $"+{(x.T - t0).TotalSeconds:F2}s {JObject.Parse(x.Json).ToString(Newtonsoft.Json.Formatting.None)}").ToList()
+        End SyncLock
+    End Function
+    Private Function LogsSince(h As frmMainPageV2, idx As Integer) As List(Of String)
+        SyncLock h.Logs
+            Return h.Logs.Skip(idx).ToList()
+        End SyncLock
+    End Function
+    Private Sub DumpSends(h As frmMainPageV2, fromIdx As Integer, Optional title As String = "frames SENT")
+        Dim s = SentSince(h, fromIdx)
+        Say($"{title}: {s.Count}")
+        For Each x In s : Console.WriteLine("      " & x) : Next
+    End Sub
+    Private Sub DumpLogs(h As frmMainPageV2, fromIdx As Integer)
+        For Each x In LogsSince(h, fromIdx) : Console.WriteLine("      log " & x) : Next
+    End Sub
+
+    ' Signal-B act path: engine long entry 59003.5 / stop 59001.5 / target 59079.15 / ATR 120.2,
+    ' the app's best bid is 58998.0 when it arrives (the flush is 5.5 below the engine entry).
+    Private Function ActLong(h As frmMainPageV2, Optional bid As Decimal = 58998D) As String
+        h.Deliver(Qt(bid, bid + 0.5D))
+        Dim b = h.signalBridge
+        WritePayload(101)
+        b.Mode = SignalBridge.BridgeMode.Live           ' StartWatching + initial read (EvaluateNow)
+        b.LocalArmed = True
+        Dim refusal = b.TryStart()
+        Say($"TryStart -> {If(refusal, "STARTED")}; first payload disposition: {b.LastDisposition}")
+        Dim before = SentCount(h)
+        WritePayload(102)
+        Evaluate(b)
+        ' find the placement frame and ack it the way the exchange would (id >= 600000)
+        Dim reqId As Integer = -1
+        For i = 1 To 50
+            Dim s = SentSince(h, before)
+            Dim hit = s.FirstOrDefault(Function(x) x.Contains("""private/buy"""))
+            If hit IsNot Nothing Then
+                reqId = JObject.Parse(hit.Substring(hit.IndexOf("{"c)))("id").Value(Of Integer)()
+                Exit For
+            End If
+            Thread.Sleep(20)
+        Next
+        If reqId < 0 Then Throw New Exception("no placement frame")
+        h.Deliver($"{{""jsonrpc"":""2.0"",""id"":{reqId},""result"":{{""order"":{{""order_id"":""ORD-E1""}}}}}}")
+        For i = 1 To 50
+            If b.LastDisposition.StartsWith("acted") Then Exit For
+            Thread.Sleep(20)
+        Next
+        Say($"signal #102 disposition: {b.LastDisposition}")
+        Return SentSince(h, before).First(Function(x) x.Contains("""private/buy"""))
+    End Function
+
+    Private Sub PlacementEcho(h As frmMainPageV2, Optional amount As Decimal = 10D, Optional entryPx As Decimal = 58998D)
+        h.Deliver(Changes({Ord("ORD-E1", "EntryLimitOrder", "open", "buy", amount, entryPx),
+                           Ord("ORD-TP1", "TakeLimitProfit", "untriggered", "sell", amount, 59079D),
+                           Ord("SLTS-1", "StopLossOrder", "untriggered", "sell", amount, 58971.5D, 59001.5D)}))
+    End Sub
+    Private Sub FillEcho(h As frmMainPageV2, Optional fill As Decimal = 58998D)
+        h.Deliver(Changes({Ord("ORD-E1", "EntryLimitOrder", "filled", "buy", 10D, fill, avg:=fill, filled:=10D),
+                           Ord("ORD-TP1", "TakeLimitProfit", "open", "sell", 10D, 59079D),
+                           Ord("SLTS-1", "StopLossOrder", "untriggered", "sell", 10D, 58971.5D, 59001.5D)},
+                          {Pos(10D, fill)}))
+    End Sub
+
+    ' ================================ the LOGIC TRACE scenario ================================
+    Private Sub ScenarioTrace(mslOn As Boolean, emergencySendFails As Boolean)
+        H1($"TRACE  STRONG LONG in a flush, fill 58998.0, 20 s WS drop from fill+3 s  [M.SL {If(mslOn, "ON", "OFF")}{If(emergencySendFails, ", emergency send fails", "")}]")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        h.SetMarketStopChecked(mslOn)
+        Dim order = ActLong(h)
+        Say("placement frame: " & order)
+        PlacementEcho(h)
+        Say("after placement echo: " & h.V_State)
+
+        ' --- fill at 58998.0 (4 ticks under the engine entry, 3.5 under the stop TRIGGER 59001.5)
+        Dim logIdx = h.Logs.Count
+        t0 = DateTime.UtcNow
+        FillEcho(h)
+        Say("FILL echo delivered (entry filled 58998.0, TP open, SL leg untriggered @trig 59001.5)")
+        Say("state: " & h.V_State)
+        ' Branch (a) of the walk: the exchange triggers the crossed stop at once; the post-only sell
+        ' limit 58971.5 would cross the 58997.5 bid, so it rests one tick above the bid (58998.0).
+        h.Deliver(Qt(58997.5D, 58998D))
+        h.Deliver(Changes({Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, 58998D, 59001.5D)}))
+        Say("SL leg TRIGGERED at activation -> open post-only sell @58998.0; state: " & h.V_State)
+        Say(Fb(h))
+        DumpLogs(h, logIdx)
+
+        ' --- 0..3 s: the flush continues at 5 USD/s (one tick per 100 ms)
+        Dim sentIdx = SentCount(h)
+        Dim bid As Decimal = 58997.5D
+        For i = 1 To 30
+            Thread.Sleep(100)
+            bid -= 0.5D
+            h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        DumpSends(h, sentIdx, "0-3 s: SL-chase frames SENT")
+        Say("at drop: " & h.V_State)
+        Dim slAtDrop As Decimal = h.V_PlacedSL
+
+        ' --- 3..23 s: socket down. Nothing is delivered; the market keeps falling 5 USD/s.
+        h.webSocketClient.State = WebSocketState.Aborted
+        sentIdx = SentCount(h)
+        Say("WS DROPPED (state Aborted). Delivering nothing for 20 s while the market falls another 100 USD.")
+        Thread.Sleep(20000)
+        bid -= 100D
+        DumpSends(h, sentIdx, "3-23 s (drop): frames SENT")
+        Say("counterfactual: with the socket up, the M.SL cap would have fired when ask <= emergencyBaseline - 70")
+
+        ' --- 23 s: reconnect. ConnectToWebSocketDirectly re-subscribes and sends id-777 + id-778.
+        h.Reconnect()
+        logIdx = h.Logs.Count
+        h.Deliver(Pos777(10D, 58998D))
+        h.Deliver(Snap778({Ord("ORD-TP1", "TakeLimitProfit", "open", "sell", 10D, 59079D),
+                           Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, slAtDrop, 59001.5D)}))
+        Say("RECONNECTED; restore delivered. state: " & h.V_State)
+        sentIdx = 0
+        If emergencySendFails Then h.webSocketClient.FailSends = True
+        h.Deliver(Qt(bid, bid + 0.5D))
+        Say($"first post-reconnect quote bid {D(bid)}")
+        DumpSends(h, sentIdx, "frames SENT on that quote")
+        DumpLogs(h, logIdx)
+        Say("state: " & h.V_State)
+        Say("alerts so far: " & String.Join(",", h.Alerts))
+
+        If mslOn AndAlso Not emergencySendFails Then
+            ' the market reduce fills 2.5 below the bid; OCO legs die with the cancel-all
+            logIdx = h.Logs.Count
+            h.Deliver(Changes({Ord("RM-1", "ReduceMarketOrder", "filled", "sell", 10D, avg:=bid - 2.5D, filled:=10D),
+                               Ord("ORD-SL2", "StopLossOrder", "cancelled", "sell", 10D, slAtDrop),
+                               Ord("ORD-TP1", "TakeLimitProfit", "cancelled", "sell", 10D, 59079D)}, {Pos(0D, 58998D)}))
+            Thread.Sleep(200)
+            DumpLogs(h, logIdx)
+            For Each r In h.Records : Say("DB " & r) : Next
+            Dim exitPx As Decimal = bid - 2.5D
+            Dim grossBp As Decimal = (exitPx - 58998D) / 58998D * 10000D
+            Say($"engine's planned risk: entry 59003.5 - stop 59001.5 = 2.0 USD (0.34 bp).  Realised: exit {D(exitPx)} vs fill 58998.0 = {D(exitPx - 58998D)} USD ({grossBp:F2} bp gross), {grossBp - 5D:F2} bp net of maker 1.5 + taker 3.5")
+        ElseIf Not mslOn Then
+            ' keep flushing another 10 s: the chase follows, nothing caps it
+            sentIdx = SentCount(h)
+            For i = 1 To 100
+                Thread.Sleep(100)
+                bid -= 0.5D
+                h.Deliver(Qt(bid, bid + 0.5D))
+            Next
+            Dim s = SentSince(h, sentIdx)
+            Say($"M.SL OFF, 10 more seconds of flush to bid {D(bid)}: {s.Count} frames sent, all SL edits: {s.All(Function(x) x.Contains("223350"))}; last: {s.LastOrDefault()}")
+            Say("state: " & h.V_State)
+        Else
+            ' the socket died during the emergency's first send. Fast reconnect (2 s delay + handshake).
+            Thread.Sleep(2500)
+            h.Reconnect()
+            logIdx = h.Logs.Count
+            h.Deliver(Pos777(10D, 58998D))
+            h.Deliver(Snap778({Ord("ORD-TP1", "TakeLimitProfit", "open", "sell", 10D, 59079D),
+                               Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, slAtDrop, 59001.5D)}))
+            Say("RECONNECTED 2.5 s later (cancel-all never reached the exchange: SL + TP still live). state: " & h.V_State)
+            DumpLogs(h, logIdx)
+            sentIdx = SentCount(h)
+            For i = 1 To 60
+                Thread.Sleep(100)
+                bid -= 5D
+                h.Deliver(Qt(bid, bid + 0.5D))
+            Next
+            Say($"market falls another 300 USD to bid {D(bid)} over 6 s: frames sent = {SentCount(h) - sentIdx}")
+            Say("state: " & h.V_State)
+            ' later reconnect variant: quotes first (IsCancelPending's 4 s self-clear runs), then the snapshot
+            Thread.Sleep(4200)
+            h.Deliver(Qt(bid, bid + 0.5D))
+            h.Deliver(Snap778({Ord("ORD-TP1", "TakeLimitProfit", "open", "sell", 10D, 59079D),
+                               Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, slAtDrop, 59001.5D)}))
+            Say("snapshot re-delivered after the 4 s window: " & h.V_State)
+            sentIdx = SentCount(h)
+            For i = 1 To 10
+                Thread.Sleep(100)
+                bid -= 5D
+                h.Deliver(Qt(bid, bid + 0.5D))
+            Next
+            Dim s = SentSince(h, sentIdx)
+            Say($"50 USD further down: {s.Count} frames, any market reduce: {s.Any(Function(x) x.Contains("ReduceMarketOrder"))}; emergencyFired stays latched")
+        End If
+        h.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ emergency reduce rejected by the exchange ================================
+    Private Sub ScenarioEmergencyRejected()
+        H1("EMERGENCY-REJECTED  M.SL fires; cancel-all succeeds; the reduce-only market sell is rejected (10028)")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        ActLong(h) : PlacementEcho(h) : FillEcho(h)
+        h.Deliver(Qt(58997.5D, 58998D))
+        h.Deliver(Changes({Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, 58998D, 59001.5D)}))
+        Dim bid As Decimal = 58997.5D
+        Dim idx = SentCount(h)
+        Dim logIdx = h.Logs.Count
+        For i = 1 To 16
+            Thread.Sleep(100) : bid -= 5D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        DumpSends(h, idx, $"flush to {D(bid)}: frames SENT")
+        ' exchange responses: cancel-all OK, SL/TP cancelled, the market reduce rejected
+        h.Deliver("{""jsonrpc"":""2.0"",""id"":30,""result"":2}")
+        h.Deliver(Changes({Ord("ORD-SL2", "StopLossOrder", "cancelled", "sell", 10D, h.V_PlacedSL),
+                           Ord("ORD-TP1", "TakeLimitProfit", "cancelled", "sell", 10D, 59079D)}, {Pos(10D, 58998D)}))
+        h.Deliver("{""jsonrpc"":""2.0"",""id"":1,""error"":{""code"":10028,""message"":""too_many_requests""}}")
+        Thread.Sleep(100)
+        DumpLogs(h, logIdx)
+        Say("alerts: " & String.Join(",", h.Alerts) & "; state: " & h.V_State)
+        idx = SentCount(h)
+        For i = 1 To 60
+            Thread.Sleep(50) : bid -= 5D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        Say($"flush continues to {D(bid)} (-{D(58998D - bid)} from the fill): frames sent = {SentCount(h) - idx}; exchange holds a 10 USD long with NO orders")
+        h.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ Q1: stop leg rejected / cancelled after the fill ================================
+    Private Sub ScenarioQ1(state As String)
+        H1($"Q1  SL leg '{state}' by the exchange right after the fill, then a 300 USD flush")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        ActLong(h)
+        PlacementEcho(h)
+        FillEcho(h)
+        Dim logIdx = h.Logs.Count
+        Dim alertIdx = h.Alerts.Count
+        h.Deliver(Changes({Ord("SLTS-1", "StopLossOrder", state, "sell", 10D, 58971.5D, 59001.5D)}, {Pos(10D, 58998D)}))
+        Thread.Sleep(50)
+        Say($"after '{state}' echo: " & h.V_State)
+        Say(Fb(h))
+        Say("log lines produced by that echo:")
+        DumpLogs(h, logIdx)
+        Say($"alerts produced: {h.Alerts.Count - alertIdx}")
+        Dim sentIdx = SentCount(h)
+        Dim bid As Decimal = 58997.5D
+        For i = 1 To 60
+            Thread.Sleep(50)
+            bid -= 5D
+            h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        Say($"flush to bid {D(bid)} (-298 USD): frames sent = {SentCount(h) - sentIdx}, alerts = {h.Alerts.Count - alertIdx}")
+        Say("final: " & h.V_State)
+        h.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ restore scan ================================
+    Private Sub ScenarioRestore()
+        H1("RESTORE  restart with an open long and NO stop order on the exchange")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        h.Deliver(Pos777(10D, 58998D))
+        h.Deliver(Snap778({}))
+        Say("case 1: id-778 result [] (no orders at all)")
+        DumpLogs(h, 0)
+        Say("alerts: " & h.Alerts.Count & "; state: " & h.V_State)
+        Dim h2 = NewHost()
+        h2.Deliver(Pos777(10D, 58998D))
+        h2.Deliver(Snap778({Ord("ORD-TP1", "TakeLimitProfit", "open", "sell", 10D, 59079D)}))
+        Say("case 2: id-778 result = TP only")
+        DumpLogs(h2, 0)
+        Say("alerts: " & h2.Alerts.Count & "; state: " & h2.V_State)
+        Dim idx = SentCount(h2)
+        Dim bid As Decimal = 58997.5D
+        For i = 1 To 40
+            Thread.Sleep(20)
+            bid -= 10D
+            h2.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        Say($"flush to {D(bid)}: frames sent = {SentCount(h2) - idx}")
+        h.signalBridge.Dispose() : h2.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ position closed during the gap ================================
+    Private Sub ScenarioCloseInGap()
+        H1("CLOSE-IN-GAP  the triggered SL fills while the socket is down")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        ActLong(h)
+        PlacementEcho(h)
+        FillEcho(h)
+        h.Deliver(Qt(58997.5D, 58998D))
+        h.Deliver(Changes({Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, 58998D, 59001.5D)}))
+        Dim bid As Decimal = 58997.5D
+        For i = 1 To 10
+            Thread.Sleep(100) : bid -= 0.5D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        Say("before drop: " & h.V_State)
+        h.webSocketClient.State = WebSocketState.Aborted
+        Say("WS DROPPED; during the gap the market bounces and the resting SL sell fills; TP is OCO-cancelled. None of it is delivered.")
+        Thread.Sleep(3000)
+        h.Reconnect()
+        Dim logIdx = h.Logs.Count
+        h.Deliver(Pos777(0D, 0D))
+        h.Deliver(Snap778({}))
+        Thread.Sleep(100)
+        Say("RECONNECTED: id-777 size 0, id-778 []")
+        DumpLogs(h, logIdx)
+        Say($"DB/trade-log records: [{String.Join(" | ", h.Records)}]; alerts: {String.Join(",", h.Alerts)}")
+        Say("state: " & h.V_State)
+        ' the bridge's next signal, immediately
+        Dim b = h.signalBridge
+        Dim idx = SentCount(h)
+        WritePayload(103)
+        Evaluate(b)
+        Thread.Sleep(300)
+        Say($"signal #103, delivered immediately after the unobserved close -> {b.LastDisposition}  (the 5-min cooloff did not apply: CompletePositionClose/NotifyPositionClosed never ran)")
+        h.signalBridge.Dispose()
+
+        ' contrast: the same close observed normally, then the same next signal
+        Dim h2 = NewHost()
+        ActLong(h2)
+        PlacementEcho(h2)
+        FillEcho(h2)
+        h2.Deliver(Changes({Ord("ORD-SL2", "StopLossOrder", "filled", "sell", 10D, 58993D, avg:=58993D, filled:=10D)}, {Pos(0D, 58998D)}))
+        Thread.Sleep(200)
+        WritePayload(103)
+        Evaluate(h2.signalBridge)
+        Thread.Sleep(300)
+        Say($"CONTRAST, close observed: records [{String.Join(" | ", h2.Records)}]; signal #103 -> {h2.signalBridge.LastDisposition}")
+        h2.signalBridge.Dispose()
+
+        ' a third host: flat after an unobserved close, with the triggered-SL context still live
+        Dim h3 = NewHost()
+        h3.Deliver(Qt(58997.5D, 58998D))
+        ' rebuild the stale state quickly on a fresh host: triggered SL, then an unobserved close
+        ActLong(h3) : PlacementEcho(h3) : FillEcho(h3)
+        h3.Deliver(Changes({Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, 58998D, 59001.5D)}))
+        bid = 58997.5D
+        For i = 1 To 5
+            Thread.Sleep(100) : bid -= 0.5D : h3.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        h3.Reconnect()
+        h3.Deliver(Pos777(0D, 0D)) : h3.Deliver(Snap778({}))
+        Thread.Sleep(100)
+        logIdx = h3.Logs.Count
+        idx = SentCount(h3)
+        For i = 1 To 30
+            Thread.Sleep(100) : bid -= 3D : h3.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        DumpSends(h3, idx, "third host, FLAT after an unobserved close, market falls 90 USD: frames SENT")
+        DumpLogs(h3, logIdx)
+        Say("state: " & h3.V_State)
+        h3.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ partial fill ================================
+    Private Sub ScenarioPartial(tpFirst As Boolean)
+        H1($"PARTIAL  Amount 500, first partial fill of 10, OTOCO first_hit legs for 500  [echo order: {If(tpFirst, "TP, SL, Entry", "Entry, TP, SL")}]")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        h.txtAmount.Text = "500"
+        ActLong(h)
+        PlacementEcho(h, 500D)
+        Dim entry = Ord("ORD-E1", "EntryLimitOrder", "open", "buy", 500D, 58998D, avg:=58998D, filled:=10D)
+        Dim tp = Ord("ORD-TP1", "TakeLimitProfit", "open", "sell", 500D, 59079D)
+        Dim sl = Ord("SLTS-1", "StopLossOrder", "untriggered", "sell", 500D, 58971.5D, 59001.5D)
+        Dim logIdx = h.Logs.Count
+        h.Deliver(Changes(If(tpFirst, {tp, sl, entry}, {entry, tp, sl}), {Pos(10D, 58998D)}))
+        Thread.Sleep(50)
+        Say("after the partial-fill echo: " & h.V_State)
+        DumpLogs(h, logIdx)
+        ' market bounces: the 490 remainder should be chased / guarded
+        Dim idx = SentCount(h)
+        Dim bid As Decimal = 58998D
+        For i = 1 To 40
+            Thread.Sleep(100) : bid += 2D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        Dim s = SentSince(h, idx)
+        Say($"bounce to {D(bid)} over 4 s: {s.Count} frames sent; edits of ORD-E1 {s.LongCount(Function(x) x.Contains("""ORD-E1""") AndAlso x.Contains("private/edit"))}; cancels {s.LongCount(Function(x) x.Contains("private/cancel"))}")
+        For Each x In s : Console.WriteLine("      " & x) : Next
+        DumpLogs(h, logIdx)
+        ' the full-size TP fills at 59079 before the remainder does; OCO cancels the SL leg
+        logIdx = h.Logs.Count
+        Dim alertIdx = h.Alerts.Count
+        h.Deliver(Changes({Ord("ORD-TP1", "TakeLimitProfit", "filled", "sell", 500D, 59079D, avg:=59079D, filled:=500D),
+                           Ord("SLTS-1", "StopLossOrder", "cancelled", "sell", 500D, 58971.5D, 59001.5D)},
+                          {Pos(-490D, 59079D)}))
+        Thread.Sleep(50)
+        Say("TP (not reduce_only, 500) filled against a 10 long; SL cancelled by OCO; position -490:")
+        DumpLogs(h, logIdx)
+        Say($"alerts: {h.Alerts.Count - alertIdx}; state: {h.V_State}")
+        idx = SentCount(h)
+        For i = 1 To 40
+            Thread.Sleep(50) : bid += 10D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        Say($"market rallies to {D(bid)} against the short: frames sent = {SentCount(h) - idx}; bridge IsFlat={h.IsFlat}")
+        h.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ Q3: stand-down with a working entry ================================
+    Private Sub ScenarioStandDown()
+        H1("STAND-DOWN  working bridge entry, then SKIPPED / ARM-off / stale payloads, market rises")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        h._indicators.CurrentATR = 0D
+        ActLong(h)
+        PlacementEcho(h)
+        Say("working entry resting: " & h.V_State)
+        Dim b = h.signalBridge
+        Dim idx = SentCount(h)
+        Dim bid As Decimal = 58998D
+        For Each c In {("SKIPPED", "SKIPPED", True, 120.2D, 0.0), ("ARM off", "OK", False, 150D, 0.0), ("stale", "OK", True, 120.2D, 10.0)}
+            WritePayload(If(c.Item1 = "SKIPPED", 103, If(c.Item1 = "ARM off", 104, 105)), state:=c.Item2, armed:=c.Item3, atr:=c.Item4, ageMinutes:=c.Item5)
+            If c.Item1 = "ARM off" Then
+                b.LocalArmed = True
+                Say($"(trader re-STARTs after the SKIPPED auto-STOP, so the ARM-off payload's own auto-STOP is visible: {If(b.TryStart(), "STARTED")})")
+            End If
+            Evaluate(b)
+            Thread.Sleep(200)
+            Say($"{c.Item1} payload -> disposition '{b.LastDisposition}', Started={b.Started}, LastSignalAtr={b.LastSignalAtr}, slip limit now {h.CurrentSlippageLimit}")
+            Say("   " & Fb(h))
+            For i = 1 To 8
+                Thread.Sleep(400) : bid += 4D : h.Deliver(Qt(bid, bid + 0.5D))
+            Next
+            Dim s = SentSince(h, idx)
+            idx = SentCount(h)
+            Say($"   market up to {D(bid)}: {s.Count} frames; edits of ORD-E1 {s.LongCount(Function(x) x.Contains("""ORD-E1""") AndAlso x.Contains("private/edit"))}; cancels {s.LongCount(Function(x) x.Contains("private/cancel"))}; HasWorkingEntryOrder={h.HasWorkingEntryOrder}")
+            For Each x In s.Take(2) : Console.WriteLine("      " & x) : Next
+        Next
+        Say("bridge log lines:")
+        For Each l In h.Logs.Where(Function(x) x.Contains("[BRIDGE]") OrElse x.Contains("cancelled") OrElse x.Contains("slippage")) : Console.WriteLine("      " & l) : Next
+        h.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ Q5: trigger_offset through the chase ================================
+    Private Sub ScenarioQ5()
+        H1("Q5  what each chase path sends for the SL leg (pre-fill entry chase, full-bracket re-anchor, post-trigger chase)")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        Dim placement = ActLong(h)
+        Dim sl = JObject.Parse(placement.Substring(placement.IndexOf("{"c)))("params")("otoco_config")(1)
+        Say("placed SL leg: " & sl.ToString(Newtonsoft.Json.Formatting.None))
+        PlacementEcho(h)
+        Dim idx = SentCount(h)
+        Dim bid As Decimal = 58998D
+        For i = 1 To 12
+            Thread.Sleep(400) : bid += 3D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        DumpSends(h, idx, $"pre-fill, market up 36 USD (legReanchorDriftMax = min(txtTakeProfit 60, txtTrigger 60)/2 = 30): frames")
+        Say("state: " & h.V_State)
+        h.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ mode toggle while a long's SL is triggered ================================
+    Private Sub ScenarioModeFlip()
+        H1("MODE-FLIP  long open, SL triggered; the trader clicks the Sell mode button; market falls, then rallies")
+        t0 = DateTime.UtcNow
+        Dim h = NewHost()
+        ActLong(h) : PlacementEcho(h) : FillEcho(h)
+        h.Deliver(Qt(58997.5D, 58998D))
+        h.Deliver(Changes({Ord("ORD-SL2", "StopLossOrder", "open", "sell", 10D, 58998D, 59001.5D)}))
+        Dim bid As Decimal = 58997.5D
+        For i = 1 To 4
+            Thread.Sleep(100) : bid -= 0.5D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        h.ClickSellButton()
+        Say("after btnSell_Click: " & h.V_State)
+        Dim idx = SentCount(h)
+        For i = 1 To 40
+            Thread.Sleep(100) : bid -= 5D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        Say($"market falls 200 USD to {D(bid)} with the long open: frames sent = {SentCount(h) - idx}; alerts {String.Join(",", h.Alerts)}")
+        idx = SentCount(h)
+        Dim logIdx = h.Logs.Count
+        For i = 1 To 60
+            Thread.Sleep(100) : bid += 5D : h.Deliver(Qt(bid, bid + 0.5D))
+        Next
+        DumpSends(h, idx, $"market rallies 300 USD to {D(bid)}: frames SENT")
+        DumpLogs(h, logIdx)
+        h.signalBridge.Dispose()
+    End Sub
+
+    ' ================================ FrmIndicators ATR (transcription of the append rule) ================================
+    Private Sub ScenarioAtr()
+        H1("ATR  FrmIndicators fallback: live bars are kept as their FIRST update only (transcribed rule, real Skender GetAtr)")
+        ' 3 hours of trades, one every 500 ms, Gaussian steps; seed fixed.
+        Dim rnd As New Random(20260925)
+        Dim px As Double = 59000
+        Dim startMs As Long = New DateTimeOffset(2026, 9, 25, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds()
+        Dim trueBars As New List(Of Quote), frozenBars As New List(Of Quote)
+        Dim curMin As Long = -1, o, hi, lo, c As Double
+        Dim lastTs As Long = 0
+        For k As Integer = 0 To 3 * 3600 * 2 - 1
+            Dim u1 = 1.0 - rnd.NextDouble(), u2 = 1.0 - rnd.NextDouble()
+            px += 3.2 * Math.Sqrt(-2 * Math.Log(u1)) * Math.Sin(2 * Math.PI * u2)
+            Dim tMs As Long = startMs + k * 500L
+            Dim barMs As Long = tMs - (tMs Mod 60000)
+            If barMs <> curMin Then
+                If curMin >= 0 Then trueBars.Add(New Quote With {.Date = DateTimeOffset.FromUnixTimeMilliseconds(curMin).UtcDateTime, .Open = CDec(o), .High = CDec(hi), .Low = CDec(lo), .Close = CDec(c), .Volume = 1})
+                curMin = barMs : o = px : hi = px : lo = px : c = px
+            Else
+                hi = Math.Max(hi, px) : lo = Math.Min(lo, px) : c = px
+            End If
+            ' FrmIndicators.vb:280-286 - "If barMs > lastTimestamp Then ... ohlcList.Add(q)": the chart.trades
+            ' update for the forming bar is appended once, on its first update, and every later update of
+            ' the same bar is dropped. Emulated here with the bar as of its first trade.
+            If barMs > lastTs Then
+                lastTs = barMs
+                frozenBars.Add(New Quote With {.Date = DateTimeOffset.FromUnixTimeMilliseconds(barMs).UtcDateTime, .Open = CDec(px), .High = CDec(px), .Low = CDec(px), .Close = CDec(px), .Volume = 1})
+            End If
+        Next
+        Dim atrTrue = trueBars.GetAtr(7).Where(Function(r) r.Atr.HasValue).Select(Function(r) r.Atr.Value).Skip(20).ToList()
+        Dim atrFrozen = frozenBars.GetAtr(7).Where(Function(r) r.Atr.HasValue).Select(Function(r) r.Atr.Value).Skip(20).ToList()
+        Console.WriteLine($"  bars: {trueBars.Count} true / {frozenBars.Count} as-appended")
+        Console.WriteLine($"  mean ATR(7) on true 1-min bars      : {atrTrue.Average():F2}")
+        Console.WriteLine($"  mean ATR(7) on as-appended bars     : {atrFrozen.Average():F2}")
+        Console.WriteLine($"  ratio as-appended / true            : {atrFrozen.Average() / atrTrue.Average():F3}")
+        Console.WriteLine($"  -> fallback slippage cap 0.6 x ATR  : {0.6 * atrFrozen.Average():F2} instead of {0.6 * atrTrue.Average():F2}")
+    End Sub
+End Module

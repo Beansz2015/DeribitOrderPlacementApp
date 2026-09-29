@@ -1,0 +1,208 @@
+' Stubs for the isolated harness. ONLY the WinForms surface and the socket are replaced; every
+' decision the audit relies on runs from src/Extracted.vb (verbatim frmMainPageV2.vb line ranges)
+' or src/app/*.vb (verbatim app files).
+Imports System.Net.WebSockets
+Imports System.Text
+Imports System.Threading
+
+' A TextBox/Label/RichTextBox stand-in. Text setters on the ten trade-input boxes fire the same
+' SyncTradeInputsFromUi the real TextChanged wiring fires (frmMainPageV2.vb:537-543).
+Public Class Box
+    Private _text As String = ""
+    Public OnChanged As Action
+    Public Property ForeColor As Color
+    Public Property Text As String
+        Get
+            Return _text
+        End Get
+        Set(value As String)
+            _text = If(value, "")
+            If OnChanged IsNot Nothing Then OnChanged()
+        End Set
+    End Property
+End Class
+
+Public Class CheckStub
+    Public Property Checked As Boolean
+End Class
+
+' ClientWebSocket stand-in: records every frame the app sends; can be told to fail (the real
+' SendWebSocketMessageAsync at frmMainPageV2.vb:1293-1314 then takes its own Catch arm).
+Public Class FakeSocket
+    Public State As WebSocketState = WebSocketState.Open
+    Public FailSends As Boolean = False
+    Public ReadOnly Sent As New List(Of (T As DateTime, Json As String))
+    Public Function SendAsync(buffer As ArraySegment(Of Byte), type As WebSocketMessageType, endOfMessage As Boolean, token As CancellationToken) As Task
+        If FailSends OrElse State <> WebSocketState.Open Then
+            State = WebSocketState.Aborted
+            Throw New WebSocketException("simulated: connection reset while sending")
+        End If
+        SyncLock Sent
+            Sent.Add((DateTime.UtcNow, Encoding.UTF8.GetString(buffer.Array, buffer.Offset, buffer.Count)))
+        End SyncLock
+        Return Task.CompletedTask
+    End Function
+End Class
+
+' FrmIndicators stand-in: only CurrentATR is read by the host (frmMainPageV2.vb:3693, :3730).
+Public Class FrmIndicators
+    Public Property CurrentATR As Decimal
+End Class
+
+' AutoTradeSettings stand-in: the members SignalBridge reads, initialised to the REAL field
+' defaults at AutoTradeSettings.vb:32-46 (cooloff 5, breaker 10, window blank, tiers HIGH,MEDIUM,
+' risk-size off, session policy Defaults()).
+Public Class AutoTradeSettings
+    Friend CooloffMinV As Decimal = 5D
+    Friend CircuitBreakerUsdV As Decimal = 10D
+    Friend ReadOnly Property CooloffMin As Decimal
+        Get
+            Return CooloffMinV
+        End Get
+    End Property
+    Friend ReadOnly Property CircuitBreakerUsd As Decimal
+        Get
+            Return CircuitBreakerUsdV
+        End Get
+    End Property
+    Friend ReadOnly Property WindowStart As String = ""
+    Friend ReadOnly Property WindowEnd As String = ""
+    Friend ReadOnly Property TiersCsv As String = "HIGH,MEDIUM"
+    Friend Property RiskSizeBridgeTrades As Boolean = False
+    Friend ReadOnly Property SessionPolicy As SessionPolicyConfig = SessionPolicyConfig.Defaults()
+End Class
+
+Partial Public Class frmMainPageV2
+    Public webSocketClient As New FakeSocket()
+    Private cancellationTokenSource As New CancellationTokenSource()
+    Public _indicators As New FrmIndicators()
+    Public _autotradesettings As New AutoTradeSettings()
+    Public signalBridge As SignalBridge
+
+    ' Controls (frmMainPageV2.Designer.vb defaults: txtAmount 10, txtTakeProfit 60, txtTrigger 60,
+    ' txtStopLoss 30, txtTriggerOffset 30, txtTPOffset 60, txtComms 30, txtMarketStopLoss 70,
+    ' txtMaxSlippageATR 0.6, chkMaxSlippageATR checked, chkMarketStopLoss checked, manual TP/SL 0).
+    Public txtAmount, txtManualTP, txtManualSL, txtTakeProfit, txtStopLoss, txtTrigger, txtTPOffset,
+           txtComms, txtMarketStopLoss, txtMaxSlippageATR, txtTriggerOffset As New Box()
+    Public txtPlacedPrice, txtPlacedTakeProfitPrice, txtPlacedTrigStopPrice, txtPlacedStopLossPrice,
+           lblOrderStatus, txtTopBid, txtTopAsk, lblPnL, txtLogs, lblEstimatedLiquidation,
+           lblInitialMargin, lblMaintenanceMargin, lblEstimatedLeverage As New Box()
+    Public chkMaxSlippageATR As New CheckStub With {.Checked = True}
+    Public chkMarketStopLoss As New CheckStub With {.Checked = True}
+
+    ' Recorders
+    Public ReadOnly Logs As New List(Of String)
+    Public ReadOnly Alerts As New List(Of String)
+    Public ReadOnly Records As New List(Of String)
+    Public ReadOnly Property IsHandleCreated As Boolean = False
+    Public ReadOnly Property InvokeRequired As Boolean = False
+    Public ReadOnly Property IsDisposed As Boolean = False
+
+    Public Sub New()
+        For Each b As Box In {txtAmount, txtManualTP, txtManualSL, txtTakeProfit, txtStopLoss, txtTrigger,
+                              txtTPOffset, txtComms, txtMarketStopLoss, txtMaxSlippageATR}
+            b.OnChanged = AddressOf SyncTradeInputsFromUi
+        Next
+        txtAmount.Text = "10" : txtTakeProfit.Text = "60" : txtTrigger.Text = "60" : txtStopLoss.Text = "30"
+        txtTriggerOffset.Text = "30" : txtTPOffset.Text = "60" : txtComms.Text = "30"
+        txtMarketStopLoss.Text = "70" : txtMaxSlippageATR.Text = "0.6"
+        txtManualTP.Text = "0" : txtManualSL.Text = "0"
+        SyncTradeInputsFromUi()
+        SyncToggleInputsFromUi()
+        rateLimiter = New DeribitRateLimiter(2000, 50)   ' the connect-time fallback, frmMainPageV2.vb:1487
+    End Sub
+
+    ' Synchronous marshal stand-ins (the real Control.Invoke is synchronous too).
+    Public Sub Invoke(a As Action)
+        a()
+    End Sub
+    Public Function Invoke(d As [Delegate]) As Object
+        Return d.DynamicInvoke()
+    End Function
+    Public Function BeginInvoke(d As [Delegate]) As Object
+        Return d.DynamicInvoke()
+    End Function
+
+    Private Sub AppendColoredText(rtb As Box, text As String, color As Color)
+        SyncLock Logs
+            Logs.Add($"{DateTime.UtcNow:HH:mm:ss.fff} [{color.Name}] {text}")
+        End SyncLock
+    End Sub
+    Private Sub Alert(kind As String)
+        SyncLock Alerts
+            Alerts.Add(kind)
+        End SyncLock
+    End Sub
+    Private Function HandleWebSocketDisconnect() As Task
+        AppendColoredText(txtLogs, "(stub) HandleWebSocketDisconnect scheduled", Color.Gray)
+        Return Task.CompletedTask
+    End Function
+    Public Function InitializeRateLimits() As Task
+        Return Task.CompletedTask
+    End Function
+    Public Function RecordCompletedTrade(entryPrice As Decimal, exitPrice As Decimal, orderSizeUSD As Decimal,
+                                         profitLossUSD As Decimal, isProfit As Boolean, tradeMode As Boolean,
+                                         orderType As String, Optional maeUsd As Decimal = 0D, Optional mfeUsd As Decimal = 0D,
+                                         Optional plannedStop As Decimal = 0D, Optional rMultiple As Decimal = 0D,
+                                         Optional feesUsd As Decimal = 0D) As Integer
+        Records.Add($"RecordCompletedTrade entry={entryPrice} exit={exitPrice} size={orderSizeUSD} pl={If(isProfit, "+", "-")}{profitLossUSD} label={orderType} plannedStop={plannedStop} R={rMultiple}")
+        Return Records.Count
+    End Function
+    Private Sub LogTradeDecision(ordertype As String, PLAmt As Decimal, ExitP As Decimal)
+        Records.Add($"LogTradeDecision {ordertype}")
+    End Sub
+    ' SetTradeMode's only engine effect is TradeMode (frmMainPageV2.vb:6165-6262; the rest is button styling).
+    Private Sub SetTradeMode(isLong As Boolean)
+        TradeMode = isLong
+    End Sub
+
+    ' ---- harness entry points (the receive loop's dispatch order, frmMainPageV2.vb:1531-1553) ----
+    Public Sub Deliver(json As String)
+        HandleQuoteUpdates(json)
+        HandleOrderPositionUpdates(json)
+        HandleRateLimitError(json)
+        HandleMarginEstimationResponse(json)
+        HandleOpenOrdersSnapshot(json)
+        HandlePlacementResponse(json)
+        HandleUnhandledJsonRpcError(json)
+    End Sub
+
+    ' Read-only views for the driver.
+    Public ReadOnly Property V_SLTriggered As Boolean
+        Get
+            Return SLTriggered
+        End Get
+    End Property
+    Public ReadOnly Property V_State As String
+        Get
+            Return $"pos={positionSizeUSD} avg={positionAvgEntry} TradeMode={If(TradeMode, "LONG", "SHORT")} " &
+                   $"CurrentOpenOrderId={If(CurrentOpenOrderId, "Nothing")} PositionSLOrderId={If(PositionSLOrderId, "Nothing")} " &
+                   $"SLTriggered={SLTriggered} placedPrice={placedPrice} placedStopLossPrice={placedStopLossPrice} " &
+                   $"StopLossTriggerOriginal={StopLossTriggerOriginal} emergencyBaseline={emergencyBaseline} " &
+                   $"emergencyFired={emergencyFired} cancelPending(raw)={cancelPending} manualTP={manualTPval} manualSL={manualSLval} " &
+                   $"lblOrderStatus='{lblOrderStatus.Text}' slipLimit={CurrentSlippageLimit} originalSignalPrice={originalSignalPrice}"
+        End Get
+    End Property
+    ' btnSell_Click (frmMainPageV2.vb:6263-6265) is exactly SetTradeMode(False), with no position guard.
+    Public Sub ClickSellButton()
+        SetTradeMode(False)
+    End Sub
+    Public Sub SetMarketStopChecked(v As Boolean)
+        chkMarketStopLoss.Checked = v
+        SyncToggleInputsFromUi()
+    End Sub
+End Class
+
+Partial Public Class frmMainPageV2
+    ' What ConnectToWebSocketDirectly (frmMainPageV2.vb:1407-1414) resets on every (re)connect:
+    ' a fresh socket and positionRestoreAnnounced = False. Nothing else is reset there.
+    Public Sub Reconnect()
+        webSocketClient = New FakeSocket()
+        positionRestoreAnnounced = False
+    End Sub
+    Public ReadOnly Property V_PlacedSL As Decimal
+        Get
+            Return placedStopLossPrice
+        End Get
+    End Property
+End Class
