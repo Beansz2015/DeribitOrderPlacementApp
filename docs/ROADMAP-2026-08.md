@@ -279,7 +279,10 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   "FrmIndicators/AutoTradeSettings retirement" item is **already done** — that window is owned and
   re-parented by `frmMainPageV2` (`:975`, `:6084-6091`), so only the ATR source is left. The form
   also still carries dead code (`UpdateEmaVwapLabels`, `FrmIndicators.vb:1281`, zero call sites).
-- **`backup-orderapp.ps1` fails confusingly when `-TargetDir` cannot be created.** *(Verified
+- ~~**`backup-orderapp.ps1` fails confusingly when `-TargetDir` cannot be created.**~~ ✅ **CLOSED
+  2026-10-06** — the script re-tests the target after `New-Item` and fails with one message naming it.
+  Tested: an absent drive and a path under a file both exit 1 with that message; a good target
+  writes the zip. *(History below.)* *(Verified
   2026-08-07, hit for real by the owner.)* Line 44 does
   `New-Item -ItemType Directory -Force -Path $TargetDir`, but on some drives that **returns success
   without creating anything** — reproduced on `D:\` on the owner's box: `New-Item` throws nothing,
@@ -303,6 +306,9 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   unique JSON-RPC ids per request class (old audit F15), which any response-matching work needs
   first. *(Recovered this pass — it lived only in `CODE_AUDIT_FABLE5.md` §E, which is not in the
   read path.)*
+- ✅ **CLOSED — uncapped Max Size: built, reviewed, APPROVED (`docs/review-max-size-uncapped.md`),
+  and in the owner's x64 bin since the 2026-10-06 rebuild. The owner saw `Max size: 2000` on
+  launch.** *(The original row follows.)*
 - 🟢 **`Max Size = 0` must mean NO CAP from the form, and an uncapped state must announce itself.**
   **SPEC WRITTEN 2026-08-14 — `spec-max-size-uncapped.md`. Ready for an implementer seat, which the
   owner launches. Recommended: Opus, HIGH, fresh conversation.** Owner-requested. The engine already
@@ -428,6 +434,9 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   disconnect published as `"ws": "DOWN"` while the app keeps running.** Nothing can settle that
   retroactively — the x64 bin predates `WsEdgeLog.vb` and so wrote **no `ws-edges.log`** to
   correlate against. Full breakdown: `HANDOVER-6.md` §2 item 7.
+  ✅ *2026-10-06: the three findings below are FOLDED into `spec-ws-edge-audit.md` (its §Coordinator
+  review, "`SB1` UPHELD" onward). The failed-reconnect suppression sub-claim is SETTLED by code
+  reading — `runtime-record-ws-down-emitter-2026-08-14.md` §5 item 1.*
   ⚠ Three spec-back findings against `spec-ws-edge-audit.md` are open —
   **`SB1`** (a docs finding: acceptance item 4's stated mechanism, the emitter's disposed latch,
   does not cover a writer outside `ExecutorFeedback`; the guard implemented is `isClosing`),

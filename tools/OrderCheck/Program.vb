@@ -1214,7 +1214,11 @@ Module Program
               Not WsEdgeLog.ShouldLogWsEdge(wsOk, wsOk))
         Check("ws-edge fixture 4: OK -> DOWN is LOGGED (the edge the spec exists for)",
               WsEdgeLog.ShouldLogWsEdge(wsOk, wsDown))
-        Check("ws-edge fixture 5: DOWN -> DOWN is SUPPRESSED (a failed reconnect re-enters the loop exit)",
+        ' 2026-10-06: the old label said "a failed reconnect re-enters the loop exit". It does NOT: a failed
+        ' ConnectToWebSocketDirectly throws before LogWsEdge("connect") and before the receive loop starts,
+        ' so it never calls NoteState at all (docs/runtime-record-ws-down-emitter-2026-08-14.md section 5).
+        ' The rule below is still right and still pinned; it guards a DOWN -> DOWN with no known caller.
+        Check("ws-edge fixture 5: DOWN -> DOWN is SUPPRESSED (the no-flood guard)",
               Not WsEdgeLog.ShouldLogWsEdge(wsDown, wsDown))
         Check("ws-edge fixture 6: DOWN -> OK is LOGGED (the recovery half of the transition)",
               WsEdgeLog.ShouldLogWsEdge(wsDown, wsOk))
@@ -1250,8 +1254,9 @@ Module Program
         decisions = 0
         Dim rows As New List(Of String)
         Dim at As New DateTime(2026, 8, 13, 13, 22, 41, DateTimeKind.Utc)
-        ' connected x5, then the drop, then five failed reconnects that re-enter the loop exit, then
-        ' recovery, then connected x5. Exactly two rows, DOWN then OK.
+        ' connected x5, then the drop, then five repeated DOWN decisions, then recovery, then connected
+        ' x5. Exactly two rows, DOWN then OK. (The repeated DOWNs exercise the RULE. At runtime a failed
+        ' reconnect never calls NoteState - see fixture 5's note.)
         Dim sequence As String() = {wsOk, wsOk, wsOk, wsOk, wsOk,
                                     wsDown, wsDown, wsDown, wsDown, wsDown, wsDown,
                                     wsOk, wsOk, wsOk, wsOk, wsOk}

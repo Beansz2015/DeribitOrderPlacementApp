@@ -155,6 +155,8 @@ Carried from `docs/impl-report-ws-edge-audit.md` §4, corrected against what act
    `WebSocketException` arm. `server closed connection`, `receive cancelled` and
    `socket no longer open` have **never appeared in a real row**.
 3. **A failed-reconnect `DOWN` suppression was not exercised at runtime** — see §3.1 of this record.
+   ✅ **SETTLED 2026-10-06 by code reading:** a failed reconnect never calls `NoteState`, so there is
+   nothing to exercise on that path. Evidence: `runtime-record-ws-down-emitter-2026-08-14.md` §5 item 1.
 4. **No `DOWN` was observed while the emitter was ENABLED.** See §5 of this record.
 5. **The owner's x64 bin still does not carry this code.** `tools/checks/verify-gate.ps1` is
    AnyCPU-only. This ran in the harness Debug bin.

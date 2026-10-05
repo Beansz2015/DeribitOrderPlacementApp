@@ -98,6 +98,9 @@ reviewer. One look after the rebuild closes it.
 
 ## 3. OUTSTANDING — coordinator side
 
+**6. ✅ SETTLED 2026-10-06 by code reading — a failed reconnect never calls `NoteState`.** The single
+`DOWN` row means "never called again", not "suppressed". The rule itself is unit-tested. Evidence:
+`docs/runtime-record-ws-down-emitter-2026-08-14.md` §5 item 1. *(The original text follows.)*
 **6. 🚨 The failed-reconnect `DOWN` suppression — STILL UNPROVEN, AND IT LOOKS PROVEN.**
 `docs/runtime-record-ws-down-emitter-2026-08-14.md` §5 item 1. Eight reconnect attempts failed
 between the drop and the recovery, and `ws-edges.log` carries **exactly one `DOWN` row**. That is

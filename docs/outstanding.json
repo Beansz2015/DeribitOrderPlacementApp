@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T19:05Z",
+  "updated_utc": "2026-10-05T19:20Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,12 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 1 commit ahead of origin (the decision-bias harness port, 5x re-ranker sampling, the pane and Jev docs). Docs and tools only.",
-      "since": "2026-10-06"
-    },
-    {
-      "kind": "go",
-      "meaning": "Launch the rebuilt x64 app (rebuilt 2026-10-06 02:37, carries uncapped max size, secrets.json still testnet). Read the window title for TESTNET before Connect. Then check the new line reads 'Max size: 2000', and optionally its grey colour, and yellow at 0.",
+      "meaning": "Push master: 2 commits ahead of origin (the Jev and pane advice, then the hygiene pass: backup script fix, failed-reconnect question settled, roadmap rows closed). Docs, tools and one test-label change.",
       "since": "2026-10-06"
     },
     {
@@ -33,13 +28,15 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [],
+  "in_progress": [
+    {
+      "what": "Hygiene backlog: clearing what a seat can before the AWS migration",
+      "where": "local",
+      "started_utc": "2026-10-05T19:00Z"
+    }
+  ],
   "dated": [],
   "next_up": [
-    {
-      "what": "Prove the failed-reconnect DOWN suppression. One log row over eight failed reconnects does not prove it: a failed connect may never reach the loop exit that writes the row.",
-      "model": "Opus 5.5, high"
-    },
     {
       "what": "Hygiene backlog in docs/ROADMAP-2026-08.md. Not urgent; nothing is in flight.",
       "model": "Sonnet, medium"

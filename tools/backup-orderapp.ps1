@@ -41,7 +41,14 @@ if (-not (Test-Path $BinDir)) {
 
 $files = @('orderapp-settings.json', 'trades.db', 'bridge-state.json', 'bridge-dispositions.log')
 
-if (-not (Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null }
+if (-not (Test-Path $TargetDir)) { New-Item -ItemType Directory -Force -Path $TargetDir -ErrorAction SilentlyContinue | Out-Null }
+# On some drives New-Item -Force returns success WITHOUT creating anything (reproduced on D:\ on the
+# owner's box, 2026-08-07). Re-test, so the failure names the target instead of surfacing two lines
+# later as a Resolve-Path error that reads like a bad argument.
+if (-not (Test-Path -PathType Container $TargetDir)) {
+    Write-Host "FAIL  target directory could not be created or is not writable: $TargetDir" -ForegroundColor Red
+    exit 1
+}
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $zipPath = Join-Path (Resolve-Path $TargetDir).Path "orderapp-backup-$stamp.zip"

@@ -146,6 +146,25 @@ Together with `runtime-record-ws-edge-audit-2026-08-14.md`, all three claims on 
    this session's artefacts separates them.
    ⇒ `runtime-record-ws-edge-audit-2026-08-14.md` §4 item 3 **stays open**.
 
+   ✅ **SETTLED 2026-10-06 by code reading (coordinator seat, Opus 5.5), at HEAD `dbb43c8`. The
+   answer is "`NoteState` was never called again". The suppression was NOT exercised, and on this
+   path it cannot be.**
+   - `NoteState` has exactly **one** caller, `LogWsEdge` (`frmMainPageV2.vb:858`). `LogWsEdge` has
+     exactly **two** call sites: `:1530` `LogWsEdge("connect")`, and `:1649` at the receive loop's exit.
+   - `:1530` sits **after** `ConnectAsync`, authorize and every subscribe in
+     `ConnectToWebSocketDirectly` (`:1448`). A failed attempt throws before it. The receive loop is
+     started only at `:1534`, after it. The reconnect loop in `HandleWebSocketDisconnect` (`:1380`)
+     catches that throw and calls neither site.
+   - So a failed reconnect makes **zero** `NoteState` calls. The eight failures in this session made
+     zero, and the single `DOWN` row is fully explained without any suppression.
+   - **The suppression rule itself is already proven at unit level:** `OrderCheck` ws-edge fixtures 5
+     (`DOWN -> DOWN` suppressed) and 10 (a run of repeated `DOWN`s logs one row). What runtime could
+     add is only a real caller that reaches `DOWN -> DOWN`. This read found **none**. I did not prove
+     that none exists. A `DOWN -> DOWN` would need two loop exits with no successful connect between them.
+   - **Fixture 5's label was wrong** ("a failed reconnect re-enters the loop exit"). Corrected in
+     `tools/OrderCheck/Program.vb` with a note; the assertion is unchanged.
+   - **No provoked outage is needed for this item.** Items 2 and 3 below are unchanged.
+
 2. **The `While`-condition exit arm was again not exercised.** This drop took the
    `WebSocketException` arm, the same as the previous session. `server closed connection`,
    `receive cancelled` and `socket no longer open` have **still never appeared in a real row**.
