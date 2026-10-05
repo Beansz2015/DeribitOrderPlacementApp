@@ -381,3 +381,9 @@ harness.json
 verify/
 # Ergonomics item A: per-machine trade defaults (beside the exe; ship the .example copy instead).
 orderapp-settings.json
+
+# Jev doc re-ranker (tools/checks/doc-reranker.ps1): per-box query log, and any local key copy.
+doc-reranker-query-log.jsonl
+typesafe.local.env
+*.typesafe.env
+*.typesafe.key

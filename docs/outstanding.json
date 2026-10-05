@@ -1,17 +1,17 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T18:35Z",
+  "updated_utc": "2026-10-05T18:50Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 12 commits ahead of origin since the 2026-08-14 push: docs, the uncapped max size feature, and this pane fix. Tree is clean.",
-      "since": "2026-08-19"
+      "meaning": "Push master: 1 commit ahead of origin (the Jev doc re-ranker port). Everything to 2026-10-06 02:36 is pushed.",
+      "since": "2026-10-06"
     },
     {
       "kind": "go",
-      "meaning": "Rebuild the x64 bin. Your running app does not carry the uncapped max size feature (checked in the dll bytes). After the rebuild, confirm secrets.json reads testnet and the window title ends in TESTNET before Connect.",
-      "since": "2026-08-19"
+      "meaning": "Launch the rebuilt x64 app (rebuilt 2026-10-06 02:37, carries uncapped max size, secrets.json still testnet). Read the window title for TESTNET before Connect. Then check the new line reads 'Max size: 2000', and optionally its grey colour, and yellow at 0.",
+      "since": "2026-10-06"
     },
     {
       "kind": "ruling",
@@ -27,11 +27,6 @@
       "meaning": "AWS London migration. The key choreography removes the window where two executors run at once.",
       "doc": "docs/production-cutover-checklist.md",
       "since": "2026-08-02"
-    },
-    {
-      "kind": "review",
-      "meaning": "Optional: after the rebuild, look at the two max size log lines. Uncapped should be yellow, capped grey. Both were only read as text.",
-      "since": "2026-08-18"
     }
   ],
   "in_progress": [],

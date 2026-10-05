@@ -30,6 +30,18 @@ this repo, because it has many documents and many finding IDs:
 - `SB` = a spec-back finding **against the docs**, raised after the work.
 - Scope every ID to its feature. Do not reuse a prefix across kinds.
 
+## Jev doc re-ranker — the context saver (owner ruling 2026-10-06)
+
+- **Fire it BEFORE grepping or reading docs** for any "where was this decided / defined?" question.
+  Then read only the top hits, by line range.
+- `powershell -NoProfile -File tools/checks/doc-reranker.ps1 -Query "<question>"`
+- About 31 Jev calls and 10 s per query. It reads committed docs at `HEAD`, not the working tree.
+- It excludes `docs/HANDOVER.md` and `docs/HANDOVER-2.md` through `-5.md`. It is advisory only and is
+  never part of the gate.
+- Jev returns probabilities. Never ask it for maths, counts or dates.
+- Ported from the engine repo. The header of `tools/checks/doc-reranker.ps1` gives the source and
+  what was left out.
+
 ## Safety boundaries — not negotiable
 
 - **A seat never places a trade and never arms the bridge.** The owner drives every trade, ARM and
