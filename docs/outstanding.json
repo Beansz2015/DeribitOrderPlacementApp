@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T19:35Z",
+  "updated_utc": "2026-10-05T20:05Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,13 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 3 commits ahead of origin (Jev and pane advice; hygiene pass; the cooloff comment fix and your four rulings recorded). One comment-only change in SignalBridge.vb; the rest is docs and tools.",
+      "meaning": "Push master: 4 commits ahead of origin (Jev and pane advice; hygiene pass; cooloff comment fix; two new specs). One comment-only change in SignalBridge.vb; the rest is docs and tools.",
+      "since": "2026-10-06"
+    },
+    {
+      "kind": "go",
+      "meaning": "Launch an implementer seat for the FrmIndicators retirement spec (Opus, high). It must land before the slippage-fields spec.",
+      "doc": "docs/spec-frmindicators-retirement.md",
       "since": "2026-10-06"
     },
     {
@@ -33,26 +39,20 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [
-    {
-      "what": "Hygiene backlog: clearing what a seat can before the AWS migration",
-      "where": "local",
-      "started_utc": "2026-10-05T19:00Z"
-    }
-  ],
+  "in_progress": [],
   "dated": [],
   "next_up": [
     {
-      "what": "Spec: populate the trade-record slippage fields (design questions to you first)",
+      "what": "Review the FrmIndicators retirement when its implementer reports",
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Spec: retire FrmIndicators fully (design questions to you first; manual trades lose their ATR source)",
+      "what": "Then launch and review the trade slippage-fields spec",
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Hygiene backlog in docs/ROADMAP-2026-08.md. Not urgent; nothing is in flight.",
-      "model": "Sonnet, medium"
+      "what": "Remaining hygiene rows need runtime observation or a spec of their own; not clearable by a seat alone",
+      "model": "Opus 5.5, medium"
     }
   ]
 }

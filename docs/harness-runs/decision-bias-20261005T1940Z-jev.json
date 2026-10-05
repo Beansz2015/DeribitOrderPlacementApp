@@ -1,0 +1,70 @@
+{
+    "rev":  "4a3e29d4d79b62296471da7daa35a3f018421c26",
+    "population":  "docs/harness-runs/decision-bias-20261005T1940Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261005T1940Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x10] resolved=[jev-1.13.0 x10] run_utc=2026-10-05T19:12:46Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  10,
+    "usage_input_tokens":  9247,
+    "wall_time_sec":  3.04,
+    "items":  [
+                  {
+                      "id":  "docs/ROADMAP-2026-08.md|FRMIND-ATR@4a3e29d",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.608,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.6,
+                                                       0.61,
+                                                       0.63,
+                                                       0.58,
+                                                       0.62
+                                                   ],
+                      "usage_input_tokens":  4585,
+                      "seat_label":  "richer_option_wrong"
+                  },
+                  {
+                      "id":  "docs/ROADMAP-2026-08.md|TRADEREC-SLIP@4a3e29d",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.832,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.84,
+                                                       0.84,
+                                                       0.84,
+                                                       0.8,
+                                                       0.84
+                                                   ],
+                      "usage_input_tokens":  4662,
+                      "seat_label":  "no_richer_option"
+                  }
+              ]
+}

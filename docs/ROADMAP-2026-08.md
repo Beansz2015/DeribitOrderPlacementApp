@@ -268,7 +268,8 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   of the main form. A retry immediately after opening succeeded. Surfaced by the SB3 acceptance run
   (`review-harness-exact-match.md` §5.2); **pre-existing, not an SB3 regression**, but it makes any
   settings-window drive step flaky.
-- 🟡 **OWNER RULING 2026-10-06: FULL RETIREMENT.** Needs a spec; design questions go to the owner first.
+- 🟡 **OWNER RULING 2026-10-06: FULL RETIREMENT.** **SPEC WRITTEN: `spec-frmindicators-retirement.md`**
+  (engine ATR in every mode, switchable Flat ATR). Opus, high; runs first.
   ⚠ Found 2026-10-06: in bridge mode Off the bridge ATR is zeroed (`SignalBridge.vb:631-633`,
   `StopWatching`), so every MANUAL trade's chase limit uses FrmIndicators' ATR today. Retirement
   turns that into the flat `atrFallbackVal` unless the spec says otherwise.
@@ -373,8 +374,8 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   ✅ *Related non-finding, recorded so it is not re-opened: after `All reconnection attempts failed -
   manual intervention required`, the app reconnected because **the owner clicked Connect once**. The
   message was accurate and the recovery was owner-driven. There is no silent auto-recovery path.*
-- 🟡 **OWNER RULING 2026-10-06: POPULATE, not delete.** Needs a spec; design questions go to the owner
-  first. Note the dead set is wider than two: `RequoteCount`, `AttemptType` and `SignalPrice` are
+- 🟡 **OWNER RULING 2026-10-06: POPULATE, not delete.** **SPEC WRITTEN: `spec-trade-slippage-fields.md`**
+  (completed trades + a separate `AbortedEntries` table). Opus, high; after the FrmIndicators spec. Note the dead set is wider than two: `RequoteCount`, `AttemptType` and `SignalPrice` are
   also never persisted (`TradeDatabase.vb` INSERT omits all five).
   *(Original row:)* **`TradeRecord.SlippageATR` / `MaxSlippageExceeded` are declared and never written.** *(Verified:
   `TradeRecord.vb:18-19`, zero writers and zero readers at HEAD — the live slippage machinery is the

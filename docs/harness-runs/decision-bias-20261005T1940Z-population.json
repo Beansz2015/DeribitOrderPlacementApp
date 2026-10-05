@@ -1,0 +1,49 @@
+{
+ "rev": "4a3e29d4d79b62296471da7daa35a3f018421c26",
+ "rev7": "4a3e29d",
+ "stamp_utc": "20261005T1940Z",
+ "builder": "coordinator seat, Opus 5.5, by hand",
+ "note": "STATE ONLY. Live reads.",
+ "items": [
+  {
+   "id": "docs/ROADMAP-2026-08.md|FRMIND-ATR@4a3e29d",
+   "question": "An order app's chase guard caps entry slippage at ATR x 0.6. With the trading bridge Off (all manual trades), its only ATR source is a headless indicator form that runs a second websocket with an unguarded reconnect. The owner has ruled to retire that form. What should the chase limit use when no fresh engine payload ATR is available?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Use the existing configurable flat fallback limit (default $70, not multiplied) whenever no fresh payload ATR exists. No new code beyond the retirement."
+    },
+    {
+     "label": "(b)",
+     "text": "Keep the bridge's payload watcher reading engine ATR in mode Off too, so manual trades get the engine's 7-period ATR whenever the engine is publishing; flat fallback only when the engine is stale or down. Touches the bridge path."
+    },
+    {
+     "label": "(c)",
+     "text": "Move a minimal ATR calculation into the main form from candles it requests over its existing websocket; flat fallback only on failure. Most code."
+    }
+   ],
+   "recommended": "(b)",
+   "rationale": "(b) keeps a live, volatility-scaled limit for manual trades from the same ATR the engine already publishes, and only changes when the watcher stops, not what it reads. (a) silently turns a volatility-scaled guard into a fixed $70 for every manual trade, which is too loose in quiet markets and too tight in fast ones. (c) rebuilds the indicator form's job inside the main form, which defeats the retirement and adds a candle subscription to the receive loop."
+  },
+  {
+   "id": "docs/ROADMAP-2026-08.md|TRADEREC-SLIP@4a3e29d",
+   "question": "A trade journal (SQLite, completed trades only) has five declared but never-persisted fields: RequoteCount, AttemptType, SignalPrice, SlippageATR, MaxSlippageExceeded. The owner ruled to populate them rather than delete them. A chase that exceeds the slippage cap aborts and never becomes a trade. What scope?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Completed trades only: persist SignalPrice (chase anchor), RequoteCount, and SlippageATR (fill vs anchor over the effective ATR at fill). Delete AttemptType and MaxSlippageExceeded, which cannot be true on a completed trade."
+    },
+    {
+     "label": "(b)",
+     "text": "(a) plus a separate AbortedEntries table: one row per chase abort with reason (ATR slippage / EV floor), anchor, last quote, slippage in ATR and requote count. Trades table and P/L stats untouched."
+    },
+    {
+     "label": "(c)",
+     "text": "Write aborted chases into the Trades table as AttemptType='Abandoned' rows with zero P/L."
+    }
+   ],
+   "recommended": "(b)",
+   "rationale": "(b) records the information the fields were meant to capture, including the aborts that MaxSlippageExceeded exists for, without polluting the P/L statistics that read the Trades table. (a) is smaller but throws away the abort record, which is the only place MaxSlippageExceeded means anything. (c) mixes non-trades into every P/L, win-rate and R-multiple query."
+  }
+ ]
+}
