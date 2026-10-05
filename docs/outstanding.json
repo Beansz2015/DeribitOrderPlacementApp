@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T19:20Z",
+  "updated_utc": "2026-10-05T19:35Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,12 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 2 commits ahead of origin (the Jev and pane advice, then the hygiene pass: backup script fix, failed-reconnect question settled, roadmap rows closed). Docs, tools and one test-label change.",
+      "meaning": "Push master: 3 commits ahead of origin (Jev and pane advice; hygiene pass; the cooloff comment fix and your four rulings recorded). One comment-only change in SignalBridge.vb; the rest is docs and tools.",
+      "since": "2026-10-06"
+    },
+    {
+      "kind": "ruling",
+      "meaning": "Settings boxes that show text not in force: you asked to hold this question. Tell me when you want to rule.",
       "since": "2026-10-06"
     },
     {
@@ -37,6 +42,14 @@
   ],
   "dated": [],
   "next_up": [
+    {
+      "what": "Spec: populate the trade-record slippage fields (design questions to you first)",
+      "model": "Opus 5.5, high"
+    },
+    {
+      "what": "Spec: retire FrmIndicators fully (design questions to you first; manual trades lose their ATR source)",
+      "model": "Opus 5.5, high"
+    },
     {
       "what": "Hygiene backlog in docs/ROADMAP-2026-08.md. Not urgent; nothing is in flight.",
       "model": "Sonnet, medium"

@@ -151,7 +151,7 @@ Public Class SignalBridge
     '                                                      plain field, accepted Decimal torn-read class.
     Private _lastDisposition As String = ""
     Private _lastSignalSummary As String = ""
-    Private _lastActionUtc As DateTime = DateTime.MinValue   ' cooloff anchor (acted / would-act)
+    Private _lastActionUtc As DateTime = DateTime.MinValue   ' cooloff anchor: position CLOSE only (NotifyPositionClosed)
     Private _staleChecks As Integer = 0                  ' consecutive stale staleness-timer checks
     Private _staleAlerted As Boolean = False
     Private _lastSeenInstanceId As String = ""           ' in-memory only: suppresses double-dispositions

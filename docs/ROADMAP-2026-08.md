@@ -268,7 +268,11 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   of the main form. A retry immediately after opening succeeded. Surfaced by the SB3 acceptance run
   (`review-harness-exact-match.md` §5.2); **pre-existing, not an SB3 regression**, but it makes any
   settings-window drive step flaky.
-- **FrmIndicators full retirement.** *(Verified: the form is headless but very much alive.)* It is
+- 🟡 **OWNER RULING 2026-10-06: FULL RETIREMENT.** Needs a spec; design questions go to the owner first.
+  ⚠ Found 2026-10-06: in bridge mode Off the bridge ATR is zeroed (`SignalBridge.vb:631-633`,
+  `StopWatching`), so every MANUAL trade's chase limit uses FrmIndicators' ATR today. Retirement
+  turns that into the flat `atrFallbackVal` unless the spec says otherwise.
+  *(Original row:)* **FrmIndicators full retirement.** *(Verified: the form is headless but very much alive.)* It is
   still constructed (`frmMainPageV2.vb:968`) and still runs **its own `ClientWebSocket` and
   `ConnectAndStream` receive loop with an unguarded reconnect** (`FrmIndicators.vb:20`, `:69`,
   `:161` — the old audit item #11), for one purpose: `CurrentATR` (`:38-41`) as the **fallback** ATR
@@ -321,6 +325,7 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   warn, and a box that warns must not commit"*. ⚠ **Risk / Trade is deliberately excluded** — there
   `<= 0` falls back to the Amount box and would silently disable risk sizing with the checkbox still
   reading ON.
+- ⏸ **OWNER HOLD 2026-10-06** — the owner asked to hold this question before ruling.
 - 🚨 **A settings box can display something that is NOT in force, for the whole app session.**
   *(Found 2026-08-14, by the owner, while reviewing `spec-max-size-uncapped.md`.)* The boxes with the
   keep-last-good convention silently ignore a blank or garbage entry — but **the box goes on showing
@@ -336,7 +341,9 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   is the remaining **eight** `CommitOnLeave` boxes — `txtCooloff` · `txtCircuitBreaker` ·
   `txtStartTime` · `txtEndTime` · `txtBridgeTiers` · `txtAtrLength` · `txtAtrFallback` ·
   `txtMinNetMove`. Same class as **item G**, the stale-SL-box cosmetic, elsewhere in this section.
-- **`SignalBridge.vb:154`'s cooloff-anchor comment is wrong.** *(Found 2026-08-13.)* It reads
+- ✅ **CLOSED 2026-10-06 (owner ruling: fix standalone, do not wait for a bridge spec)** — the comment now
+  reads "cooloff anchor: position CLOSE only (NotifyPositionClosed)". Comment-only; gate passed.
+  *(Original row:)* **`SignalBridge.vb:154`'s cooloff-anchor comment is wrong.** *(Found 2026-08-13.)* It reads
   *"cooloff anchor (acted / would-act)"*. `_lastActionUtc` is assigned in exactly one place —
   `NotifyPositionClosed()` (`:1169`) — so it anchors on **position close** and on neither of the two
   things the comment names. The behaviour is correct and deliberate; only the comment lies. One-line
@@ -366,7 +373,10 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   ✅ *Related non-finding, recorded so it is not re-opened: after `All reconnection attempts failed -
   manual intervention required`, the app reconnected because **the owner clicked Connect once**. The
   message was accurate and the recovery was owner-driven. There is no silent auto-recovery path.*
-- **`TradeRecord.SlippageATR` / `MaxSlippageExceeded` are declared and never written.** *(Verified:
+- 🟡 **OWNER RULING 2026-10-06: POPULATE, not delete.** Needs a spec; design questions go to the owner
+  first. Note the dead set is wider than two: `RequoteCount`, `AttemptType` and `SignalPrice` are
+  also never persisted (`TradeDatabase.vb` INSERT omits all five).
+  *(Original row:)* **`TradeRecord.SlippageATR` / `MaxSlippageExceeded` are declared and never written.** *(Verified:
   `TradeRecord.vb:18-19`, zero writers and zero readers at HEAD — the live slippage machinery is the
   unrelated `maxSlippageATRmult`/`chkMaxSlippageATR` chain.)* Either populate them or delete them;
   today they are two fields that read as data and are not. *(Recovered from the audit's §E.)*
