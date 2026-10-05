@@ -297,21 +297,56 @@ Public Class AutoTradeSettings
     ' (§2.2b names only Leave; CommitOnEnterKey is a second commit path on the same boxes, and
     ' leaving it out would have left exactly the divergence this requirement exists to close.)
     '
-    ' Scope is deliberately the SetRiskSizingValues PAIR only. The same divergence affects the other
-    ' eight CommitOnLeave boxes and is filed separately (ROADMAP-2026-08.md §5) - this change
-    ' removes a safety ceiling, so its blast radius stays small. txtSessionPolicy also reaches here
-    ' and is correctly untouched.
+    ' SCOPE, extended 2026-10-06 (owner ruling; ROADMAP-2026-08.md §5 hygiene row "A settings box can
+    ' display something that is NOT in force"): the Max Size work covered the SetRiskSizingValues
+    ' pair only. The other eight CommitOnLeave boxes had the same divergence - the worst case was
+    ' Tiers, where a cleared box kept HIGH,MEDIUM in force with no warning at all. They now snap
+    ' back too. Each box re-renders its value IN FORCE from the same place the commit wrote it:
+    ' the four gate boxes from this form's own mirrors (CommitGateConfig owns them), the rest from
+    ' the host. Where an initial-seed routine exists it is reused, so seed and re-seed render a value
+    ' identically. txtSessionPolicy also reaches here and is correctly untouched: it is a multi-line
+    ' edit that may be mid-edit and temporarily invalid (see CommitGateConfig's policy block), and
+    ' snapping it back would throw away a half-written rule.
+    '
+    ' The orange "Ignored (keeping last good)" warning is raised by the commit BEFORE this runs and
+    ' is left standing: it records that the entry was ignored, and the next commit clears it - the
+    ' same behaviour the Max Size box has had since the Max Size work.
     Private Sub ReseedSenderFromHost(sender As Object)
-        If _host Is Nothing Then Return
         Dim tb = TryCast(sender, TextBox)
         If tb Is Nothing Then Return
-        ' Same formatting as SeedRiskSizingFromHost (:368-369) on purpose: the initial seed and the
-        ' re-seed must render an identical value identically, or reopening the form would look like
-        ' a change. .ToString() round-trips a 0 back as "0", never as blank (§2.4).
+
+        ' Gate boxes: form-owned mirrors, no host needed. Start/End render the committed (trimmed)
+        ' string, so a blank in force renders blank; Tiers renders the committed upper-cased list.
+        If tb Is txtCooloff Then
+            txtCooloff.Text = _cooloffMin.ToString()
+            Return
+        ElseIf tb Is txtStartTime Then
+            txtStartTime.Text = _windowStart
+            Return
+        ElseIf tb Is txtEndTime Then
+            txtEndTime.Text = _windowEnd
+            Return
+        ElseIf tb Is txtBridgeTiers Then
+            txtBridgeTiers.Text = _tiersCsv
+            Return
+        End If
+
+        If _host Is Nothing Then Return
+        ' Same formatting as SeedRiskSizingFromHost on purpose: the initial seed and the re-seed must
+        ' render an identical value identically, or reopening the form would look like a change.
+        ' .ToString() round-trips a 0 back as "0", never as blank (§2.4).
         If tb Is txtMaxSize Then
             txtMaxSize.Text = _host.MaxSizeUsd.ToString()
         ElseIf tb Is txtRiskPerTrade Then
             txtRiskPerTrade.Text = _host.RiskPerTradeUsd.ToString()
+        ElseIf tb Is txtCircuitBreaker Then
+            SeedCircuitBreakerFromHost()
+        ElseIf tb Is txtMinNetMove Then
+            SeedMinNetMoveFromHost()
+        ElseIf tb Is txtAtrLength Then
+            txtAtrLength.Text = _host.AtrLength.ToString()
+        ElseIf tb Is txtAtrFallback Then
+            txtAtrFallback.Text = _host.AtrFallbackUsd.ToString()
         End If
     End Sub
 

@@ -108,6 +108,9 @@ used. The census count for `IsATRSlippageExcessive` (8) must not change: edit th
 - `lblAtrFallbackCap` → "Flat ATR:" (unit stays "USD"). New tooltip: the ATR used when "Use flat ATR"
   is ticked, and the fallback when no fresh engine ATR exists; ATRSlip multiplies it.
 - Add `chkUseFlatAtr` ("Use flat ATR") beside it. It commits on change.
+- ⚠ **Added after this spec was written (2026-10-06):** `ReseedSenderFromHost` now snaps every box back to its
+  value in force, using `_host.AtrLength` and `_host.AtrFallbackUsd`. Remove the ATR Length branch with the
+  box, and point the ATR Fallback branch at the renamed Flat ATR value.
 - `SetToolingValues` becomes `(flatAtr As Decimal, useFlatAtr As Boolean)`.
 - Update the `lblAtrNow` tooltip's priority text (`AutoTradeSettings.Designer.vb:681`).
 

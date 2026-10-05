@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T19:55Z",
+  "updated_utc": "2026-10-05T20:30Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,18 +9,13 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 5 commits ahead of origin (Jev and pane advice; hygiene pass; cooloff comment fix; two new specs; ATRSlip scope clarified in the retirement spec). One comment-only change in SignalBridge.vb; the rest is docs and tools.",
+      "meaning": "Push master: 6 commits ahead of origin (Jev and pane advice; hygiene pass; cooloff comment fix; two new specs; ATRSlip clarification; the settings-box snap-back fix).",
       "since": "2026-10-06"
     },
     {
       "kind": "go",
       "meaning": "Launch an implementer seat for the FrmIndicators retirement spec (Opus, high). It must land before the slippage-fields spec.",
       "doc": "docs/spec-frmindicators-retirement.md",
-      "since": "2026-10-06"
-    },
-    {
-      "kind": "ruling",
-      "meaning": "Settings boxes that keep showing a rejected entry: explained 2026-10-06, waiting on your ruling (re-seed the box on leave, or leave as is).",
       "since": "2026-10-06"
     },
     {

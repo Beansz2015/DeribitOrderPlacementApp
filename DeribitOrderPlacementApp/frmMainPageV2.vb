@@ -41,6 +41,14 @@ Public Class frmMainPageV2
         End Get
     End Property
 
+    ' The ATR Fallback value in force, so the settings box can snap back to it after a rejected entry
+    ' (settings-box re-seed, owner ruling 2026-10-06). Read-only; SetToolingValues stays the writer.
+    Friend ReadOnly Property AtrFallbackUsd As Decimal
+        Get
+            Return atrFallbackVal
+        End Get
+    End Property
+
     ' The settings form, for the bridge's live gate-config reads (its own commit-on-blur mirrors).
     Friend ReadOnly Property AutoTradeSettingsForm As AutoTradeSettings
         Get

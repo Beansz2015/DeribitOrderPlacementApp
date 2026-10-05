@@ -326,7 +326,11 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   warn, and a box that warns must not commit"*. ⚠ **Risk / Trade is deliberately excluded** — there
   `<= 0` falls back to the Amount box and would silently disable risk sizing with the checkbox still
   reading ON.
-- ⏸ **OWNER HOLD 2026-10-06** — the owner asked to hold this question before ruling.
+- ✅ **BUILT 2026-10-06 (owner ruling: snap back all eight).** `ReseedSenderFromHost` now covers every
+  CommitOnLeave box except `txtSessionPolicy` (mid-edit text is expected there). Gate 294/294, censuses
+  68/64 unchanged. ✅ **Runtime-accepted 2026-10-06 by the owner on the x64 bin (TESTNET):** a cleared
+  Tiers box snapped back to `HIGH,MEDIUM`; `asd` in Cooloff snapped back to `5` with the orange
+  "Ignored (keeping last good): cooloff 'asd'" warning. **CLOSED.**
 - 🚨 **A settings box can display something that is NOT in force, for the whole app session.**
   *(Found 2026-08-14, by the owner, while reviewing `spec-max-size-uncapped.md`.)* The boxes with the
   keep-last-good convention silently ignore a blank or garbage entry — but **the box goes on showing
