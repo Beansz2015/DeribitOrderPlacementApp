@@ -268,6 +268,9 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   of the main form. A retry immediately after opening succeeded. Surfaced by the SB3 acceptance run
   (`review-harness-exact-match.md` §5.2); **pre-existing, not an SB3 regression**, but it makes any
   settings-window drive step flaky.
+- ✅ **REVIEWED 2026-10-06: APPROVED** — `review-frmindicators-retirement.md`. Two follow-ups fixed in the
+  review (a stale comment; the unused Skender package removed). x64 rebuilt 04:45. **Owner testnet
+  checks owed** (that review §4). *(Implementer's status line follows.)*
 - 🟡 **BUILT 2026-10-06, NOT YET REVIEWED** — report `impl-report-frmindicators-retirement.md`. Gate
   passed, OrderCheck 307/307, censuses unmoved. Coordinator review (Opus, high) and the owner's
   testnet runtime checks (`spec-frmindicators-retirement.md` §4 items 3–6) are still owed.

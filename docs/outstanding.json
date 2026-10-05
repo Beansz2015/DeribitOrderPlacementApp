@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T20:38Z",
+  "updated_utc": "2026-10-05T20:50Z",
   "updated_by": "seat implementer (FrmIndicators retirement), Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,13 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 7 commits ahead of origin (Jev and pane advice; hygiene pass; cooloff comment fix; two new specs; ATRSlip clarification; the settings-box snap-back fix; the FrmIndicators retirement).",
+      "meaning": "Push master: 8 commits ahead of origin, ending with the FrmIndicators retirement and its approved review.",
+      "since": "2026-10-06"
+    },
+    {
+      "kind": "go",
+      "meaning": "Runtime checks for the FrmIndicators retirement on the rebuilt x64 app (rebuilt 04:45, testnet): readout source in Off, no new disposition rows, fallback after the engine stops, Use flat ATR survives a relaunch, layout.",
+      "doc": "docs/review-frmindicators-retirement.md",
       "since": "2026-10-06"
     },
     {
@@ -38,11 +44,7 @@
   "dated": [],
   "next_up": [
     {
-      "what": "Review the FrmIndicators retirement: built and gated, implementation report written",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "Then launch and review the trade slippage-fields spec",
+      "what": "Launch the trade slippage-fields spec once the retirement runtime checks pass",
       "model": "Opus 5.5, high"
     },
     {

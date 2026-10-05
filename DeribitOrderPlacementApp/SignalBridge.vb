@@ -305,8 +305,9 @@ Public Class SignalBridge
         End Get
     End Property
 
-    ' Read from CalculateATRSlippageLimit on the RECEIVE thread: plain field-backed, no locking,
-    ' no controls, allocation-free. 0 when no actionable payload yet or when stale.
+    ' Read from the host's GetEffectiveAtr on the RECEIVE thread: plain field-backed, no locking,
+    ' no controls, allocation-free. The last fresh OK payload's atr, in every mode (Off too - R2 of
+    ' docs/spec-frmindicators-retirement.md); 0 when none yet, stale, or SKIPPED.
     Public ReadOnly Property LastSignalAtr As Decimal
         Get
             Return _lastSignalAtr
