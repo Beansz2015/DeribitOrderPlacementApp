@@ -1,92 +1,49 @@
 {
   "schema": 1,
-  "project": "DeribitOrderPlacementApp",
-  "updated": "2026-10-05",
-  "updated_utc": "2026-10-05T04:30:00Z",
-  "verified_at_head": "a0de872",
-  "push_state": {
-    "unpushed_commits": 10,
-    "head": "a0de872",
-    "origin_master": "8232e9e",
-    "last_push": "2026-08-14",
-    "note": "The owner is the only pusher. Tree is clean."
-  },
-  "next_up": [
-    "push",
-    "rebuild-x64",
-    "n2-live",
-    "ws-down-suppression",
-    "aws-migration",
-    "max-size-line-colours",
-    "hygiene-backlog"
-  ],
-  "items": [
+  "updated_utc": "2026-10-05T18:35Z",
+  "updated_by": "seat coordinator, Opus 5.5",
+  "waiting_on_trader": [
     {
-      "id": "push",
-      "doc": "docs/HANDOVER-7.md",
+      "kind": "push",
+      "meaning": "Push master: 12 commits ahead of origin since the 2026-08-14 push: docs, the uncapped max size feature, and this pane fix. Tree is clean.",
+      "since": "2026-08-19"
+    },
+    {
+      "kind": "go",
+      "meaning": "Rebuild the x64 bin. Your running app does not carry the uncapped max size feature (checked in the dll bytes). After the rebuild, confirm secrets.json reads testnet and the window title ends in TESTNET before Connect.",
+      "since": "2026-08-19"
+    },
+    {
+      "kind": "ruling",
       "tick": true,
-      "what": "Push the 10 local commits",
-      "meaning": "Ten commits have been sitting locally since 19 August. Only you can push. Everything else is already committed and the tree is clean.",
-      "owner": "owner",
-      "since": "2026-08-19",
-      "priority": 1
-    },
-    {
-      "id": "rebuild-x64",
+      "id": "N2 LIVE",
+      "meaning": "Decide whether to run risk sizing in Live. Log-only is complete: all three session buckets, 14 of 14 sizes exact, both directions. Nothing technical blocks it.",
       "doc": "docs/HANDOVER-7.md",
-      "tick": true,
-      "what": "Rebuild the x64 bin, then check the testnet key and the window title",
-      "meaning": "Your running app does not contain the new uncapped max size feature. Setting max size to 0 does nothing until you rebuild. Measured at the binary, not guessed. After any rebuild, confirm the environment reads testnet and the title ends in TESTNET before connecting.",
-      "owner": "owner",
-      "since": "2026-08-19",
-      "priority": 2
+      "anchor": "§2 item 3",
+      "since": "2026-08-14"
     },
     {
-      "id": "n2-live",
-      "doc": "docs/HANDOVER-7.md",
-      "tick": true,
-      "what": "Decide whether to run risk sizing live",
-      "meaning": "A decision, not a task. Log-only testing is finished and found nothing left to learn: all three session buckets, fourteen sizes out of fourteen exact, both directions. Nothing technical is blocking it. Live has never been run.",
-      "owner": "owner",
-      "since": "2026-08-14",
-      "priority": 3
-    },
-    {
-      "id": "ws-down-suppression",
-      "doc": "docs/runtime-record-ws-down-emitter-2026-08-14.md",
-      "what": "Prove the repeated-disconnect log suppression actually works",
-      "meaning": "Eight reconnect attempts failed and only one row was written. That looks like the no-flood rule working but does not prove it, because a failed connect may never reach the code that writes the row at all. Do not tick this off as done.",
-      "owner": "coordinator",
-      "since": "2026-08-14",
-      "priority": 4
-    },
-    {
-      "id": "aws-migration",
+      "kind": "go",
+      "meaning": "AWS London migration. The key choreography removes the window where two executors run at once.",
       "doc": "docs/production-cutover-checklist.md",
-      "tick": true,
-      "what": "AWS London migration",
-      "meaning": "The startup and shutdown order is what removes the window where two executors could run at once.",
-      "owner": "owner",
-      "since": "2026-08-02",
-      "priority": 5
+      "since": "2026-08-02"
     },
     {
-      "id": "max-size-line-colours",
-      "doc": "docs/review-max-size-uncapped.md",
-      "what": "Look at the colour of the two new max size lines",
-      "meaning": "Both lines were only ever read as text, never seen. Uncapped should be yellow and capped should be grey. One glance after the rebuild closes it.",
-      "owner": "owner",
-      "since": "2026-08-18",
-      "priority": 6
+      "kind": "review",
+      "meaning": "Optional: after the rebuild, look at the two max size log lines. Uncapped should be yellow, capped grey. Both were only read as text.",
+      "since": "2026-08-18"
+    }
+  ],
+  "in_progress": [],
+  "dated": [],
+  "next_up": [
+    {
+      "what": "Prove the failed-reconnect DOWN suppression. One log row over eight failed reconnects does not prove it: a failed connect may never reach the loop exit that writes the row.",
+      "model": "Opus 5.5, high"
     },
     {
-      "id": "hygiene-backlog",
-      "doc": "docs/ROADMAP-2026-08.md",
-      "what": "Hygiene backlog",
-      "meaning": "Unscheduled and not urgent. Nothing is in flight and no implementer is running.",
-      "owner": "coordinator",
-      "since": "2026-08-02",
-      "priority": 7
+      "what": "Hygiene backlog in docs/ROADMAP-2026-08.md. Not urgent; nothing is in flight.",
+      "model": "Sonnet, medium"
     }
   ]
 }
