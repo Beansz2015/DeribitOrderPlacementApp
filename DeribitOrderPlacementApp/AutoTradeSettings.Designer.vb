@@ -46,10 +46,8 @@ Partial Class AutoTradeSettings
         chkRiskSizeBridge = New CheckBox()
         txtSessionPolicy = New TextBox()
         grpTooling = New GroupBox()
-        lblAtrLenCap = New Label()
-        txtAtrLength = New TextBox()
-        lblAtrLenUnit = New Label()
         lblAtrFallbackCap = New Label()
+        chkUseFlatAtr = New CheckBox()
         txtAtrFallback = New TextBox()
         lblAtrFallbackUnit = New Label()
         lblRiskPerTradeCap = New Label()
@@ -409,10 +407,8 @@ Partial Class AutoTradeSettings
         '
         ' grpTooling
         '
-        grpTooling.Controls.Add(lblAtrLenCap)
-        grpTooling.Controls.Add(txtAtrLength)
-        grpTooling.Controls.Add(lblAtrLenUnit)
         grpTooling.Controls.Add(lblAtrFallbackCap)
+        grpTooling.Controls.Add(chkUseFlatAtr)
         grpTooling.Controls.Add(txtAtrFallback)
         grpTooling.Controls.Add(lblAtrFallbackUnit)
         grpTooling.Controls.Add(lblRiskPerTradeCap)
@@ -435,59 +431,47 @@ Partial Class AutoTradeSettings
         ' this group into the strip below it. The boxes themselves could NOT shrink - a single-line
         ' TextBox clamps its height to the font, so 42 is fixed at Calibri 14pt, and five of them
         ' plus a 26px readout will not fit 270 at any pitch. Five rows now end at 256; 10px margin.
+        ' (Since the indicator-form retirement the second row is empty - see lblAtrFallbackCap.)
         grpTooling.Size = New Size(482, 266)
         grpTooling.TabIndex = 4
         grpTooling.TabStop = False
         grpTooling.Text = "Tooling"
         AutoTradingToolTip.SetToolTip(grpTooling, "Low-level knobs that used to be hard-coded constants.")
         '
-        ' lblAtrLenCap
-        '
-        lblAtrLenCap.AutoSize = True
-        lblAtrLenCap.Font = New Font("Calibri", 14F)
-        lblAtrLenCap.ForeColor = SystemColors.ControlLight
-        lblAtrLenCap.Location = New Point(11, 34)
-        lblAtrLenCap.Name = "lblAtrLenCap"
-        lblAtrLenCap.Size = New Size(158, 35)
-        lblAtrLenCap.TabIndex = 0
-        lblAtrLenCap.Text = "ATR Length:"
-        AutoTradingToolTip.SetToolTip(lblAtrLenCap, "Number of candles the indicator ATR is calculated over." & vbCrLf & "That ATR is the slippage guard's fallback when no fresh" & vbCrLf & "signal payload is available.")
-        '
-        ' txtAtrLength
-        '
-        txtAtrLength.BackColor = Color.Black
-        txtAtrLength.BorderStyle = BorderStyle.FixedSingle
-        txtAtrLength.Font = New Font("Calibri", 14F)
-        txtAtrLength.ForeColor = Color.White
-        txtAtrLength.Location = New Point(330, 30)
-        txtAtrLength.Name = "txtAtrLength"
-        txtAtrLength.Size = New Size(64, 42)
-        txtAtrLength.TabIndex = 1
-        txtAtrLength.Text = "7"
-        txtAtrLength.TextAlign = HorizontalAlignment.Center
-        '
-        ' lblAtrLenUnit
-        '
-        lblAtrLenUnit.AutoSize = True
-        lblAtrLenUnit.Font = New Font("Calibri", 10F)
-        lblAtrLenUnit.ForeColor = SystemColors.ControlLight
-        lblAtrLenUnit.Location = New Point(400, 38)
-        lblAtrLenUnit.Name = "lblAtrLenUnit"
-        lblAtrLenUnit.Size = New Size(80, 24)
-        lblAtrLenUnit.TabIndex = 0
-        lblAtrLenUnit.Text = "candles"
-        '
         ' lblAtrFallbackCap
         '
+        ' Indicator-form retirement (docs/spec-frmindicators-retirement.md, owner rulings R4/R5/R3
+        ' 2026-10-06): the "ATR Length" row is GONE (it was a candle count only the retired indicator
+        ' form used), and "ATR Fallback" became "Flat ATR" and moved up into that row. CAPTION ONLY -
+        ' the identifiers behind it still say AtrFallback (lblAtrFallbackCap, txtAtrFallback,
+        ' lblAtrFallbackUnit) so the harness AccessibleName does not move. The host side says FlatAtr
+        ' (flatAtrVal, FlatAtrUsd) and the persisted key is flat_atr_usd: same knob, two spellings.
+        ' The second row is left empty on purpose: the risk rows and the SIZE button keep their
+        ' places, and the form keeps its height match with the host.
         lblAtrFallbackCap.AutoSize = True
         lblAtrFallbackCap.Font = New Font("Calibri", 14F)
         lblAtrFallbackCap.ForeColor = SystemColors.ControlLight
-        lblAtrFallbackCap.Location = New Point(11, 80)
+        lblAtrFallbackCap.Location = New Point(11, 34)
         lblAtrFallbackCap.Name = "lblAtrFallbackCap"
-        lblAtrFallbackCap.Size = New Size(178, 35)
+        lblAtrFallbackCap.Size = New Size(130, 35)
         lblAtrFallbackCap.TabIndex = 0
-        lblAtrFallbackCap.Text = "ATR Fallback:"
-        AutoTradingToolTip.SetToolTip(lblAtrFallbackCap, "Last-resort slippage limit basis when NO ATR is available at all" & vbCrLf & "(no fresh signal and no indicator ATR). Was hard-coded at 70.")
+        lblAtrFallbackCap.Text = "Flat ATR:"
+        AutoTradingToolTip.SetToolTip(lblAtrFallbackCap, "An ATR in USD, set by you. The slippage guard uses it ALWAYS when" & vbCrLf & """Use flat ATR"" is ticked, and as the FALLBACK when no fresh engine" & vbCrLf & "ATR exists (engine stopped, stale or stood down)." & vbCrLf & "It is an ATR, not a limit: ATRSlip multiplies it exactly as it" & vbCrLf & "multiplies the engine ATR (70 x 0.6 = a 42 USD repositioning cap)." & vbCrLf & "Persists as flat_atr_usd in orderapp-settings.json.")
+        '
+        ' chkUseFlatAtr
+        '
+        ' R3: ticked = the Flat ATR always; unticked = the engine ATR, with the Flat ATR only as the
+        ' fallback. Commits on change. Persists as use_flat_atr - a switch the owner had to re-tick on
+        ' every launch would be a trap (spec §2.5).
+        chkUseFlatAtr.AutoSize = True
+        chkUseFlatAtr.Font = New Font("Calibri", 12F)
+        chkUseFlatAtr.ForeColor = SystemColors.ControlLight
+        chkUseFlatAtr.Location = New Point(150, 34)
+        chkUseFlatAtr.Name = "chkUseFlatAtr"
+        chkUseFlatAtr.Size = New Size(140, 34)
+        chkUseFlatAtr.TabIndex = 2
+        chkUseFlatAtr.Text = "Use flat ATR"
+        AutoTradingToolTip.SetToolTip(chkUseFlatAtr, "Ticked: the slippage guard uses the Flat ATR ALWAYS, whatever" & vbCrLf & "the engine says." & vbCrLf & "Unticked: it uses the engine ATR from the signal payload (in" & vbCrLf & "every bridge mode, Off included), and the Flat ATR only when no" & vbCrLf & "fresh engine ATR exists." & vbCrLf & "Persists as use_flat_atr in orderapp-settings.json.")
         '
         ' txtAtrFallback
         '
@@ -495,10 +479,10 @@ Partial Class AutoTradeSettings
         txtAtrFallback.BorderStyle = BorderStyle.FixedSingle
         txtAtrFallback.Font = New Font("Calibri", 14F)
         txtAtrFallback.ForeColor = Color.White
-        txtAtrFallback.Location = New Point(330, 76)
+        txtAtrFallback.Location = New Point(330, 30)
         txtAtrFallback.Name = "txtAtrFallback"
         txtAtrFallback.Size = New Size(64, 42)
-        txtAtrFallback.TabIndex = 2
+        txtAtrFallback.TabIndex = 1
         txtAtrFallback.Text = "70"
         txtAtrFallback.TextAlign = HorizontalAlignment.Center
         '
@@ -507,7 +491,7 @@ Partial Class AutoTradeSettings
         lblAtrFallbackUnit.AutoSize = True
         lblAtrFallbackUnit.Font = New Font("Calibri", 10F)
         lblAtrFallbackUnit.ForeColor = SystemColors.ControlLight
-        lblAtrFallbackUnit.Location = New Point(400, 84)
+        lblAtrFallbackUnit.Location = New Point(400, 38)
         lblAtrFallbackUnit.Name = "lblAtrFallbackUnit"
         lblAtrFallbackUnit.Size = New Size(50, 24)
         lblAtrFallbackUnit.TabIndex = 0
@@ -658,9 +642,9 @@ Partial Class AutoTradeSettings
         '
         ' lblAtrNow
         '
-        ' Live readout: FrmIndicators is retired, so its ATR display is gone - this is now the only
-        ' place the effective ATR is visible, and it is what proves the headless indicator engine is
-        ' actually running. Ticks once a second while this form is open.
+        ' Live readout: the only place the effective ATR is visible - which ATR is in force (engine
+        ' payload, or the Flat ATR switched or as fallback) and the cap it gives. Ticks once a second
+        ' while this form is open.
         '
         ' PARENT CHANGED 2026-07-30 (48px reclaim): this label now belongs to the FORM, not to
         ' grpTooling, and sits in the strip below that group - so its Location is form-relative
@@ -678,7 +662,7 @@ Partial Class AutoTradeSettings
         lblAtrNow.Text = "Current ATR: -"
         ' §1: lblToolingNote's priority line moved into this tooltip (APPENDED - the original
         ' readout text must survive).
-        AutoTradingToolTip.SetToolTip(lblAtrNow, "The ATR the slippage guard is using right now, its source," & vbCrLf & "and the resulting limit. Updates every second while this" & vbCrLf & "window is open." & vbCrLf & "Priority: payload, then indicator, then fallback.")
+        AutoTradingToolTip.SetToolTip(lblAtrNow, "The ATR the slippage guard is using right now, its source," & vbCrLf & "and the resulting limit. Updates every second while this" & vbCrLf & "window is open." & vbCrLf & "Priority: Flat ATR when ""Use flat ATR"" is ticked; else the engine" & vbCrLf & "payload ATR (every bridge mode); else the Flat ATR as fallback." & vbCrLf & "Limit = that ATR x ATRSlip (0.6 when ATRSlip is blank or 0).")
         '
         ' AutoTradeSettings
         '
@@ -729,10 +713,8 @@ Partial Class AutoTradeSettings
     Friend WithEvents lblBridgeTiersCap As Label
     Friend WithEvents txtBridgeTiers As TextBox
     Friend WithEvents grpTooling As GroupBox
-    Friend WithEvents lblAtrLenCap As Label
-    Friend WithEvents txtAtrLength As TextBox
-    Friend WithEvents lblAtrLenUnit As Label
     Friend WithEvents lblAtrFallbackCap As Label
+    Friend WithEvents chkUseFlatAtr As CheckBox
     Friend WithEvents txtAtrFallback As TextBox
     Friend WithEvents lblAtrFallbackUnit As Label
     Friend WithEvents lblRiskPerTradeCap As Label

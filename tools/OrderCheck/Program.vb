@@ -744,6 +744,76 @@ Module Program
               If(evBackup Is Nothing, Not File.Exists(evPath),
                  File.Exists(evPath) AndAlso File.ReadAllText(evPath) = evBackup))
 
+        ' ================== indicator-form retirement (docs/spec-frmindicators-retirement.md §4 item 2) ==================
+        ' The slippage guard's ATR has exactly two sources now - the engine payload or the Flat ATR -
+        ' and ATRSlip multiplies whichever is in force (owner rulings R3/R6, 2026-10-06).
+
+        ' ---- (a)-(c) SelectEffectiveAtr: the source decision ----
+        Dim fa = frmMainPageV2.SelectEffectiveAtr(True, 31.5D, 70D)
+        Check("flat ATR (a): switched -> the Flat ATR, whatever the payload says",
+              fa.Atr = 70D AndAlso fa.Source = "flat ATR (switched)", $"got {fa.Atr} '{fa.Source}'")
+        Dim fa0 = frmMainPageV2.SelectEffectiveAtr(True, 0D, 55D)
+        Check("flat ATR (a): switched with no payload ATR -> still 'switched', not 'fallback'",
+              fa0.Atr = 55D AndAlso fa0.Source = "flat ATR (switched)", $"got {fa0.Atr} '{fa0.Source}'")
+        Dim fb = frmMainPageV2.SelectEffectiveAtr(False, 31.5D, 70D)
+        Check("flat ATR (b): unswitched + payload ATR > 0 -> the payload ATR",
+              fb.Atr = 31.5D AndAlso fb.Source = "signal payload", $"got {fb.Atr} '{fb.Source}'")
+        Dim fc = frmMainPageV2.SelectEffectiveAtr(False, 0D, 70D)
+        Check("flat ATR (c): unswitched + payload ATR = 0 -> the Flat ATR as fallback",
+              fc.Atr = 70D AndAlso fc.Source = "flat ATR (fallback)", $"got {fc.Atr} '{fc.Source}'")
+
+        ' ---- (d) SlippageLimitFromAtr: limit = ATR x ATRSlip; 0 or blank (= 0 in the mirror) -> 0.6 ----
+        Check("flat ATR (d): limit = ATR x ATRSlip (31.5 x 0.8 = 25.2)",
+              frmMainPageV2.SlippageLimitFromAtr(31.5D, 0.8D) = 25.2D,
+              $"got {frmMainPageV2.SlippageLimitFromAtr(31.5D, 0.8D)}")
+        Check("flat ATR (d): ATRSlip 0 (a blank box) -> the 0.6 default (31.5 x 0.6 = 18.9)",
+              frmMainPageV2.SlippageLimitFromAtr(31.5D, 0D) = 18.9D,
+              $"got {frmMainPageV2.SlippageLimitFromAtr(31.5D, 0D)}")
+        Check("flat ATR (d): a negative ATRSlip -> the 0.6 default too",
+              frmMainPageV2.SlippageLimitFromAtr(50D, -1D) = 30D)
+
+        ' ---- (e) the behaviour change (R6). Before the retirement, no ATR at all returned the 70
+        ' fallback AS the limit, unmultiplied. Now the Flat ATR is an ATR, so the same state gives
+        ' 70 x 0.6 = 42. This line fails against the pre-retirement semantics.
+        Dim noPayloadLimit As Decimal =
+            frmMainPageV2.SlippageLimitFromAtr(frmMainPageV2.SelectEffectiveAtr(False, 0D, 70D).Atr, 0D)
+        Check("flat ATR (e): no payload ATR -> limit 70 x 0.6 = 42, NOT the old unmultiplied 70",
+              noPayloadLimit = 42D AndAlso noPayloadLimit <> 70D, $"got {noPayloadLimit}")
+        Check("flat ATR (e): switched Flat ATR is multiplied the same way (55 x 0.6 = 33)",
+              frmMainPageV2.SlippageLimitFromAtr(frmMainPageV2.SelectEffectiveAtr(True, 31.5D, 55D).Atr, 0.6D) = 33D)
+
+        ' ---- persistence (§2.5): flat_atr_usd + use_flat_atr round-trip; an old file loads 70/unticked ----
+        ' Same isolation as the EV block above: OrderCheck's own bin, bytes preserved and restored.
+        Dim faPath As String = AppUserSettings.SavePath
+        Dim faBackup As String = If(File.Exists(faPath), File.ReadAllText(faPath), Nothing)
+        Try
+            Dim faSave As New AppUserSettings() With {.FlatAtrUsd = 55D, .UseFlatAtr = True}
+            Dim faErr As String = faSave.Save()
+            Dim faMsg As String = Nothing
+            Dim faBack As AppUserSettings = AppUserSettings.Load(faMsg)
+            Check("flat ATR persistence: 55 + ticked round-trips",
+                  faErr Is Nothing AndAlso faBack.FlatAtrUsd = 55D AndAlso faBack.UseFlatAtr,
+                  $"saveErr='{faErr}' got {faBack.FlatAtrUsd}/{faBack.UseFlatAtr}")
+            Dim faRaw As String = File.ReadAllText(faPath)
+            Check("flat ATR persistence: both keys are present in the written file",
+                  faRaw.Contains("""flat_atr_usd""") AndAlso faRaw.Contains("""use_flat_atr"""))
+            File.WriteAllText(faPath, "{ ""amount"": 10 }")
+            Dim faOld As AppUserSettings = AppUserSettings.Load(faMsg)
+            Check("flat ATR persistence: an old file without the keys loads 70 and unticked",
+                  faOld.FlatAtrUsd = 70D AndAlso Not faOld.UseFlatAtr,
+                  $"got {faOld.FlatAtrUsd}/{faOld.UseFlatAtr}")
+        Catch ex As Exception
+            Check("flat ATR persistence fixture: no throw", False, ex.Message)
+        Finally
+            Try
+                If faBackup Is Nothing Then File.Delete(faPath) Else File.WriteAllText(faPath, faBackup)
+            Catch
+            End Try
+        End Try
+        Check("flat ATR persistence: the fixture left the settings path as it found it",
+              If(faBackup Is Nothing, Not File.Exists(faPath),
+                 File.Exists(faPath) AndAlso File.ReadAllText(faPath) = faBackup))
+
         ' ============ SL backoff (spec-sl-backoff-coupling.md §Acceptance 5 + spec-sl-backoff-confirmed-reset.md) ============
         ' NextSlBackoff is the pure arithmetic behind the triggered-SL retry throttle. These fixtures
         ' exist because the runtime acceptance for this mechanism was twice found to be unobservable:

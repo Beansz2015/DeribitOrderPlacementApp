@@ -19,6 +19,8 @@ Imports Newtonsoft.Json.Linq
 ' Every consumed payload gets exactly one disposition line (host log + bridge-dispositions.log) -
 ' the soak reviewers join these rows against the engine CSV on (instance_id, signal_id); keep the
 ' line format and disposition tokens STABLE once the soak starts.
+' Mode Off is not consumption: the watcher still runs, but only to read the payload's ATR for the
+' host's slippage guard (docs/spec-frmindicators-retirement.md R2) - no disposition, no act.
 '
 ' Threading: FSW callbacks, debounce/staleness timer callbacks, and the settings-form UI thread all
 ' enter here; the host's receive thread reads LastSignalAtr. State transitions take _sync briefly;
@@ -146,9 +148,10 @@ Public Class SignalBridge
     Private _engineArmed As Boolean = False              ' from the latest parsed payload
     Private _lastPayloadGeneratedUtc As DateTime = DateTime.MinValue
     Private _lastExecResMin As Integer = 1
-    Private _lastSignalAtr As Decimal = 0D               ' last actionable payload's atr; 0 when none/stale.
-    '                                                      Read on the receive thread (CalculateATRSlippageLimit):
-    '                                                      plain field, accepted Decimal torn-read class.
+    Private _lastSignalAtr As Decimal = 0D               ' last fresh OK payload's atr, in EVERY mode (Off too -
+    '                                                      spec-frmindicators-retirement.md R2); 0 when none/stale.
+    '                                                      Read on the receive thread (GetEffectiveAtr): plain
+    '                                                      field, accepted Decimal torn-read class.
     Private _lastDisposition As String = ""
     Private _lastSignalSummary As String = ""
     Private _lastActionUtc As DateTime = DateTime.MinValue   ' cooloff anchor: position CLOSE only (NotifyPositionClosed)
@@ -182,6 +185,12 @@ Public Class SignalBridge
         LoadConfig()
         LoadState()
         _log($"consumer ready (mode Off) - payload path: {_payloadPath}", Color.Gray)
+        ' R2 (docs/spec-frmindicators-retirement.md): the watcher runs from construction, because the
+        ' bridge starts in mode Off on every launch and the slippage guard takes its ATR from the
+        ' engine payload in Off too. Off is a READ-ONLY ATR tap: EvaluateLatestPayloadAsync returns
+        ' right after the status snapshot, so no disposition, no de-dupe mark, no act.
+        StartWatching()
+        EvaluateNow()
     End Sub
 
     ' ================================ public surface (UI + host) ================================
@@ -201,8 +210,14 @@ Public Class SignalBridge
             If Not changed Then Return
             ForceStop($"mode changed to {value}")
             If value = BridgeMode.Off Then
-                StopWatching()
-                _log("mode Off - watcher and staleness checks stopped", Color.Gray)
+                ' R2 (docs/spec-frmindicators-retirement.md): Off no longer stops the watcher - it
+                ' stays on as a read-only ATR tap. The stale counter resets here, as StopWatching
+                ' used to reset it, so a later Off -> Log-only starts a fresh 3-check count.
+                SyncLock _sync
+                    _staleChecks = 0
+                    _staleAlerted = False
+                End SyncLock
+                _log("mode Off - watcher stays on for the engine ATR only (read-only: no dispositions, no acts)", Color.Gray)
             Else
                 StartWatching()
                 _log($"mode {value} - watching {_payloadPath}", Color.DodgerBlue)
@@ -245,7 +260,7 @@ Public Class SignalBridge
         End Get
     End Property
 
-    ' Live-and-started - the state LogTradeDecision gating reads (replaces FrmIndicators.IsAutoTradingEnabled).
+    ' Live-and-started - the state LogTradeDecision gating reads (replaces the retired indicator form's IsAutoTradingEnabled).
     Public ReadOnly Property IsLiveStarted As Boolean
         Get
             Return _mode = BridgeMode.Live AndAlso _started
@@ -454,11 +469,9 @@ Public Class SignalBridge
             _watcher = Nothing
             _staleChecks = 0
             _staleAlerted = False
-            ' Hand the ATR back to the host's own indicator (owner ruling 2026-07-16). Without this the
-            ' guard stayed frozen on the last engine ATR forever once the bridge went Off: the staleness
-            ' timer that would otherwise have zeroed it is stopped on the very next line. The two ATRs
-            ' are NOT interchangeable - the engine's period is 7, this app's is 14 - so "bridge off"
-            ' must mean "back on our own 14", not "keep quoting a frozen 7".
+            ' Called on dispose only (mode Off keeps the watcher - R2, which supersedes the 2026-07-16
+            ' "bridge Off = back on our own 14-period ATR" ruling). Zeroed so nothing can quote a frozen
+            ' engine ATR once the staleness timer that would otherwise zero it is stopped below.
             _lastSignalAtr = 0D
         End SyncLock
         _staleTimer.Change(Timeout.Infinite, Timeout.Infinite)
@@ -491,11 +504,20 @@ Public Class SignalBridge
 
     ' Independent staleness check: FSW cannot detect a dead engine (silence = dead, contract section 2).
     Private Sub OnStalenessTick(state As Object)
-        If _mode = BridgeMode.Off OrElse _disposed Then Return
+        If _disposed Then Return
         If IsFreshNow Then
             SyncLock _sync
                 _staleChecks = 0
                 _staleAlerted = False
+            End SyncLock
+            Return
+        End If
+        ' R2: in mode Off the tick ONLY drops a stale engine ATR, so the guard falls to the Flat ATR.
+        ' No stale count, no stand-down, no alert - the owner trading manually is not paged about
+        ' the engine.
+        If _mode = BridgeMode.Off Then
+            SyncLock _sync
+                _lastSignalAtr = 0D
             End SyncLock
             Return
         End If
@@ -504,7 +526,7 @@ Public Class SignalBridge
         SyncLock _sync
             _staleChecks += 1
             checkCount = _staleChecks
-            _lastSignalAtr = 0D ' stale => no bridge ATR (slippage guard falls back to FrmIndicators/$70)
+            _lastSignalAtr = 0D ' stale => no bridge ATR (slippage guard falls back to the Flat ATR)
             If checkCount >= StaleAlertThreshold AndAlso Not _staleAlerted Then
                 _staleAlerted = True
                 alertNow = True
@@ -536,8 +558,9 @@ Public Class SignalBridge
 
     ' Single-flight entry point: one payload evaluated at a time; a newer file event supersedes
     ' a queued one (only the latest file content is ever evaluated - we re-read from disk per pass).
+    ' Runs in mode Off too (R2): the pass stops after the status snapshot there.
     Private Sub EvaluateNow()
-        If _mode = BridgeMode.Off OrElse _disposed Then Return
+        If _disposed Then Return
         If Interlocked.Exchange(_processing, 1) = 1 Then
             Interlocked.Exchange(_rerun, 1)
             Return
@@ -615,11 +638,11 @@ Public Class SignalBridge
             ' fresher values streamed past every run - observed live: 34.91 held from a WEAK SHORT
             ' while the current payload said 24.78, leaving the guard ~41% too loose.
             '
-            ' Zeroed on stale/SKIPPED (contract 4.2: never "hold the last signal") and on mode Off
-            ' (StopWatching), so the guard falls back to the host's OWN indicator ATR. That fallback
-            ' matters: the engine's ATR period (7) differs from this app's (14), so they are NOT the
-            ' same measurement - whenever the bridge is not supplying one, the app must be back on its
-            ' own 14-period value rather than frozen on a stale engine number.
+            ' Zeroed on stale/SKIPPED (contract 4.2: never "hold the last signal"), so the guard falls
+            ' back to the host's Flat ATR rather than freezing on a stale engine number. NOT zeroed on
+            ' mode Off any more: R2 (docs/spec-frmindicators-retirement.md, owner 2026-10-06) makes
+            ' the engine ATR the guard's ATR in every mode, and supersedes the 2026-07-16 ruling that
+            ' "bridge Off" meant "back on the app's own 14-period ATR" - that ATR is retired.
             If fresh AndAlso p.SignalState = "OK" Then
                 _staleChecks = 0
                 _staleAlerted = False
@@ -632,8 +655,20 @@ Public Class SignalBridge
             Else
                 _lastSignalAtr = 0D
             End If
-            _lastSignalSummary = $"#{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction})"
+            ' Not in Off: the "Last:" line pairs this summary with _lastDisposition, and Off writes no
+            ' disposition - a new summary beside an old payload's disposition would mislabel it.
+            If _mode <> BridgeMode.Off Then _lastSignalSummary = $"#{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction})"
         End SyncLock
+
+        ' R2 (docs/spec-frmindicators-retirement.md): mode Off is a READ-ONLY ATR tap and stops HERE.
+        ' Nothing below runs in Off - no ForceStop, no de-dupe mark, no gate chain, no disposition
+        ' row, no act, no feedback publish. The de-dupe pair is deliberately NOT marked, so Off ->
+        ' Log-only still gives the current payload its one disposition via the mode setter's
+        ' EvaluateNow, exactly as before.
+        If _mode = BridgeMode.Off Then
+            RaiseEvent StatusChanged()
+            Return
+        End If
 
         ' Engine ARM off in a payload is a disarm event (contract section 6) - a fresh payload
         ' clears the stale counter above but never re-starts.

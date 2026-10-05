@@ -1137,7 +1137,7 @@ Partial Class frmMainPageV2
         '
         ' btnAutoSettings
         '
-        ' Retirement: FrmIndicators used to host the button that opened the settings form; it is no
+        ' Retirement: the retired indicator form used to host the button that opened the settings form; it is no
         ' longer shown, so the opener lives here. Same row as btnClearLog/btnViewTrades: Y=6, height
         ' 50, 2px gap after btnViewTrades (which ends at x=906).
         ' Width 140: the caption measures 122px on one line, and at height 50 there is only room for

@@ -1,7 +1,7 @@
 Public Class AutoTradeSettings
 
-    ' Retirement: the host is frmMainPageV2 now (FrmIndicators used to own and position this form,
-    ' but it is no longer shown). Typed, because the Tooling section pushes values into the host.
+    ' Retirement: the host is frmMainPageV2 now (the retired indicator form used to own and position
+    ' this form). Typed, because the Tooling section pushes values into the host.
     Private ReadOnly _host As frmMainPageV2
 
     ' ============ SIGNAL BRIDGE panel (docs/spec-autotrade-tiein.md section 4) ============
@@ -12,9 +12,9 @@ Public Class AutoTradeSettings
     Private _bridge As SignalBridge
     Private _suppressBridgeUi As Boolean = False ' guards programmatic combo/checkbox writes in RefreshBridgePanel
 
-    ' Live ATR readout (Tooling). FrmIndicators is retired, so its ATR display is gone and this is the
-    ' only place the effective ATR is visible - it is also what proves the headless indicator engine
-    ' is still running. UI-thread timer, and only while this window is actually open.
+    ' Live ATR readout (Tooling): the only place the effective ATR is visible - which ATR is in force
+    ' (engine payload, or the Flat ATR switched or as fallback) and the cap it gives. UI-thread
+    ' timer, and only while this window is actually open.
     Private WithEvents _atrTimer As New Timer With {.Interval = 1000}
 
     ' ============ Gate-config mirrors (retirement) ============
@@ -158,10 +158,14 @@ Public Class AutoTradeSettings
         ' reverting the owner's bridge trades to Amount-box sizing on every start, which is exactly
         ' the class of silent size change this whole item exists to make deliberate.
         SeedRiskSizeBridgeFromHost()
+        ' Indicator-form retirement §2.5: the trap's SEVENTH application. Without this seed the first
+        ' CommitToolingConfig would write the Designer's 70 and UNTICKED box over a persisted Flat ATR
+        ' and a persisted "Use flat ATR" - silently putting the guard back on the engine ATR.
+        SeedFlatAtrFromHost()
         CommitGateConfig()
         CommitToolingConfig()
         For Each tb As TextBox In {txtCooloff, txtCircuitBreaker, txtStartTime, txtEndTime,
-                                   txtBridgeTiers, txtAtrLength, txtAtrFallback,
+                                   txtBridgeTiers, txtAtrFallback,
                                    txtRiskPerTrade, txtMaxSize, txtMinNetMove}
             AddHandler tb.Enter, AddressOf SelectAllOnEnter
             AddHandler tb.Click, AddressOf SelectAllOnEnter
@@ -193,6 +197,10 @@ Public Class AutoTradeSettings
         AddHandler chkRiskSizeBridge.CheckedChanged, AddressOf OnRiskSizeBridgeToggled
         chkRiskSizeBridge.AccessibleName = chkRiskSizeBridge.Name
 
+        ' R3 "Use flat ATR": same wiring, same reason. It commits on change.
+        AddHandler chkUseFlatAtr.CheckedChanged, AddressOf OnUseFlatAtrToggled
+        chkUseFlatAtr.AccessibleName = chkUseFlatAtr.Name
+
         cboBridgeMode.AccessibleName = "cboBridgeMode"
     End Sub
 
@@ -204,6 +212,12 @@ Public Class AutoTradeSettings
     ' N2 §2: likewise - ticking the box changes how the NEXT payload is sized, immediately.
     Private Sub OnRiskSizeBridgeToggled(sender As Object, e As EventArgs)
         CommitGateConfig()
+    End Sub
+
+    ' R3: ticking the box changes the slippage guard's ATR immediately.
+    Private Sub OnUseFlatAtrToggled(sender As Object, e As EventArgs)
+        CommitToolingConfig()
+        RefreshAtrReadout()
     End Sub
 
     ' Only burn a timer tick while the window is on screen.
@@ -223,14 +237,11 @@ Public Class AutoTradeSettings
         End If
         Dim eff = _host.GetEffectiveAtr()
         Dim limit As Decimal = _host.CurrentSlippageLimit
-        If eff.Atr > 0D Then
-            lblAtrNow.Text = $"ATR now: {eff.Atr:F2} ({eff.Source})  ->  slip limit ${limit:F2}"
-            ' Green when the payload drives it, cyan when the headless indicator does.
-            lblAtrNow.ForeColor = If(eff.Source = "signal payload", Color.LimeGreen, Color.Cyan)
-        Else
-            lblAtrNow.Text = $"ATR now: NONE  ->  slip limit ${limit:F2} (fallback)"
-            lblAtrNow.ForeColor = Color.Orange
-        End If
+        lblAtrNow.Text = $"ATR now: {eff.Atr:F2} ({eff.Source})  ->  slip limit ${limit:F2}"
+        ' Green when the engine payload drives it, cyan when the owner switched to the Flat ATR,
+        ' orange when the Flat ATR stands in because no fresh engine ATR exists.
+        lblAtrNow.ForeColor = If(eff.Source = "signal payload", Color.LimeGreen,
+                                 If(eff.Source = "flat ATR (switched)", Color.Cyan, Color.Orange))
     End Sub
 
     Private Sub HostMovedOrResized(sender As Object, e As EventArgs)
@@ -343,10 +354,8 @@ Public Class AutoTradeSettings
             SeedCircuitBreakerFromHost()
         ElseIf tb Is txtMinNetMove Then
             SeedMinNetMoveFromHost()
-        ElseIf tb Is txtAtrLength Then
-            txtAtrLength.Text = _host.AtrLength.ToString()
         ElseIf tb Is txtAtrFallback Then
-            txtAtrFallback.Text = _host.AtrFallbackUsd.ToString()
+            txtAtrFallback.Text = _host.FlatAtrUsd.ToString()
         End If
     End Sub
 
@@ -435,6 +444,16 @@ Public Class AutoTradeSettings
         chkRiskSizeBridge.Checked = _riskSizeBridgeTrades
     End Sub
 
+    ' Indicator-form retirement §2.5: one-time seed of the Flat ATR box and the "Use flat ATR"
+    ' checkbox from the host's loaded settings. MUST run before the first CommitToolingConfig (see
+    ' InitialiseSettings). The box renders like ReseedSenderFromHost renders it, so seed and re-seed
+    ' agree. The checkbox's handler is wired AFTER this runs, so seeding it commits nothing.
+    Private Sub SeedFlatAtrFromHost()
+        If _host Is Nothing Then Return
+        txtAtrFallback.Text = _host.FlatAtrUsd.ToString()
+        chkUseFlatAtr.Checked = _host.UseFlatAtrInForce
+    End Sub
+
     ' §2: one-time seed of the risk-sizing boxes from the host's loaded settings. MUST run before
     ' the first CommitToolingConfig (see InitialiseSettings) so the file's values win over the
     ' Designer defaults.
@@ -446,11 +465,12 @@ Public Class AutoTradeSettings
 
     Private Sub CommitToolingConfig()
         If _host Is Nothing Then Return
-        Dim len As Integer
-        Dim fallback As Decimal
-        If Not Integer.TryParse(txtAtrLength.Text, len) Then len = 0
-        If Not Decimal.TryParse(txtAtrFallback.Text, fallback) Then fallback = 0D
-        _host.SetToolingValues(len, fallback)   ' host ignores non-positive values
+        ' Flat ATR + "Use flat ATR" (Indicator-form retirement R3/R5). Blank/garbage collapses to 0D
+        ' and the host ignores non-positive, so the last good Flat ATR stays in force - it must
+        ' stay > 0 because the guard has no "no ATR" branch any more. The checkbox is always taken.
+        Dim flatAtr As Decimal
+        If Not Decimal.TryParse(txtAtrFallback.Text, flatAtr) Then flatAtr = 0D
+        _host.SetToolingValues(flatAtr, chkUseFlatAtr.Checked)
 
         ' §2: risk-sizing values. THE TWO BOXES NOW FOLLOW DIFFERENT CONTRACTS
         ' (docs/spec-max-size-uncapped.md §2.1 edit 1; the asymmetry is ruled in that spec's §2.3):
@@ -501,9 +521,7 @@ Public Class AutoTradeSettings
         Dim d As Decimal
         If Not Decimal.TryParse(txtCooloff.Text, d) OrElse d < 0D Then problems.Add($"cooloff '{txtCooloff.Text}'")
         If Not Decimal.TryParse(txtCircuitBreaker.Text, d) Then problems.Add($"max loss '{txtCircuitBreaker.Text}'")
-        Dim len As Integer
-        If Not Integer.TryParse(txtAtrLength.Text, len) OrElse len <= 0 Then problems.Add($"ATR length '{txtAtrLength.Text}'")
-        If Not Decimal.TryParse(txtAtrFallback.Text, d) OrElse d <= 0D Then problems.Add($"ATR fallback '{txtAtrFallback.Text}'")
+        If Not Decimal.TryParse(txtAtrFallback.Text, d) OrElse d <= 0D Then problems.Add($"flat ATR '{txtAtrFallback.Text}'")
         If Not Decimal.TryParse(txtRiskPerTrade.Text, d) OrElse d <= 0D Then problems.Add($"risk/trade '{txtRiskPerTrade.Text}'")
         ' Uncapped Max Size §2.1 edit 3: a PARSE failure only. 0 now COMMITS as a deliberate,
         ' persistable "no cap", so it must not be flagged - the invariant stated three lines below

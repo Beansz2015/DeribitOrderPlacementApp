@@ -268,7 +268,10 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   of the main form. A retry immediately after opening succeeded. Surfaced by the SB3 acceptance run
   (`review-harness-exact-match.md` §5.2); **pre-existing, not an SB3 regression**, but it makes any
   settings-window drive step flaky.
-- 🟡 **OWNER RULING 2026-10-06: FULL RETIREMENT.** **SPEC WRITTEN: `spec-frmindicators-retirement.md`**
+- 🟡 **BUILT 2026-10-06, NOT YET REVIEWED** — report `impl-report-frmindicators-retirement.md`. Gate
+  passed, OrderCheck 307/307, censuses unmoved. Coordinator review (Opus, high) and the owner's
+  testnet runtime checks (`spec-frmindicators-retirement.md` §4 items 3–6) are still owed.
+  **OWNER RULING 2026-10-06: FULL RETIREMENT.** **SPEC WRITTEN: `spec-frmindicators-retirement.md`**
   (engine ATR in every mode, switchable Flat ATR). Opus, high; runs first.
   ⚠ Found 2026-10-06: in bridge mode Off the bridge ATR is zeroed (`SignalBridge.vb:631-633`,
   `StopWatching`), so every MANUAL trade's chase limit uses FrmIndicators' ATR today. Retirement

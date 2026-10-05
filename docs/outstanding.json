@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T20:30Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-05T20:38Z",
+  "updated_by": "seat implementer (FrmIndicators retirement), Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,13 +9,13 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 6 commits ahead of origin (Jev and pane advice; hygiene pass; cooloff comment fix; two new specs; ATRSlip clarification; the settings-box snap-back fix).",
+      "meaning": "Push master: 7 commits ahead of origin (Jev and pane advice; hygiene pass; cooloff comment fix; two new specs; ATRSlip clarification; the settings-box snap-back fix; the FrmIndicators retirement).",
       "since": "2026-10-06"
     },
     {
       "kind": "go",
-      "meaning": "Launch an implementer seat for the FrmIndicators retirement spec (Opus, high). It must land before the slippage-fields spec.",
-      "doc": "docs/spec-frmindicators-retirement.md",
+      "meaning": "Run the FrmIndicators retirement's testnet checks after an x64 rebuild: engine ATR shown in bridge Off with no disposition rows, one disposition on Off to Log-only, one Deribit websocket, Flat ATR and its switch survive a relaunch.",
+      "doc": "docs/impl-report-frmindicators-retirement.md",
       "since": "2026-10-06"
     },
     {
@@ -38,7 +38,7 @@
   "dated": [],
   "next_up": [
     {
-      "what": "Review the FrmIndicators retirement when its implementer reports",
+      "what": "Review the FrmIndicators retirement: built and gated, implementation report written",
       "model": "Opus 5.5, high"
     },
     {

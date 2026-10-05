@@ -7,7 +7,7 @@
 # the harness-launched PID (the gate boxes live on the separate AutoTradeSettings window).
 #
 # Usage:
-#   powershell -NoProfile -File tools/set-textbox.ps1 txtAtrLength 7 -CommitViaBlur
+#   powershell -NoProfile -File tools/set-textbox.ps1 txtAtrFallback 70 -CommitViaBlur
 #   powershell -NoProfile -File tools/set-textbox.ps1 txtAmount 100
 #
 # Exit codes: 0 = set (and committed if requested) · 1 = app not running ·

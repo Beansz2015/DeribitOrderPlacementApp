@@ -17,10 +17,11 @@ Imports Newtonsoft.Json.Linq
 
 Public Class frmMainPageV2
 
-    ' RETIREMENT (docs/spec-back-autotrade-retirement.md): FrmIndicators is no longer shown - it runs
-    ' headless purely as the indicator/ATR engine (StartHeadless). This form now OWNS the settings form
-    ' (btnAutoSettings opens it); _autotradesettings was a dead never-assigned field before this pass.
-    Private _indicators As FrmIndicators
+    ' RETIREMENT (docs/spec-back-autotrade-retirement.md): this form OWNS the settings form
+    ' (btnAutoSettings opens it); _autotradesettings was a dead never-assigned field before that pass.
+    ' The headless indicator form and its second websocket are gone too
+    ' (docs/spec-frmindicators-retirement.md): the slippage guard's ATR is the engine payload's or the
+    ' Flat ATR, nothing else.
     Private _autotradesettings As AutoTradeSettings
 
     ' Signal-bridge tie-in (docs/spec-autotrade-tiein.md): the VerdictEngine signal consumer.
@@ -29,23 +30,28 @@ Public Class frmMainPageV2
 
     ' Tooling mirrors, owned here so the receive thread reads plain fields (never a cross-form control).
     ' AutoTradeSettings pushes these on commit (focus-loss/Enter, not per keystroke - a half-typed value
-    ' must never reach the engine). ATR period default 7 mirrors the ENGINE's settings.json ATR.period
-    ' (owner ruling 2026-07-24, spec-breaker-persist-atr7-item8.md R3 - the old 14 followed the retired
-    ' FrmIndicators autotrading; this is only the FALLBACK, the payload ATR stays first).
-    Private atrLengthVal As Integer = 7            ' ATR period for FrmIndicators' headless ATR calc
-    Private atrFallbackVal As Decimal = 70D        ' slippage-limit fallback when no ATR is available
+    ' must never reach the engine). Both are read on the receive thread - the same accepted torn-read
+    ' class as every other plain mirror here.
+    '
+    ' Flat ATR (docs/spec-frmindicators-retirement.md R3/R5/R6): an ATR in USD, NOT a limit. It is the
+    ' ATR the guard uses when "Use flat ATR" is ticked, and the fallback when no fresh engine ATR
+    ' exists. ATRSlip multiplies it exactly as it multiplies the engine ATR. Always > 0 (the commit
+    ' path ignores non-positive). Seeded from orderapp-settings.json at Load (ApplyFlatAtrFromSettings)
+    ' and persisted on item A's save path.
+    Private flatAtrVal As Decimal = 70D
+    Private useFlatAtr As Boolean = False
 
-    Friend ReadOnly Property AtrLength As Integer
+    ' The Flat ATR value in force, so the settings box can snap back to it after a rejected entry
+    ' (settings-box re-seed, owner ruling 2026-10-06). Read-only; SetToolingValues stays the writer.
+    Friend ReadOnly Property FlatAtrUsd As Decimal
         Get
-            Return If(atrLengthVal > 0, atrLengthVal, 7)
+            Return flatAtrVal
         End Get
     End Property
 
-    ' The ATR Fallback value in force, so the settings box can snap back to it after a rejected entry
-    ' (settings-box re-seed, owner ruling 2026-10-06). Read-only; SetToolingValues stays the writer.
-    Friend ReadOnly Property AtrFallbackUsd As Decimal
+    Friend ReadOnly Property UseFlatAtrInForce As Boolean
         Get
-            Return atrFallbackVal
+            Return useFlatAtr
         End Get
     End Property
 
@@ -64,9 +70,25 @@ Public Class frmMainPageV2
         End Get
     End Property
 
-    Friend Sub SetToolingValues(atrLength As Integer, atrFallback As Decimal)
-        If atrLength > 0 Then atrLengthVal = atrLength
-        If atrFallback > 0D Then atrFallbackVal = atrFallback
+    ' Non-positive Flat ATR (blank/garbage box) keeps the last good value: Flat ATR must stay > 0,
+    ' because GetEffectiveAtr has no "none" branch any more. The checkbox cannot be half-typed, so it
+    ' is always taken. Both land in userSettings too, so item A's save path persists them.
+    Friend Sub SetToolingValues(flatAtr As Decimal, useFlat As Boolean)
+        If flatAtr > 0D Then flatAtrVal = flatAtr
+        useFlatAtr = useFlat
+        If userSettings Is Nothing Then userSettings = New AppUserSettings()
+        userSettings.FlatAtrUsd = flatAtrVal
+        userSettings.UseFlatAtr = useFlatAtr
+    End Sub
+
+    ' Seed the Flat ATR mirrors from the loaded settings. Called at Load BEFORE AutoTradeSettings is
+    ' constructed, because the Tooling box and checkbox seed themselves from FlatAtrUsd and
+    ' UseFlatAtrInForce (the standing seed-before-commit ordering). A non-positive value in a
+    ' hand-edited file is ignored, so the Designer default 70 stands.
+    Private Sub ApplyFlatAtrFromSettings()
+        If userSettings Is Nothing Then Return
+        If userSettings.FlatAtrUsd > 0D Then flatAtrVal = userSettings.FlatAtrUsd
+        useFlatAtr = userSettings.UseFlatAtr
     End Sub
 
     ' Risk-sizing UI spec §2: the item-B keys, surfaced to the AutoTradeSettings Tooling boxes.
@@ -389,7 +411,7 @@ Public Class frmMainPageV2
     Private isRequestingLiveData As Boolean = False
     Private lastLiveDataRequest As DateTime = DateTime.MinValue
 
-    'For circuit breaker in auto-trading in frmindicators
+    ' Session PnL in USD - read by the bridge's circuit breaker through SessionPnLUSD.
     Public USDPublicSession As Decimal
 
     ' ============================================================================================
@@ -999,10 +1021,11 @@ Public Class frmMainPageV2
 
     Private Sub frmMainPageV2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         ' Load API credentials from git-ignored secrets.json before any connection attempt.
-        ' Moved here from Shown (harness spec section 1): the headless indicator engine below reads
-        ' AppSecrets.WsUrl on a background task the moment StartHeadless runs, so the environment
-        ' must be resolved BEFORE it starts - loading at Shown raced it. The form handle exists by
-        ' Load, so AppendColoredText's handle guard passes and these lines still reach the log.
+        ' Moved here from Shown (harness spec section 1): the headless indicator engine that used to
+        ' start below read AppSecrets.WsUrl on a background task, and loading at Shown raced it. That
+        ' engine is retired (docs/spec-frmindicators-retirement.md); Load stays the right place, as the
+        ' environment must be resolved before anything connects. The form handle exists by Load, so
+        ' AppendColoredText's handle guard passes and these lines still reach the log.
         Dim secretsError As String = AppSecrets.Load()
         If secretsError IsNot Nothing Then
             AppendColoredText(txtLogs, $"API credentials: {secretsError}", Color.Red)
@@ -1054,6 +1077,9 @@ Public Class frmMainPageV2
             ' hot-path fields directly rather than riding a control's TextChanged. Must precede the
             ' AutoTradeSettings construction below - its Tooling box seeds itself from these.
             ApplyEvChaseBudgetFromSettings()
+            ' Indicator-form retirement §2.5: the same ordering, for the same reason - the Flat ATR box
+            ' and the "Use flat ATR" checkbox seed themselves from these mirrors.
+            ApplyFlatAtrFromSettings()
 
             ' Item A save affordance (implementer's choice per spec: context item over a button -
             ' no free space near the inputs): right-click the MARGINS or AMOUNT($) group.
@@ -1066,13 +1092,7 @@ Public Class frmMainPageV2
             SyncTradeInputsFromUi()
             SyncToggleInputsFromUi()
 
-            ' RETIREMENT: the indicators form is never shown now - it is a headless indicator/ATR engine.
-            ' It is NOT Shown, so Form.Load never fires; StartHeadless does the init Load used to do.
-            ' Its handle is realized in the constructor, which keeps the receive loop's marshals legal.
-            _indicators = New FrmIndicators(Me)     ' pass “self” as host
-            _indicators.StartHeadless()
-
-            ' This form owns the settings window now (FrmIndicators used to); btnAutoSettings shows it.
+            ' This form owns the settings window now (the retired indicator form used to); btnAutoSettings shows it.
             ' InitialiseSettings seeds the gate-config mirrors from the designer defaults and wires the
             ' select-all/commit-on-blur behaviour - it must not wait for Load, which only fires if the
             ' form is ever shown (the bridge reads those mirrors regardless).
@@ -1149,8 +1169,8 @@ Public Class frmMainPageV2
     End Sub
 
     Private Sub frmMainPageV2_Shown(sender As Object, e As EventArgs) Handles MyBase.Shown
-        ' (Secrets now load at Load - see frmMainPageV2_Load - so the headless indicator engine
-        ' and the window-title environment suffix see the selected environment from the start.)
+        ' (Secrets now load at Load - see frmMainPageV2_Load - so the websocket and the window-title
+        ' environment suffix see the selected environment from the start.)
         Try
             ' Initialize trade database
             tradeDatabase = New TradeDatabase()
@@ -1168,7 +1188,8 @@ Public Class frmMainPageV2
         End Try
 
         ' Signal-bridge tie-in (docs/spec-autotrade-tiein.md section 3c): construct the consumer.
-        ' Starts in mode Off (nothing watches, nothing places) until the SIGNAL BRIDGE panel drives it.
+        ' Starts in mode Off (nothing places) until the SIGNAL BRIDGE panel drives it. In Off it still
+        ' watches, read-only, for the engine ATR the slippage guard uses (spec-frmindicators-retirement.md R2).
         Try
             signalBridge = New SignalBridge(Me, AddressOf BridgeLog)
             ' This form owns the settings window now (retirement) - hand the bridge to its panel directly.
@@ -2243,7 +2264,7 @@ Public Class frmMainPageV2
                     Dim USDEquity As Decimal = idx * btcEquity
                     Dim Equiv As Decimal = idx * btcBalance
                     Dim USDSession As Decimal = idx * btcSession
-                    USDPublicSession = USDSession 'For circuitbreaker in auto trading in frmindicators
+                    USDPublicSession = USDSession ' bridge circuit breaker (SessionPnLUSD)
                     Dim sessionColor As Color = If(btcSession < 0, Color.Firebrick, Color.ForestGreen)
 
                     UiInvoke(Sub()
@@ -3748,17 +3769,39 @@ Public Class frmMainPageV2
     Private orderCreationTime As DateTime = DateTime.MinValue
     Private currentRequoteCount As Integer = 0
 
-    ' The ATR the slippage guard will use, and where it came from. Bridge-first
-    ' (docs/spec-autotrade-tiein.md section 3c): the last actionable bridge payload's atr when fresh
-    ' (LastSignalAtr is 0 when none/stale), else FrmIndicators' headless CurrentATR, else none.
-    ' Both reads are plain fields and the sources are literals, so this stays receive-thread safe and
-    ' allocation-free (ValueTuple is a struct). Single source of truth for the guard AND the readout.
+    ' The ATR the slippage guard will use, and where it came from (docs/spec-frmindicators-retirement.md
+    ' §2.2, owner rulings R1/R3 2026-10-06). Only two sources exist: the engine payload's atr (the
+    ' bridge reads it in EVERY mode, Off included - R2; LastSignalAtr is 0 when none/stale), or the
+    ' Flat ATR. "Use flat ATR" ticked = always Flat ATR; unticked = engine ATR, Flat ATR only as the
+    ' fallback. There is no "none" branch: Flat ATR is always > 0.
+    '
+    ' 🚨 R6a: the returned Atr is a RAW ATR. The repositioning cap is its ONLY consumer today, and
+    ' ATRSlip multiplies it there and nowhere else. A future ATR consumer reads .Atr, never the slip
+    ' limit.
+    '
+    ' Plain field reads and literal sources, so this stays receive-thread safe and allocation-free
+    ' (ValueTuple is a struct). Single source of truth for the guard, the log line AND the readout.
     Friend Function GetEffectiveAtr() As (Atr As Decimal, Source As String)
         Dim bridgeAtr As Decimal = If(signalBridge IsNot Nothing, signalBridge.LastSignalAtr, 0D)
+        Return SelectEffectiveAtr(useFlatAtr, bridgeAtr, flatAtrVal)
+    End Function
+
+    ' The pure decision behind GetEffectiveAtr (spec §4 acceptance 2a-c). Friend Shared so OrderCheck
+    ' pins it. The three source strings are what the Tooling readout shows.
+    Friend Shared Function SelectEffectiveAtr(useFlat As Boolean, bridgeAtr As Decimal,
+                                              flatAtr As Decimal) As (Atr As Decimal, Source As String)
+        If useFlat Then Return (flatAtr, "flat ATR (switched)")
         If bridgeAtr > 0D Then Return (bridgeAtr, "signal payload")
-        Dim indicatorAtr As Decimal = If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D)
-        If indicatorAtr > 0D Then Return (indicatorAtr, "indicator")
-        Return (0D, "none")
+        Return (flatAtr, "flat ATR (fallback)")
+    End Function
+
+    ' The repositioning cap (R6): ATR x ATRSlip, whichever ATR is in force. Blank/0 ATRSlip -> 0.6.
+    ' Pure; OrderCheck-pinned (spec §4 acceptance 2d-e). This is the ONE place ATRSlip multiplies an
+    ' ATR. Before the retirement the fallback 70 WAS the limit, unmultiplied; now it is an ATR and
+    ' the default fallback limit is 70 x 0.6 = 42.
+    Friend Shared Function SlippageLimitFromAtr(atr As Decimal, atrSlipMult As Decimal) As Decimal
+        Dim atrMultiplier As Decimal = If(atrSlipMult > 0D, atrSlipMult, 0.6D)
+        Return atr * atrMultiplier
     End Function
 
     ' Exposed so the Tooling readout shows exactly what the guard would enforce, not a re-derivation.
@@ -3770,17 +3813,7 @@ Public Class frmMainPageV2
 
     Private Function CalculateATRSlippageLimit() As Decimal
         ' Cross-thread fix: read the engine fields, not controls.
-        Dim eff = GetEffectiveAtr()
-        If eff.Atr <= 0D Then
-            ' No ATR at all: the fallback IS the limit and is deliberately NOT multiplied - that is
-            ' the original "Return 70" behaviour, now configurable from Tooling.
-            Return atrFallbackVal
-        End If
-
-        ' Get ATR multiplier from settings (blank/0 -> default 0.6x ATR)
-        Dim atrMultiplier As Decimal = If(maxSlippageATRmult > 0D, maxSlippageATRmult, 0.6D)
-
-        Return eff.Atr * atrMultiplier
+        Return SlippageLimitFromAtr(GetEffectiveAtr().Atr, maxSlippageATRmult)
     End Function
 
     Private Function IsATRSlippageExcessive(currentPrice As Decimal, direction As String) As Boolean
@@ -3789,12 +3822,14 @@ Public Class frmMainPageV2
             Return False
         End If
 
-        Dim slippageLimit As Decimal = CalculateATRSlippageLimit()
+        ' ONE GetEffectiveAtr read feeds both the limit and the logged "x ATR" figure, so the log is
+        ' always against the ATR the limit used (spec-frmindicators-retirement.md §2.3 - it used to
+        ' divide by the retired indicator form's own ATR, a different measurement from the engine's).
+        Dim eff = GetEffectiveAtr()
+        Dim slippageLimit As Decimal = SlippageLimitFromAtr(eff.Atr, maxSlippageATRmult)
         Dim actualSlippage As Decimal = Math.Abs(currentPrice - originalSignalPrice)
 
-        ' Calculate slippage in ATR units for logging (cross-thread fix: read CurrentATR field, not lblATR)
-        Dim currentATR As Decimal = If(_indicators IsNot Nothing, _indicators.CurrentATR, 0D)
-        Dim slippageInATR As Decimal = If(currentATR > 0, actualSlippage / currentATR, 0)
+        Dim slippageInATR As Decimal = If(eff.Atr > 0D, actualSlippage / eff.Atr, 0D)
 
         If actualSlippage > slippageLimit Then
             AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) exceeds limit ${slippageLimit:F2}", Color.Red)
@@ -6192,7 +6227,7 @@ Public Class frmMainPageV2
         End Try
         Try
             signalBridge?.Dispose() ' stop the watcher/timers before the sockets go down
-            ' Retirement: this form owns the settings window now (FrmIndicators used to close it).
+            ' Retirement: this form owns the settings window now (the retired indicator form used to close it).
             If _autotradesettings IsNot Nothing AndAlso Not _autotradesettings.IsDisposed Then _autotradesettings.Close()
             cancellationTokenSource?.Cancel()
             If webSocketClient IsNot Nothing AndAlso webSocketClient.State = WebSocketState.Open Then
@@ -6213,14 +6248,14 @@ Public Class frmMainPageV2
     End Sub
 
     ' Retirement: opens the settings window (SIGNAL BRIDGE panel + gate config). This replaces
-    ' FrmIndicators' btnAutoTradeSettings, which went with that form's UI. Toggles like the old one.
+    ' the indicator form's btnAutoTradeSettings, which went with that form's UI. Toggles like the old one.
     Private Sub btnAutoSettings_Click(sender As Object, e As EventArgs) Handles btnAutoSettings.Click
         If _autotradesettings Is Nothing OrElse _autotradesettings.IsDisposed Then Return
         If _autotradesettings.Visible Then
             _autotradesettings.Hide()
         Else
             ' Show OWNED by the main form so it hides on minimize and reappears on restore
-            ' (re-parenting off FrmIndicators at retirement B cdc7ce4 left it unowned/independent).
+            ' (re-parenting off the indicator form at retirement B cdc7ce4 left it unowned/independent).
             _autotradesettings.Show(Me)
             _autotradesettings.BringToFront()
         End If
