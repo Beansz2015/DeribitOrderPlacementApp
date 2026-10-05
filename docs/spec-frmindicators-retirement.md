@@ -23,7 +23,8 @@ owner sets and can switch to. Flat ATR is also the fallback.
 | R3 | **Flat ATR is switchable and is the fallback.** A "Use flat ATR" checkbox: ticked = always Flat ATR; unticked = engine ATR, Flat ATR only when no fresh engine ATR exists. |
 | R4 | **"ATR Length" box is removed.** It is a candle count that only FrmIndicators uses. |
 | R5 | **"ATR Fallback: 70 USD" becomes "Flat ATR (USD)".** |
-| R6 | **Flat ATR is an ATR, so ATRSlip multiplies it.** Limit = ATR × ATRSlip, where ATR is the engine ATR or the Flat ATR. Today the 70 is the limit itself, unmultiplied — that changes. |
+| R6 | **Flat ATR is an ATR. ATRSlip multiplies an ATR ONLY inside the repositioning cap** (owner, 2026-10-06, clarified the same day). Reposition limit = ATR × ATRSlip, where ATR is the engine ATR or the Flat ATR. Everywhere else both stay raw ATRs. Today the 70 is the limit itself, unmultiplied — that changes. |
+| R6a | **Verified 2026-10-06: the repositioning cap is the ONLY consumer of ATR in the app.** `GetEffectiveAtr` feeds only `CalculateATRSlippageLimit` (→ `IsATRSlippageExcessive`) and the Tooling readout; the payload `atr` (`SignalBridge.vb:908`) feeds only `_lastSignalAtr`; `_slippageAtrMult` in the bridge is informational (`:60`). No sizing, SL, TP or EV-floor path reads an ATR. **Keep it so:** a future ATR consumer must read `GetEffectiveAtr().Atr` raw, never the slip limit. |
 
 **R2 supersedes the owner ruling of 2026-07-16** ("bridge Off must mean back on our own 14-period
 ATR", quoted in `SignalBridge.vb` `StopWatching` and at `:615-622`). Those comments must be rewritten,
