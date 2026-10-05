@@ -24,7 +24,15 @@
   SCOPE: the numbered handovers before docs/HANDOVER-6.md are excluded (CLAUDE.md: do not
   read them). See SUPERSEDED in lib/doc_sections.py. Archive docs are ranked and labelled.
 
-  COST: K Jev calls plus one, per query (31 at the default K=30). Sampled ONCE in live mode.
+  SAMPLING: each section Noul is sampled 5 times by default (-Samples 5), on the engine
+  orchestrator's advice 2026-10-06: read the AGREEMENT RATE (share of draws on the same side of
+  0.5), not the probability band. The engine's measured run: every agreement was stable 5/5,
+  both disagreements unstable 4/5. A top-5 row with agreement below 1.0 is UNSTABLE -- read
+  that section yourself before relying on its rank. (The engine tool samples once in live mode;
+  this port deliberately does not.) -Samples 1 gives the fast, unsampled run.
+
+  COST: K x Samples Jev calls plus one per query (151 at K=30, Samples=5); about 0.3 s per call,
+  so roughly 45 s. Input tokens cost ~$0.042 per million; one query is well under 1 cent.
 
   KEY: $env:TYPESAFE_API_KEY if set, else read from -KeyFile (default: the engine's
   gitignored typesafe.local.env, read in place -- the key is never copied into this repo).
@@ -39,7 +47,7 @@ param(
     [string]$Query,
     [string]$Rev = 'HEAD',
     [int]$K = 30,
-    [int]$Samples = 1,
+    [int]$Samples = 5,
     [int]$NoAnswerTopN = 5,
     [string]$LogPath = 'doc-reranker-query-log.jsonl',
     [string]$KeyFile = 'C:\Dev\DeribitVerdictEngine\typesafe.local.env',
@@ -104,15 +112,21 @@ function Invoke-SectionNoul([string]$key, [string]$q, $cand, [int]$samples) {
         $draws.Add($noul)
     }
     $mean = ($draws | Measure-Object -Average).Average
+    # Agreement: share of draws on the same side of 0.5 as the first draw. @() is load-bearing:
+    # a single surviving item unwraps to a scalar whose .Count is $null in PS 5.1. The [double]
+    # cast is load-bearing too: an evenly-dividing Int32 has no [math]::Round(Int32,Int32).
+    $sides = @($draws | ForEach-Object { $_ -ge 0.5 })
+    $agreeCount = (@($sides | Where-Object { $_ -eq $sides[0] })).Count
+    $agreement = [math]::Round([double]$agreeCount / $draws.Count, 3)
     # .ToArray(), not @($draws): @() over a List[object] throws "Argument types do not match"
     # in PS 5.1 (engine finding, reproduced there).
-    return @{ Ok = $true; MeanNoul = $mean; Draws = $draws.ToArray(); InputTokens = $inTok; Calls = $samples }
+    return @{ Ok = $true; MeanNoul = $mean; Agreement = $agreement; Draws = $draws.ToArray(); InputTokens = $inTok; Calls = $samples }
 }
 
 function Get-RerankedOrder($candidates, $meanNouls) {
     # sort by mean noul desc; within a 0.01-wide bucket, break ties by commit date desc.
     $withScore = @(for ($i = 0; $i -lt $candidates.Count; $i++) {
-        [PSCustomObject]@{ Cand = $candidates[$i]; Noul = $meanNouls[$i]; Bucket = [math]::Round($meanNouls[$i], 2) }
+        [PSCustomObject]@{ Cand = $candidates[$i]; Noul = $meanNouls[$i]; Agreement = $script:agreements[$i]; Bucket = [math]::Round($meanNouls[$i], 2) }
     })
     @($withScore | Sort-Object -Property @{Expression = 'Bucket'; Descending = $true}, @{Expression = { $_.Cand.commit_date_epoch }; Descending = $true})
 }
@@ -126,20 +140,21 @@ try {
 } finally { Remove-Item -Force $slFile -ErrorAction SilentlyContinue }
 
 Write-Host "REV=$($sl.rev7)  DOC_SCOPE=$($sl.doc_scope_count) docs  SECTIONS=$($sl.section_count)  SHORTLIST_K=$($sl.shortlist.Count)"
-if ($Samples -eq 1) { Write-Host "SAMPLED_ONCE=true" }
+if ($Samples -eq 1) { Write-Host "SAMPLED_ONCE=true (no agreement rate; pass -Samples 5 for one)" } else { Write-Host "SAMPLES=$Samples per section" }
 
 $cands = @($sl.shortlist)
 $means = New-Object System.Collections.Generic.List[double]
+$script:agreements = New-Object System.Collections.Generic.List[double]
 $jevCalls = 0; $usageIn = [long]0; $sectionsWaf = 0
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 foreach ($c in $cands) {
     $r = Invoke-SectionNoul $apiKey $Query $c $Samples
     if (-not $r.Ok) {
         # A WAF-blocked section ranks LAST (noul -1) and is COUNTED, never silent.
-        if ($r.WafBlocked) { $means.Add(-1.0); $sectionsWaf++; continue }
+        if ($r.WafBlocked) { $means.Add(-1.0); $script:agreements.Add(-1.0); $sectionsWaf++; continue }
         Write-Host "EXIT_REASON=API_FAILED"; Write-Host "Jev request failed for $($c.id): $($r.Error)"; exit 2
     }
-    $means.Add($r.MeanNoul); $jevCalls += $r.Calls; $usageIn += $r.InputTokens
+    $means.Add($r.MeanNoul); $script:agreements.Add($r.Agreement); $jevCalls += $r.Calls; $usageIn += $r.InputTokens
 }
 $ordered = @(Get-RerankedOrder $cands $means)
 $top5 = @($ordered | Select-Object -First $NoAnswerTopN)
@@ -164,21 +179,23 @@ if ($naCall.Ok) {
 Write-Host "NO_ANSWER_NOUL(any_answer)=$noAnswerVerdict"
 Write-Host "JEV_CALLS=$jevCalls  USAGE_INPUT_TOKENS=$usageIn  WALL_TIME_SEC=$([math]::Round($sw.Elapsed.TotalSeconds,2))  SECTIONS_WAF_BLOCKED=$sectionsWaf"
 Write-Host (Get-JevModelLine)
-Write-Host "TOP $($top5.Count):"
+$unstable = @($top5 | Where-Object { $_.Agreement -ge 0 -and $_.Agreement -lt 1 }).Count
+Write-Host "TOP $($top5.Count):  UNSTABLE_IN_TOP=$unstable"
 $rank = 0
 foreach ($t in $top5) {
     $rank++
     $arch = if ($t.Cand.is_archive) { ' [ARCHIVE]' } else { '' }
     $dt = [DateTimeOffset]::FromUnixTimeSeconds([long]$t.Cand.commit_date_epoch).UtcDateTime.ToString('yyyy-MM-dd')
-    Write-Host "  $rank. noul=$([math]::Round($t.Noul,3)) $($t.Cand.path):$($t.Cand.start_line)-$($t.Cand.end_line)$arch  ::  $($t.Cand.heading_chain)  [commit $dt]"
+    $flag = if ($Samples -gt 1 -and $t.Agreement -ge 0 -and $t.Agreement -lt 1) { ' UNSTABLE' } else { '' }
+    Write-Host "  $rank. noul=$([math]::Round($t.Noul,3)) agree=$($t.Agreement)$flag $($t.Cand.path):$($t.Cand.start_line)-$($t.Cand.end_line)$arch  ::  $($t.Cand.heading_chain)  [commit $dt]"
 }
 
 $logEntry = [ordered]@{
     ts_utc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    query = $Query; rev = $sl.rev7; sampled_once = ($Samples -eq 1)
+    query = $Query; rev = $sl.rev7; samples = $Samples; unstable_in_top = $unstable
     no_answer_verdict = $noAnswerVerdict; sections_waf_blocked = $sectionsWaf
     jev_model = ((Get-JevModelLine) -replace '^JEV_MODEL ', '')
-    top5 = @($top5 | ForEach-Object { @{ path = $_.Cand.path; heading_chain = $_.Cand.heading_chain; noul = $_.Noul } })
+    top5 = @($top5 | ForEach-Object { @{ path = $_.Cand.path; heading_chain = $_.Cand.heading_chain; noul = $_.Noul; agreement = $_.Agreement } })
 }
 $logFull = Resolve-RepoPath $LogPath
 (ConvertTo-Json -InputObject $logEntry -Depth 6 -Compress) | Add-Content -Encoding UTF8 -Path $logFull

@@ -16,7 +16,9 @@ this repo, because it has many documents and many finding IDs:
 
 ## Where to start
 
-- **Entry point: `docs/HANDOVER-6.md`.** It is self-contained. Read it, then verify it.
+- **Entry point: `docs/HANDOVER-7.md`.** Read it, then verify it. `docs/HANDOVER-6.md` stays live
+  for its §4–§7 only (bin rules, runtime bite-list, invariants, methodology).
+- Then fire the Jev triggers below, and read `docs/outstanding.json`.
 - Then `docs/ROADMAP-2026-08.md` §1 (owner queue), §5 (coordinator queue), §6 (not building).
 - **Do NOT read `docs/HANDOVER-3.md`, `-4` or `-5`.** They are superseded, and `docs/HANDOVER-4.md`
   §5 carries two runtime instructions that were later reversed.
@@ -30,17 +32,38 @@ this repo, because it has many documents and many finding IDs:
 - `SB` = a spec-back finding **against the docs**, raised after the work.
 - Scope every ID to its feature. Do not reuse a prefix across kinds.
 
-## Jev doc re-ranker — the context saver (owner ruling 2026-10-06)
+## Jev harnesses — fire them on their triggers (owner ruling 2026-10-06)
 
-- **Fire it BEFORE grepping or reading docs** for any "where was this decided / defined?" question.
-  Then read only the top hits, by line range.
-- `powershell -NoProfile -File tools/checks/doc-reranker.ps1 -Query "<question>"`
-- About 31 Jev calls and 10 s per query. It reads committed docs at `HEAD`, not the working tree.
-- It excludes `docs/HANDOVER.md` and `docs/HANDOVER-2.md` through `-5.md`. It is advisory only and is
-  never part of the gate.
-- Jev returns probabilities. Never ask it for maths, counts or dates.
-- Ported from the engine repo. The header of `tools/checks/doc-reranker.ps1` gives the source and
+Jev returns typed probabilities only. It writes no text and no code. It is bad at maths, counting
+and dates: never point it at numeric logs, `trades.db` or a `.log` file. Code computes; Jev judges
+meaning. Both tools read the key in place from the engine's gitignored `typesafe.local.env`.
+
+| Harness | Fire it when | Command (`powershell -NoProfile -File …`) |
+|---|---|---|
+| **Doc re-ranker** — the context saver | Any "where was this decided / defined?" question, **before** grepping or reading docs. Then read only the top hits, by line range | `tools/checks/doc-reranker.ps1 -Query "<question>"` |
+| **Decision-bias tripwire** | You make a new recommendation on a decision with options. Write the population and **your own label first** (the baseline), then run. **A `gives_up_for_economy` verdict sends the decision to the owner** | `tools/checks/decision-bias.ps1 -Population … -Baseline … -OutPath …` |
+
+- **Read the agreement rate, not the probability.** Both sample 5× by default. A row below 1.0 is
+  unstable: read that source yourself.
+- **Doc re-ranker:** about 150 calls and 45 s per query. It reads committed docs at `HEAD`, not the
+  working tree. It excludes `docs/HANDOVER.md` and `docs/HANDOVER-2.md` through `-5.md`. A low
+  no-answer probability means the shortlist lacks the answer — trust that signal.
+- **Shadow-mode rule:** `docs/harness-shadow-mode-protocol.md` §2. Look at a harness's answer before
+  writing your own read, and the comparison is worthless for good.
+- Both are advisory and never part of the gate. Each script's header gives its engine source and
   what was left out.
+- ⛔ **Carry this table forward in every handover's first-actions list.** The engine armed six
+  harnesses and lost the table between handovers; in the next 8 days only 1 of 6 ran.
+
+## Outstanding pane — `docs/outstanding.json`
+
+- **Update it the moment an item opens, closes, re-dates or is ruled.** The pane reads the working
+  tree, so the owner sees the change at once. Commit it with the change that caused it, with
+  `updated_utc` bumped.
+- An agent you dispatch gets an `in_progress` row at dispatch. Remove it when the agent reports.
+- Rules, schema and the pre-commit check: `docs/outstanding-json-seat-instructions.md`. That local
+  copy wins over the engine copy that the global instructions name.
+- When the push row counts commits ahead, **count the commit that updates the row itself.**
 
 ## Safety boundaries — not negotiable
 
