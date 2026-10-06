@@ -51,6 +51,8 @@ socket-down close path. Model: Opus. Effort: high (order path). Decision-bias tr
 `docs/harness-runs/decision-bias-20261006T1440Z-*`, baseline written first, no `gives_up_for_economy`
 flag, stable 5/5.
 
+✅ **Owner ruling 2026-10-06: fix it. Spec written: `docs/spec-chase-anchor-reset.md`.**
+
 ### 4a. What `D1` does in practice — traced 2026-10-06 for the owner
 
 - The rejected request is the **new entry itself** (ids >= `PlacementIdBase`). Nothing else is

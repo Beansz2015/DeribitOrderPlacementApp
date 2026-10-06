@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-06T15:00Z",
+  "updated_utc": "2026-10-06T15:20Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 4 commits ahead of origin (Use flat ATR resets each launch; trade slippage fields; their approved review; the anchor-defect trace).",
+      "meaning": "Push master: 5 commits ahead of origin (Use flat ATR resets each launch; trade slippage fields; their review; the anchor-defect trace; the chase-anchor reset spec).",
       "since": "2026-10-06"
     },
     {
@@ -19,12 +19,9 @@
       "since": "2026-10-06"
     },
     {
-      "kind": "ruling",
-      "tick": true,
-      "id": "slippage-fields D1",
-      "meaning": "Decide: a small separate spec to reset the chase anchor on a placement rejection (recommended, Opus high), or accept. Today the next placement measures drift from the rejected order's anchor and can be refused for it.",
-      "doc": "docs/review-trade-slippage-fields.md",
-      "anchor": "§4",
+      "kind": "go",
+      "meaning": "Launch an implementer seat for the chase-anchor reset spec (Opus, high): reset the anchor when a placement is rejected or a position closes with the socket down, and make a refused bridge act report its real reason instead of timeout.",
+      "doc": "docs/spec-chase-anchor-reset.md",
       "since": "2026-10-06"
     },
     {
