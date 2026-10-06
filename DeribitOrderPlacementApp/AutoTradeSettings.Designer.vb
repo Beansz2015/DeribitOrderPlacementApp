@@ -471,7 +471,7 @@ Partial Class AutoTradeSettings
         chkUseFlatAtr.Size = New Size(140, 34)
         chkUseFlatAtr.TabIndex = 2
         chkUseFlatAtr.Text = "Use flat ATR"
-        AutoTradingToolTip.SetToolTip(chkUseFlatAtr, "Ticked: the slippage guard uses the Flat ATR ALWAYS, whatever" & vbCrLf & "the engine says." & vbCrLf & "Unticked: it uses the engine ATR from the signal payload (in" & vbCrLf & "every bridge mode, Off included), and the Flat ATR only when no" & vbCrLf & "fresh engine ATR exists." & vbCrLf & "Persists as use_flat_atr in orderapp-settings.json.")
+        AutoTradingToolTip.SetToolTip(chkUseFlatAtr, "Ticked: the slippage guard uses the Flat ATR ALWAYS, whatever" & vbCrLf & "the engine says." & vbCrLf & "Unticked: it uses the engine ATR from the signal payload (in" & vbCrLf & "every bridge mode, Off included), and the Flat ATR only when no" & vbCrLf & "fresh engine ATR exists." & vbCrLf & "Not saved: every launch starts unticked, on the engine ATR.")
         '
         ' txtAtrFallback
         '

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-05T20:50Z",
-  "updated_by": "seat implementer (FrmIndicators retirement), Opus 5.5",
+  "updated_utc": "2026-10-06T10:05Z",
+  "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,19 +9,13 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 8 commits ahead of origin, ending with the FrmIndicators retirement and its approved review.",
+      "meaning": "Push master: 1 commit ahead of origin (Use flat ATR resets each launch; closing the app commits a half-typed setting).",
       "since": "2026-10-06"
     },
     {
       "kind": "go",
-      "meaning": "Runtime checks for the FrmIndicators retirement on the rebuilt x64 app (rebuilt 04:45, testnet): readout source in Off, no new disposition rows, fallback after the engine stops, Use flat ATR survives a relaunch, layout.",
+      "meaning": "Re-test on the rebuilt x64 app (18:01, testnet): tick Use flat ATR, type 55, close without tabbing away, relaunch. Expect box 55 and the checkbox unticked.",
       "doc": "docs/review-frmindicators-retirement.md",
-      "since": "2026-10-06"
-    },
-    {
-      "kind": "go",
-      "meaning": "Run the FrmIndicators retirement's testnet checks after an x64 rebuild: engine ATR shown in bridge Off with no disposition rows, one disposition on Off to Log-only, one Deribit websocket, Flat ATR and its switch survive a relaunch.",
-      "doc": "docs/impl-report-frmindicators-retirement.md",
       "since": "2026-10-06"
     },
     {

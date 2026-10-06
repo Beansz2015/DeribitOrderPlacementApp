@@ -214,6 +214,15 @@ Public Class AutoTradeSettings
         CommitGateConfig()
     End Sub
 
+    ' Commit-on-close (owner ruling 2026-10-06, E1 of docs/review-frmindicators-retirement.md): the
+    ' host calls this from FormClosing, BEFORE its settings save, so a value still being typed in a
+    ' box (no Leave yet) is committed rather than lost. Exactly the tab-away commit, no re-seed - the
+    ' form is about to close. UI thread only (FormClosing).
+    Friend Sub CommitPendingEdits()
+        CommitGateConfig()
+        CommitToolingConfig()
+    End Sub
+
     ' R3: ticking the box changes the slippage guard's ATR immediately.
     Private Sub OnUseFlatAtrToggled(sender As Object, e As EventArgs)
         CommitToolingConfig()

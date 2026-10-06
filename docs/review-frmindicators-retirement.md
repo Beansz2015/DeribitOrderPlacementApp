@@ -59,3 +59,22 @@ Log-only and Live.
 5. Layout: "Use flat ATR" does not overlap the "Flat ATR:" caption.
 
 Then `docs/spec-trade-slippage-fields.md` is unblocked.
+
+## 5. Owner runtime results, 2026-10-06 (testnet, x64 bin rebuilt 04:45)
+
+| Check (this document §4) | Result | Evidence |
+|---|---|---|
+| 1. Off shows "signal payload"; no disposition rows in Off | ✅ | Owner's readout; `bridge-dispositions.log` has no row between 2026-08-14 and the Log-only switch |
+| 1. Fallback after the engine stops | ✅ **after the freshness window** | Payload `generated_at_utc 09:39:04Z`, `exec_resolution_min 3` → fresh until 09:46:34Z (2.5 × 3 min). The file mtime stayed 09:39:04: closing the engine wrote nothing, so the fallback came from the window, not the close. **Not an engine-side issue.** |
+| 2. Off → Log-only gives exactly one row | ✅ | One row, `2026-10-06T09:49:27Z … #2 … stale` |
+| 4. Use flat ATR survives a relaunch | ✅ the checkbox | Ticked before and after |
+| 4. Flat ATR 55 survives a relaunch | ⚠ **not tested** — the 55 was never committed | Screenshot before the close: box `55` with the caret in it, readout `70.00 (flat ATR (switched))`. `FormClosing` saves settings without committing the settings form, so a value typed into a still-focused box is lost — any box, not only this one. `E1` (a retirement-review escalation, raised before any code — commit pending settings edits on close) went to the owner: **ruled 2026-10-06, commit on close (spec R8). Built.** |
+| 5. Layout | ✅ | Owner screenshot: "Use flat ATR" clear of the caption |
+| 3. No indicator connect lines | ✅ partial | No indicator lines in the visible log; the full log was not read |
+
+## 6. Owner rulings after the testnet run, built 2026-10-06
+
+- **R7 of `docs/spec-frmindicators-retirement.md`** — "Use flat ATR" resets to unticked at every launch. `use_flat_atr` is no longer read or written; only `flat_atr_usd` persists. The tooltip and the example JSON say so. The OrderCheck fixture now asserts `use_flat_atr` is NOT written.
+- **R8 / `E1`** — `FormClosing` calls `AutoTradeSettings.CommitPendingEdits()` (the tab-away commit, no re-seed) before `SaveUserSettings`, in its own Try.
+- Gate 307/307; censuses 68 across 64 lines unchanged; x64 rebuilt 18:01, secrets testnet.
+- **Owner re-test owed:** tick "Use flat ATR", type 55 and close without tabbing away; relaunch → box 55, checkbox unticked.

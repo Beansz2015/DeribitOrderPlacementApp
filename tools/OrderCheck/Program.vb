@@ -782,26 +782,25 @@ Module Program
         Check("flat ATR (e): switched Flat ATR is multiplied the same way (55 x 0.6 = 33)",
               frmMainPageV2.SlippageLimitFromAtr(frmMainPageV2.SelectEffectiveAtr(True, 31.5D, 55D).Atr, 0.6D) = 33D)
 
-        ' ---- persistence (§2.5): flat_atr_usd + use_flat_atr round-trip; an old file loads 70/unticked ----
+        ' ---- persistence (§2.5 + R7): flat_atr_usd round-trips; use_flat_atr is NEVER written (R7) ----
         ' Same isolation as the EV block above: OrderCheck's own bin, bytes preserved and restored.
         Dim faPath As String = AppUserSettings.SavePath
         Dim faBackup As String = If(File.Exists(faPath), File.ReadAllText(faPath), Nothing)
         Try
-            Dim faSave As New AppUserSettings() With {.FlatAtrUsd = 55D, .UseFlatAtr = True}
+            Dim faSave As New AppUserSettings() With {.FlatAtrUsd = 55D}
             Dim faErr As String = faSave.Save()
             Dim faMsg As String = Nothing
             Dim faBack As AppUserSettings = AppUserSettings.Load(faMsg)
-            Check("flat ATR persistence: 55 + ticked round-trips",
-                  faErr Is Nothing AndAlso faBack.FlatAtrUsd = 55D AndAlso faBack.UseFlatAtr,
-                  $"saveErr='{faErr}' got {faBack.FlatAtrUsd}/{faBack.UseFlatAtr}")
+            Check("flat ATR persistence: 55 round-trips",
+                  faErr Is Nothing AndAlso faBack.FlatAtrUsd = 55D,
+                  $"saveErr='{faErr}' got {faBack.FlatAtrUsd}")
             Dim faRaw As String = File.ReadAllText(faPath)
-            Check("flat ATR persistence: both keys are present in the written file",
-                  faRaw.Contains("""flat_atr_usd""") AndAlso faRaw.Contains("""use_flat_atr"""))
+            Check("flat ATR persistence (R7): flat_atr_usd is written, use_flat_atr is NOT (the switch resets each launch)",
+                  faRaw.Contains("""flat_atr_usd""") AndAlso Not faRaw.Contains("""use_flat_atr"""))
             File.WriteAllText(faPath, "{ ""amount"": 10 }")
             Dim faOld As AppUserSettings = AppUserSettings.Load(faMsg)
-            Check("flat ATR persistence: an old file without the keys loads 70 and unticked",
-                  faOld.FlatAtrUsd = 70D AndAlso Not faOld.UseFlatAtr,
-                  $"got {faOld.FlatAtrUsd}/{faOld.UseFlatAtr}")
+            Check("flat ATR persistence: an old file without the key loads 70",
+                  faOld.FlatAtrUsd = 70D, $"got {faOld.FlatAtrUsd}")
         Catch ex As Exception
             Check("flat ATR persistence fixture: no throw", False, ex.Message)
         Finally

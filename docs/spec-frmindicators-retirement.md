@@ -25,6 +25,8 @@ owner sets and can switch to. Flat ATR is also the fallback.
 | R5 | **"ATR Fallback: 70 USD" becomes "Flat ATR (USD)".** |
 | R6 | **Flat ATR is an ATR. ATRSlip multiplies an ATR ONLY inside the repositioning cap** (owner, 2026-10-06, clarified the same day). Reposition limit = ATR × ATRSlip, where ATR is the engine ATR or the Flat ATR. Everywhere else both stay raw ATRs. Today the 70 is the limit itself, unmultiplied — that changes. |
 | R6a | **Verified 2026-10-06: the repositioning cap is the ONLY consumer of ATR in the app.** `GetEffectiveAtr` feeds only `CalculateATRSlippageLimit` (→ `IsATRSlippageExcessive`) and the Tooling readout; the payload `atr` (`SignalBridge.vb:908`) feeds only `_lastSignalAtr`; `_slippageAtrMult` in the bridge is informational (`:60`). No sizing, SL, TP or EV-floor path reads an ATR. **Keep it so:** a future ATR consumer must read `GetEffectiveAtr().Atr` raw, never the slip limit. |
+| R7 | **"Use flat ATR" resets to unticked at every launch** (owner, 2026-10-06, after the testnet run). Only the Flat ATR VALUE persists. Overrides this spec's §2.5 default. |
+| R8 | **Closing the app commits a value still being typed in a settings box** (owner, 2026-10-06; `E1` of `docs/review-frmindicators-retirement.md`). `FormClosing` runs the tab-away commit before its settings save. |
 
 **R2 supersedes the owner ruling of 2026-07-16** ("bridge Off must mean back on our own 14-period
 ATR", quoted in `SignalBridge.vb` `StopWatching` and at `:615-622`). Those comments must be rewritten,
@@ -114,7 +116,7 @@ used. The census count for `IsATRSlippageExcessive` (8) must not change: edit th
 - `SetToolingValues` becomes `(flatAtr As Decimal, useFlatAtr As Boolean)`.
 - Update the `lblAtrNow` tooltip's priority text (`AutoTradeSettings.Designer.vb:681`).
 
-### 2.5 Persistence (coordinator default — owner may override)
+### 2.5 Persistence (coordinator default — ⚠ AMENDED by R7: only `flat_atr_usd` persists)
 
 Both values are **session-only today**. A switch the owner must re-tick on every launch is a trap.
 Persist `flat_atr_usd` and `use_flat_atr` in `orderapp-settings.json` through item A's save path, the
@@ -159,7 +161,8 @@ same way the circuit breaker persists (`spec-breaker-persist-atr7-item8.md` R1).
    de-dupe).
 5. `grep -rn FrmIndicators DeribitOrderPlacementApp/*.vb` returns nothing. The app makes one
    websocket connection to Deribit (verify by the log: no indicator connect lines).
-6. Persistence: tick "Use flat ATR", set 55, close, relaunch → both restored.
+6. Persistence (amended by R7 and R8): tick "Use flat ATR", type 55 and close **without tabbing away**,
+   relaunch → the box shows 55 (R8) and the checkbox is **unticked** (R7).
 
 ## §5 — Not in scope, recorded
 

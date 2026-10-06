@@ -72,23 +72,24 @@ Public Class frmMainPageV2
 
     ' Non-positive Flat ATR (blank/garbage box) keeps the last good value: Flat ATR must stay > 0,
     ' because GetEffectiveAtr has no "none" branch any more. The checkbox cannot be half-typed, so it
-    ' is always taken. Both land in userSettings too, so item A's save path persists them.
+    ' is always taken. The VALUE lands in userSettings, so item A's save path persists it; the switch
+    ' does not (owner ruling 2026-10-06, R7 of docs/spec-frmindicators-retirement.md: every launch
+    ' starts on the engine ATR).
     Friend Sub SetToolingValues(flatAtr As Decimal, useFlat As Boolean)
         If flatAtr > 0D Then flatAtrVal = flatAtr
         useFlatAtr = useFlat
         If userSettings Is Nothing Then userSettings = New AppUserSettings()
         userSettings.FlatAtrUsd = flatAtrVal
-        userSettings.UseFlatAtr = useFlatAtr
     End Sub
 
-    ' Seed the Flat ATR mirrors from the loaded settings. Called at Load BEFORE AutoTradeSettings is
-    ' constructed, because the Tooling box and checkbox seed themselves from FlatAtrUsd and
-    ' UseFlatAtrInForce (the standing seed-before-commit ordering). A non-positive value in a
-    ' hand-edited file is ignored, so the Designer default 70 stands.
+    ' Seed the Flat ATR value from the loaded settings. Called at Load BEFORE AutoTradeSettings is
+    ' constructed, because the Tooling box seeds itself from FlatAtrUsd (the standing
+    ' seed-before-commit ordering). A non-positive value in a hand-edited file is ignored, so the
+    ' Designer default 70 stands. The switch is NOT loaded: useFlatAtr starts False on every launch
+    ' (R7), and the checkbox seeds itself unticked from UseFlatAtrInForce.
     Private Sub ApplyFlatAtrFromSettings()
         If userSettings Is Nothing Then Return
         If userSettings.FlatAtrUsd > 0D Then flatAtrVal = userSettings.FlatAtrUsd
-        useFlatAtr = userSettings.UseFlatAtr
     End Sub
 
     ' Risk-sizing UI spec §2: the item-B keys, surfaced to the AutoTradeSettings Tooling boxes.
@@ -6207,6 +6208,14 @@ Public Class frmMainPageV2
         If shutdownStarted Then Return
         shutdownStarted = True
         isClosing = True
+        ' Commit-on-close (owner ruling 2026-10-06, E1 of docs/review-frmindicators-retirement.md): a
+        ' value still being typed in a settings box has not had its Leave yet, so without this the save
+        ' below persisted the OLD value and the typed one was lost. Same commit as tabbing away - same
+        ' validation, garbage still ignored. Its own Try: nothing here may block shutdown.
+        Try
+            If _autotradesettings IsNot Nothing AndAlso Not _autotradesettings.IsDisposed Then _autotradesettings.CommitPendingEdits()
+        Catch
+        End Try
         ' Ergonomics item A: persist the standing inputs FIRST, before any teardown (spec: config
         ' save at the top of this handler). Its own Try - a save failure must never block shutdown.
         Try

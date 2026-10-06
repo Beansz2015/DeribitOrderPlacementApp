@@ -70,12 +70,12 @@ Public NotInheritable Class AppUserSettings
     Public CircuitBreakerUsd As Decimal = 10D
 
     ' Flat ATR (docs/spec-frmindicators-retirement.md §2.5, R3/R5/R6): an ATR in USD that the slippage
-    ' guard uses ALWAYS when UseFlatAtr is True, and as the fallback when no fresh engine ATR exists.
-    ' ATRSlip multiplies it. Both were session-only before (reset to 70 / unticked every launch); a
-    ' switch the owner must re-tick on every launch is a trap, so both persist. Absent keys => 70 and
-    ' False, which is the shipped default. The host ignores a non-positive FlatAtrUsd.
+    ' guard uses ALWAYS when "Use flat ATR" is ticked, and as the fallback when no fresh engine ATR
+    ' exists. ATRSlip multiplies it. The VALUE persists; an absent key => 70. The host ignores a
+    ' non-positive value. The "Use flat ATR" switch is deliberately NOT persisted (owner ruling
+    ' 2026-10-06, R7): every launch starts on the engine ATR. An old file's use_flat_atr key is ignored
+    ' and drops out on the next save.
     Public FlatAtrUsd As Decimal = 70D
-    Public UseFlatAtr As Boolean = False
 
     ' EV chase budget (docs/spec-ev-chase-budget.md §4). MinNetMovePct is a price FRACTION, not a
     ' percent: 0.0005 = 0.05% = 5 bps. <= 0 disables the EV floor entirely, and 0 is the shipped
@@ -150,9 +150,8 @@ Public NotInheritable Class AppUserSettings
             result.CircuitBreakerUsd = If(json.SelectToken("circuit_breaker_usd")?.ToObject(Of Decimal?)(), 10D)
             ' N2: absent risk_size_bridge_trades => False => bridge sizing is the Amount box, as today.
             result.RiskSizeBridgeTrades = If(json.SelectToken("risk_size_bridge_trades")?.ToObject(Of Boolean?)(), False)
-            ' Flat ATR: an old file without the keys loads with 70 and unticked.
+            ' Flat ATR: an old file without the key loads with 70. use_flat_atr is never read (R7).
             result.FlatAtrUsd = If(json.SelectToken("flat_atr_usd")?.ToObject(Of Decimal?)(), 70D)
-            result.UseFlatAtr = If(json.SelectToken("use_flat_atr")?.ToObject(Of Boolean?)(), False)
 
             ' EV chase budget: absent min_net_move_pct => 0 => the EV floor never binds (ship-safe).
             result.MinNetMovePct = If(json.SelectToken("min_net_move_pct")?.ToObject(Of Decimal?)(), 0D)
@@ -201,7 +200,6 @@ Public NotInheritable Class AppUserSettings
                 {"risk_size_bridge_trades", RiskSizeBridgeTrades},
                 {"circuit_breaker_usd", CircuitBreakerUsd},
                 {"flat_atr_usd", FlatAtrUsd},
-                {"use_flat_atr", UseFlatAtr},
                 {"min_net_move_pct", MinNetMovePct},
                 {"maker_fee_bps", MakerFeeBps},
                 {"taker_fee_bps", TakerFeeBps},
