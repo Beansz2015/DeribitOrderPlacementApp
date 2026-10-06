@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-06T14:45Z",
+  "updated_utc": "2026-10-06T15:00Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 3 commits ahead of origin (Use flat ATR resets each launch; trade slippage fields; their approved review).",
+      "meaning": "Push master: 4 commits ahead of origin (Use flat ATR resets each launch; trade slippage fields; their approved review; the anchor-defect trace).",
       "since": "2026-10-06"
     },
     {
