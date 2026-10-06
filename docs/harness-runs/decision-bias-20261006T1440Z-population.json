@@ -1,0 +1,25 @@
+{
+ "rev": "bcf968140f6d0cfd420b9cdd640054c7a9560dd1",
+ "rev7": "bcf9681",
+ "stamp_utc": "20261006T1440Z",
+ "builder": "coordinator seat, Opus 5.5, by hand",
+ "note": "STATE ONLY. Live reads.",
+ "items": [
+  {
+   "id": "docs/impl-report-trade-slippage-fields.md|ANCHOR-RESET@bcf9681",
+   "question": "An order app's entry-slippage guard measures drift from an anchor price set at the first placement check. When the exchange REJECTS a placement, the handler restores the previous placed price but never resets the anchor. The next placement then measures drift from the rejected order's anchor, so it can be refused as 'ATR slippage at placement' after the market moved, and the new trade's recorded anchor is the old one. The same happens after a close while the socket is down. What to do?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Write a small separate spec: reset the anchor (the existing ResetOrderAttempt call) on a placement rejection and on the socket-down close path. Order path, so Opus high, gate and censuses, owner testnet check."
+    },
+    {
+     "label": "(b)",
+     "text": "Accept it: record the behaviour, and read placement-abort rows with care."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "(a) removes a spurious refusal of a real entry and a wrong recorded anchor, with one existing call at two sites. (b) leaves the guard able to refuse a valid placement on stale data, and the new AbortedEntries table would record those refusals as if they were real slippage."
+  }
+ ]
+}

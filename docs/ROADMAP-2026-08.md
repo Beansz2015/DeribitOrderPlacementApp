@@ -384,6 +384,8 @@ Each row says how it stands **at HEAD `8f04c27`**. *Verified* = re-derived from 
   ✅ *Related non-finding, recorded so it is not re-opened: after `All reconnection attempts failed -
   manual intervention required`, the app reconnected because **the owner clicked Connect once**. The
   message was accurate and the recovery was owner-driven. There is no silent auto-recovery path.*
+- ✅ **BUILT + REVIEWED 2026-10-06: APPROVED** — `review-trade-slippage-fields.md`. Owner testnet check owed;
+  owner ruling owed on the pre-existing anchor-not-reset-on-rejection defect (that review §4).
 - 🟡 **OWNER RULING 2026-10-06: POPULATE, not delete.** **SPEC WRITTEN: `spec-trade-slippage-fields.md`**
   (completed trades + a separate `AbortedEntries` table). Opus, high; after the FrmIndicators spec. Note the dead set is wider than two: `RequoteCount`, `AttemptType` and `SignalPrice` are
   also never persisted (`TradeDatabase.vb` INSERT omits all five).

@@ -27,6 +27,14 @@ leaves no trace at all.
 Decision-bias tripwire run for R2's recommendation: `docs/harness-runs/decision-bias-20261005T1940Z-*`
 — no `gives_up_for_economy` flag, stable 5/5.
 
+## §0b — Spec-back findings, upheld at coordinator review 2026-10-06 (`docs/review-trade-slippage-fields.md`)
+
+| ID (scope: slippage fields) | Amends | Correction |
+|---|---|---|
+| `SB1` | §1 | The anchor is the **placement** price, not "the own-side quote at the first reposition check": `ExecuteOrderAsync` and `StopLossForTrailingOrderAsync` run the guard before sending. For a NoSpread entry it is ask − 0.5 / bid + 0.5. |
+| `SB2` | §2.3 | "Write the row before `ResetOrderAttempt`" cannot hold for the ATR arm: the guard resets the anchor itself before returning `True`. Built instead: the guard parks a record-only snapshot that the abort row reads. |
+| `SB3` | §2.1 | The count follows the edit's `Await`, so it counts edits **issued**; an edit the send path skips (credit shortfall, blank amount) still counts. Accepted residual: an exact count needs the edit functions to return a sent flag, an order-path change. |
+
 ## 🚫 Do-not-touch
 
 | Thing | Why |
