@@ -2470,6 +2470,7 @@ Public Class frmMainPageV2
                                     ' = keep chasing). Same arm switch, same guard input, ATR evaluated first.
                                     Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestBid, "LONG"), Nothing)
                                     If abortReason IsNot Nothing Then
+                                        RecordAbortedEntry(abortReason, "LONG", bestBid) ' slippage fields §2.3: before the cancel clears tag + anchor
                                         Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
@@ -2492,6 +2493,7 @@ Public Class frmMainPageV2
 
                                         placedPrice = chaseTarget
                                         lastEntryChaseUtc = DateTime.UtcNow
+                                        currentRequoteCount += 1   ' slippage fields §2.1: one more chase edit sent for this entry
                                         UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
@@ -2523,6 +2525,7 @@ Public Class frmMainPageV2
                                     ' EV chase budget §2: ATR cap OR EV floor, whichever binds first.
                                     Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestAsk, "SHORT"), Nothing)
                                     If abortReason IsNot Nothing Then
+                                        RecordAbortedEntry(abortReason, "SHORT", bestAsk) ' slippage fields §2.3: before the cancel clears tag + anchor
                                         Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
@@ -2541,6 +2544,7 @@ Public Class frmMainPageV2
 
                                         placedPrice = chaseTarget
                                         lastEntryChaseUtc = DateTime.UtcNow
+                                        currentRequoteCount += 1   ' slippage fields §2.1: one more chase edit sent for this entry
                                         UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
@@ -2826,6 +2830,7 @@ Public Class frmMainPageV2
                                     ' EV chase budget §2: ATR cap OR EV floor, whichever binds first.
                                     Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestBid, "LONG"), Nothing)
                                     If abortReason IsNot Nothing Then
+                                        RecordAbortedEntry(abortReason, "LONG", bestBid) ' slippage fields §2.3: before the cancel clears tag + anchor
                                         Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
@@ -2839,6 +2844,7 @@ Public Class frmMainPageV2
                                         End If
                                         placedPrice = chaseTarget
                                         lastEntryChaseUtc = DateTime.UtcNow
+                                        currentRequoteCount += 1   ' slippage fields §2.1: one more chase edit sent for this entry
                                         UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
@@ -2865,6 +2871,7 @@ Public Class frmMainPageV2
                                     ' EV chase budget §2: ATR cap OR EV floor, whichever binds first.
                                     Dim abortReason As String = If(maxSlippageATRchecked, ChaseAbortReason(bestAsk, "SHORT"), Nothing)
                                     If abortReason IsNot Nothing Then
+                                        RecordAbortedEntry(abortReason, "SHORT", bestAsk) ' slippage fields §2.3: before the cancel clears tag + anchor
                                         Await CancelWorkingEntryCoreAsync(abortReason)
                                         'Return
                                     Else
@@ -2877,6 +2884,7 @@ Public Class frmMainPageV2
                                         End If
                                         placedPrice = chaseTarget
                                         lastEntryChaseUtc = DateTime.UtcNow
+                                        currentRequoteCount += 1   ' slippage fields §2.1: one more chase edit sent for this entry
                                         UiInvoke(Sub() txtPlacedPrice.Text = chaseTarget)
                                     End If
                                 Else
@@ -3097,6 +3105,13 @@ Public Class frmMainPageV2
     Private pendingSignalConfidence As String = ""
     Private currentTradeSignalId As Long = -1
     Private currentTradeSignalConfidence As String = ""
+    ' Slippage fields (docs/spec-trade-slippage-fields.md §2.2): same stage -> promote -> clear shape
+    ' as the signal tag. The live chase state (originalSignalPrice, currentRequoteCount, anchorAtr)
+    ' is the stage; it is snapshotted here at the flat->nonzero transition, because the close path's
+    ' nuclear cancel resets it BEFORE the trade is recorded. Cleared at close with the tag.
+    Private currentTradeSignalPrice As Decimal = 0D
+    Private currentTradeRequoteCount As Integer = 0
+    Private currentTradeSlippageAtr As Decimal = 0D
 
     ' Reliable close (docs/spec-close-completion-fix.md + review): the closing fill's P/L is captured
     ' in these fields so it survives across echoes - the fill and the flat-position update can arrive
@@ -3203,6 +3218,11 @@ Public Class frmMainPageV2
                                         currentTradeSignalConfidence = pendingSignalConfidence
                                         pendingSignalId = -1
                                         pendingSignalConfidence = ""
+                                        ' Slippage fields §2.2: snapshot the chase anchor, its ATR and the
+                                        ' re-quote count. Anchor 0 (never armed) -> SlippageATR 0.
+                                        currentTradeSignalPrice = originalSignalPrice
+                                        currentTradeRequoteCount = currentRequoteCount
+                                        currentTradeSlippageAtr = SlippageAtrRatio(positionAvgEntry, originalSignalPrice, anchorAtr)
                                     End If
                                 ElseIf wasOpen Then
                                     positionJustClosed = True
@@ -3769,6 +3789,23 @@ Public Class frmMainPageV2
     Private originalSignalPrice As Decimal = 0
     Private orderCreationTime As DateTime = DateTime.MinValue
     Private currentRequoteCount As Integer = 0
+    ' Slippage fields (docs/spec-trade-slippage-fields.md §2.2): the effective ATR captured WITH the
+    ' anchor, so a completed trade's SlippageATR never mixes the anchor-time and fill-time ATRs (the
+    ' payload can go stale mid-chase). Reset with the anchor in ResetOrderAttempt. Record-only.
+    Private anchorAtr As Decimal = 0D
+
+    ' Slippage fields §2.3: when the ATR guard trips it resets the anchor and the re-quote count
+    ' ITSELF, before any caller can record the abort. So it parks the abort's inputs here first.
+    ' Valid from that trip until RecordAbortedEntry consumes it or any ResetOrderAttempt drops it.
+    Private Structure SlipTripSnapshot
+        Public Valid As Boolean
+        Public Anchor As Decimal
+        Public Quote As Decimal
+        Public Atr As Decimal
+        Public AtrSource As String
+        Public RequoteCount As Integer
+    End Structure
+    Private slipTrip As SlipTripSnapshot
 
     ' The ATR the slippage guard will use, and where it came from (docs/spec-frmindicators-retirement.md
     ' §2.2, owner rulings R1/R3 2026-10-06). Only two sources exist: the engine payload's atr (the
@@ -3820,6 +3857,7 @@ Public Class frmMainPageV2
     Private Function IsATRSlippageExcessive(currentPrice As Decimal, direction As String) As Boolean
         If originalSignalPrice = 0 Then
             originalSignalPrice = currentPrice ' Set initial price
+            anchorAtr = GetEffectiveAtr().Atr  ' slippage fields §2.2: the ATR in force at the anchor
             Return False
         End If
 
@@ -3835,8 +3873,15 @@ Public Class frmMainPageV2
         If actualSlippage > slippageLimit Then
             AppendColoredText(txtLogs, $"{direction} slippage ${actualSlippage:F2} ({slippageInATR:F2}x ATR) exceeds limit ${slippageLimit:F2}", Color.Red)
 
+            ' Slippage fields §2.3: park the abort row's inputs before the reset below wipes them.
+            ' Taken before the reset, published after it (the reset drops any older snapshot).
+            Dim trip As New SlipTripSnapshot With {
+                .Valid = True, .Anchor = originalSignalPrice, .Quote = currentPrice,
+                .Atr = eff.Atr, .AtrSource = eff.Source, .RequoteCount = currentRequoteCount}
+
             ' Reset for next attempt
             ResetOrderAttempt()
+            slipTrip = trip
 
             ' RETIREMENT: LogFailedEntry was removed here - it never ran (this call site was commented
             ' out) and it read the never-assigned _autotradesettings field, so it would have thrown a
@@ -3854,6 +3899,66 @@ Public Class frmMainPageV2
         currentRequoteCount = 0
         orderCreationTime = DateTime.MinValue
         originalSignalPrice = 0
+        anchorAtr = 0D
+        slipTrip.Valid = False
+    End Sub
+
+    ' Slippage fields §3 item 3: slippage in ATR units, |price - anchor| / atr. Pure and OrderCheck-
+    ' pinned. 0 when there is no anchor (the entry never armed the guard), no price, or no ATR -
+    ' never a divide-by-zero. Rounded to 4 dp, away from zero.
+    Friend Shared Function SlippageAtrRatio(price As Decimal, anchor As Decimal, atr As Decimal) As Decimal
+        If anchor <= 0D OrElse price <= 0D OrElse atr <= 0D Then Return 0D
+        Return Math.Round(Math.Abs(price - anchor) / atr, 4, MidpointRounding.AwayFromZero)
+    End Function
+
+    ' Slippage fields §2.3 (ruling R2): write one AbortedEntries row for a chase or placement abort.
+    ' Call it at the abort site, BEFORE CancelWorkingEntryCoreAsync clears pendingSignalId and the
+    ' anchor. ownSideQuote is the quote the abort decision read. If the ATR guard tripped, its parked
+    ' snapshot is the source (the live anchor is already 0); otherwise (EV floor) the live fields are.
+    ' Never throws and never blocks: the row is built here from plain fields, the write is queued.
+    Private Sub RecordAbortedEntry(reason As String, direction As String, ownSideQuote As Decimal)
+        Try
+            Dim row As New AbortedEntryRecord With {
+                .Timestamp = DateTime.UtcNow,
+                .Direction = If(String.Equals(direction, "SHORT", StringComparison.OrdinalIgnoreCase), "Short", "Long"),
+                .Reason = reason,
+                .SignalId = If(pendingSignalId >= 0, pendingSignalId.ToString(Globalization.CultureInfo.InvariantCulture), "")
+            }
+            If slipTrip.Valid Then
+                row.Anchor = slipTrip.Anchor
+                row.LastQuote = slipTrip.Quote
+                row.AtrUsed = slipTrip.Atr
+                row.AtrSource = slipTrip.AtrSource
+                row.RequoteCount = slipTrip.RequoteCount
+                slipTrip.Valid = False
+            Else
+                Dim eff = GetEffectiveAtr()
+                row.Anchor = originalSignalPrice
+                row.LastQuote = ownSideQuote
+                row.AtrUsed = eff.Atr
+                row.AtrSource = eff.Source
+                row.RequoteCount = currentRequoteCount
+            End If
+            row.SlippageATR = SlippageAtrRatio(row.LastQuote, row.Anchor, row.AtrUsed)
+            QueueAbortedEntryWrite(row)
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Aborted-entry record skipped: {ex.Message}", Color.Orange)
+        End Try
+    End Sub
+
+    ' The abort sites run on the receive thread (chase) and the UI thread (placement). The SQLite
+    ' write goes to the threadpool so neither ever waits on disk; TradeDatabase.RecordAbortedEntry
+    ' never throws and reports its own failure via DatabaseError (logged red, self-marshalling).
+    Private Sub QueueAbortedEntryWrite(row As AbortedEntryRecord)
+        Dim db As TradeDatabase = tradeDatabase
+        If db Is Nothing Then Return
+        Dim _ignore = Task.Run(Sub()
+                                   Try
+                                       db.RecordAbortedEntry(row)
+                                   Catch
+                                       ' Fail-silent: telemetry must never hurt the trading path.
+                                   End Try
+                               End Sub)
     End Sub
 
     ' EV chase budget §3 (D1, ruled): the target the budget measures the remaining move against is
@@ -3951,6 +4056,7 @@ Public Class frmMainPageV2
                     'For initiating ATR Slippage function
                     direction = "LONG"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
+                        RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
                         Return
                     End If
 
@@ -3991,6 +4097,7 @@ Public Class frmMainPageV2
                     'For initiating ATR Slippage function
                     direction = "SHORT"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
+                        RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
                         Return
                     End If
 
@@ -4030,6 +4137,7 @@ Public Class frmMainPageV2
                     'For initiating ATR Slippage function
                     direction = "LONG"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
+                        RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
                         Return
                     End If
 
@@ -4069,6 +4177,7 @@ Public Class frmMainPageV2
                     'For initiating ATR Slippage function
                     direction = "SHORT"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
+                        RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
                         Return
                     End If
 
@@ -5045,6 +5154,7 @@ Public Class frmMainPageV2
                     'For initiating ATR Slippage function
                     direction = "LONG"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
+                        RecordAbortedEntry("ATR slippage at trailing placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
                         Return
                     End If
 
@@ -5086,6 +5196,7 @@ Public Class frmMainPageV2
                     'For initiating ATR Slippage function
                     direction = "SHORT"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
+                        RecordAbortedEntry("ATR slippage at trailing placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
                         Return
                     End If
 
@@ -5684,6 +5795,10 @@ Public Class frmMainPageV2
         ' a bridge trade must not leave a tag behind; the next promotion would overwrite it anyway).
         currentTradeSignalId = -1
         currentTradeSignalConfidence = ""
+        ' Slippage fields §2.2: the closed position's slippage snapshot dies with it too.
+        currentTradeSignalPrice = 0D
+        currentTradeRequoteCount = 0
+        currentTradeSlippageAtr = 0D
 
         ' Cooloff anchor: the position is now closed. The old autotrader stamped
         ' _indicators.lastAutoTradeTime here; the bridge's cooloff anchors on the same event, so
@@ -5732,6 +5847,11 @@ Public Class frmMainPageV2
                 completedTrade.SignalId = currentTradeSignalId.ToString(Globalization.CultureInfo.InvariantCulture)
                 completedTrade.SignalConfidence = currentTradeSignalConfidence
             End If
+
+            ' Slippage fields §2.2: the snapshot taken at the flat->nonzero transition.
+            completedTrade.SignalPrice = currentTradeSignalPrice
+            completedTrade.RequoteCount = currentTradeRequoteCount
+            completedTrade.SlippageATR = currentTradeSlippageAtr
 
             ' Record the completed trade (synchronous)
             Dim tradeId As Integer = tradeDatabase.RecordCompletedTrade(completedTrade)

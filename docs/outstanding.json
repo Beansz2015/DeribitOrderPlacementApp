@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-06T10:05Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-06T14:33Z",
+  "updated_by": "seat implementer, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,13 +9,29 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 1 commit ahead of origin (Use flat ATR resets each launch; closing the app commits a half-typed setting).",
+      "meaning": "Push master: 2 commits ahead of origin (Use flat ATR resets each launch; record trade slippage and every chase abort).",
       "since": "2026-10-06"
     },
     {
       "kind": "go",
       "meaning": "Re-test on the rebuilt x64 app (18:01, testnet): tick Use flat ATR, type 55, close without tabbing away, relaunch. Expect box 55 and the checkbox unticked.",
       "doc": "docs/review-frmindicators-retirement.md",
+      "since": "2026-10-06"
+    },
+    {
+      "kind": "go",
+      "meaning": "Runtime check on testnet, after an x64 rebuild: a chased limit fill gets RequoteCount above 0 and its anchor in SignalPrice; a forced abort (tight ATRSlip) adds one AbortedEntries row and no Trades row.",
+      "doc": "docs/impl-report-trade-slippage-fields.md",
+      "anchor": "§5",
+      "since": "2026-10-06"
+    },
+    {
+      "kind": "ruling",
+      "tick": true,
+      "id": "slippage-fields D1",
+      "meaning": "Decide: a separate spec to reset the chase anchor on a placement rejection, or accept. Today the next placement measures drift from the rejected order's anchor.",
+      "doc": "docs/impl-report-trade-slippage-fields.md",
+      "anchor": "§3, row D1",
       "since": "2026-10-06"
     },
     {
@@ -38,7 +54,8 @@
   "dated": [],
   "next_up": [
     {
-      "what": "Launch the trade slippage-fields spec once the retirement runtime checks pass",
+      "what": "Coordinator review of the trade slippage-fields implementation",
+      "doc": "docs/impl-report-trade-slippage-fields.md",
       "model": "Opus 5.5, high"
     },
     {

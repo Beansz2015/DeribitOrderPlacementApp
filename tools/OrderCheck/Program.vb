@@ -264,7 +264,8 @@ Module Program
             Dim db As New TradeDatabase(dbPath)   ' ctor runs InitializeDatabase -> MigrateSchema
             Dim enriched As New TradeRecord("Limit", "Short", 61000D, 60900D, 20D, 0.33D, True) With {
                 .MaeUSD = -1.23D, .MfeUSD = 4.56D, .PlannedStop = 61060D, .RMultiple = 1.67D, .FeesUSD = 0.12D,
-                .SignalId = "9001", .SignalConfidence = "HIGH"}
+                .SignalId = "9001", .SignalConfidence = "HIGH",
+                .SignalPrice = 60990D, .RequoteCount = 3, .SlippageATR = 0.25D}
             db.RecordCompletedTrade(enriched)
 
             Dim all = db.GetAllTrades()
@@ -285,8 +286,44 @@ Module Program
             Check("migration: legacy row reads SignalConfidence '' (NULL-safe)",
                   legacy IsNot Nothing AndAlso legacy.SignalConfidence = "")
 
+            ' Slippage fields (docs/spec-trade-slippage-fields.md §3 item 2): the three new columns.
+            Check("slippage migration: legacy row reads SignalPrice/RequoteCount/SlippageATR as 0",
+                  legacy IsNot Nothing AndAlso legacy.SignalPrice = 0D AndAlso legacy.RequoteCount = 0 AndAlso
+                  legacy.SlippageATR = 0D)
+            Check("slippage migration: enriched row round-trips SignalPrice/RequoteCount/SlippageATR",
+                  round IsNot Nothing AndAlso round.SignalPrice = 60990D AndAlso round.RequoteCount = 3 AndAlso
+                  round.SlippageATR = 0.25D,
+                  $"got {round?.SignalPrice}/{round?.RequoteCount}/{round?.SlippageATR}")
+
+            ' Ruling R2: an abort is an AbortedEntries row and NEVER a Trades row.
+            Check("aborted entries: the table is created on an old DB, empty", db.GetAbortedEntries().Count = 0)
+            Dim abortAt As New DateTime(2026, 10, 6, 14, 30, 0, DateTimeKind.Utc)
+            Dim abortId As Integer = db.RecordAbortedEntry(New AbortedEntryRecord With {
+                .Timestamp = abortAt, .Direction = "Long", .Reason = "ATR slippage", .Anchor = 64000D,
+                .LastQuote = 64030D, .SlippageATR = 0.5D, .AtrUsed = 60D, .AtrSource = "signal payload",
+                .RequoteCount = 4, .SignalId = "9002"})
+            Dim aborts = db.GetAbortedEntries()
+            Dim ab = aborts.FirstOrDefault()
+            Check("aborted entries: one row recorded, positive id", abortId > 0 AndAlso aborts.Count = 1)
+            Check("aborted entries: every field round-trips",
+                  ab IsNot Nothing AndAlso ab.Direction = "Long" AndAlso ab.Reason = "ATR slippage" AndAlso
+                  ab.Anchor = 64000D AndAlso ab.LastQuote = 64030D AndAlso ab.SlippageATR = 0.5D AndAlso
+                  ab.AtrUsed = 60D AndAlso ab.AtrSource = "signal payload" AndAlso ab.RequoteCount = 4 AndAlso
+                  ab.SignalId = "9002",
+                  $"got {ab?.Direction}/{ab?.Reason}/{ab?.Anchor}/{ab?.LastQuote}/{ab?.SlippageATR}/{ab?.AtrUsed}/'{ab?.AtrSource}'/{ab?.RequoteCount}/'{ab?.SignalId}'")
+            Check("aborted entries: an abort adds NO Trades row (R2)", db.GetAllTrades().Count = 2)
+            ' Fail-silent: a null record must come back as 0, never as a throw into the caller.
+            Dim nullId As Integer = -1
+            Try
+                nullId = db.RecordAbortedEntry(Nothing)
+            Catch
+                nullId = -2
+            End Try
+            Check("aborted entries: a failing write returns 0, never throws", nullId = 0, $"got {nullId}")
+
             Dim db2 As New TradeDatabase(dbPath)  ' second open: ALTERs all throw duplicate-column
             Check("migration idempotent: re-open clean, rows intact", db2.GetAllTrades().Count = 2)
+            Check("aborted entries idempotent: re-open keeps the one row", db2.GetAbortedEntries().Count = 1)
         Catch ex As Exception
             Check("migration fixture: no throw", False, ex.Message)
         Finally
@@ -781,6 +818,27 @@ Module Program
               noPayloadLimit = 42D AndAlso noPayloadLimit <> 70D, $"got {noPayloadLimit}")
         Check("flat ATR (e): switched Flat ATR is multiplied the same way (55 x 0.6 = 33)",
               frmMainPageV2.SlippageLimitFromAtr(frmMainPageV2.SelectEffectiveAtr(True, 31.5D, 55D).Atr, 0.6D) = 33D)
+
+        ' ================== trade slippage fields (docs/spec-trade-slippage-fields.md §3 item 3) ==================
+        ' SlippageAtrRatio = |price - anchor| / ATR, 0 when there is nothing to measure against.
+        Check("slippage ratio: anchor 0 (the entry never armed the guard) -> 0",
+              frmMainPageV2.SlippageAtrRatio(64030D, 0D, 60D) = 0D)
+        Check("slippage ratio: anchor and ATR > 0 -> the exact ratio (|64030 - 64000| / 60 = 0.5)",
+              frmMainPageV2.SlippageAtrRatio(64030D, 64000D, 60D) = 0.5D,
+              $"got {frmMainPageV2.SlippageAtrRatio(64030D, 64000D, 60D)}")
+        Check("slippage ratio: direction-blind - a fill BELOW the anchor is the same magnitude",
+              frmMainPageV2.SlippageAtrRatio(63970D, 64000D, 60D) = 0.5D)
+        Check("slippage ratio: ATR 0 -> 0, never a divide-by-zero",
+              frmMainPageV2.SlippageAtrRatio(64030D, 64000D, 0D) = 0D)
+        Check("slippage ratio: a negative ATR -> 0 too",
+              frmMainPageV2.SlippageAtrRatio(64030D, 64000D, -5D) = 0D)
+        Check("slippage ratio: price 0 (no fill price) -> 0",
+              frmMainPageV2.SlippageAtrRatio(0D, 64000D, 60D) = 0D)
+        Check("slippage ratio: a repeating ratio rounds to 4 dp (10 / 3 = 3.3333)",
+              frmMainPageV2.SlippageAtrRatio(64010D, 64000D, 3D) = 3.3333D,
+              $"got {frmMainPageV2.SlippageAtrRatio(64010D, 64000D, 3D)}")
+        Check("slippage ratio: fill AT the anchor -> 0 (an unmoved chase)",
+              frmMainPageV2.SlippageAtrRatio(64000D, 64000D, 60D) = 0D)
 
         ' ---- persistence (§2.5 + R7): flat_atr_usd round-trips; use_flat_atr is NEVER written (R7) ----
         ' Same isolation as the EV block above: OrderCheck's own bin, bytes preserved and restored.

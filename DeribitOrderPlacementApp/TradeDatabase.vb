@@ -57,6 +57,10 @@ Public Class TradeDatabase
                 ' are swallowed per column; anything else surfaces via DatabaseError as usual.
                 MigrateSchema(connection)
 
+                ' Slippage fields (docs/spec-trade-slippage-fields.md §2.3, ruling R2): aborted entries
+                ' get their own table, so no abort can ever reach a Trades P/L, win-rate or R query.
+                CreateAbortedEntriesTable(connection)
+
                 ' Create indexes for better performance
                 CreateIndexes(connection)
             End Using
@@ -77,7 +81,10 @@ Public Class TradeDatabase
             "ALTER TABLE Trades ADD COLUMN RMultiple DECIMAL(18,8) NOT NULL DEFAULT 0;",
             "ALTER TABLE Trades ADD COLUMN FeesUSD DECIMAL(18,8) NOT NULL DEFAULT 0;",
             "ALTER TABLE Trades ADD COLUMN SignalId TEXT NOT NULL DEFAULT '';",
-            "ALTER TABLE Trades ADD COLUMN SignalConfidence TEXT NOT NULL DEFAULT '';"
+            "ALTER TABLE Trades ADD COLUMN SignalConfidence TEXT NOT NULL DEFAULT '';",
+            "ALTER TABLE Trades ADD COLUMN SignalPrice DECIMAL(18,8) NOT NULL DEFAULT 0;",   ' the chase ANCHOR, not the engine signal price (TradeRecord.vb)
+            "ALTER TABLE Trades ADD COLUMN RequoteCount INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE Trades ADD COLUMN SlippageATR DECIMAL(18,8) NOT NULL DEFAULT 0;"
         }
         For Each alterQuery In newColumns
             Try
@@ -88,6 +95,27 @@ Public Class TradeDatabase
                 ' Column already exists - the migration has run before. Expected on every start.
             End Try
         Next
+    End Sub
+
+    ' Slippage fields §2.3. IF NOT EXISTS makes it idempotent: a second launch is a no-op.
+    Private Sub CreateAbortedEntriesTable(connection As SQLiteConnection)
+        Dim createQuery As String = "
+                CREATE TABLE IF NOT EXISTS AbortedEntries (
+                    AbortId INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Timestamp DATETIME NOT NULL,
+                    Direction TEXT NOT NULL,
+                    Reason TEXT NOT NULL,
+                    Anchor DECIMAL(18,8) NOT NULL,
+                    LastQuote DECIMAL(18,8) NOT NULL,
+                    SlippageATR DECIMAL(18,8) NOT NULL,
+                    AtrUsed DECIMAL(18,8) NOT NULL,
+                    AtrSource TEXT NOT NULL,
+                    RequoteCount INTEGER NOT NULL,
+                    SignalId TEXT NOT NULL DEFAULT ''
+                );"
+        Using command As New SQLiteCommand(createQuery, connection)
+            command.ExecuteNonQuery()
+        End Using
     End Sub
 
     Private Sub CreateIndexes(connection As SQLiteConnection)
@@ -114,11 +142,13 @@ Public Class TradeDatabase
                 INSERT INTO Trades (
                     Timestamp, OrderType, Direction, EntryPrice, ExitPrice,
                     OrderSizeUSD, ProfitLossUSD, IsProfit,
-                    MaeUSD, MfeUSD, PlannedStop, RMultiple, FeesUSD, SignalId, SignalConfidence
+                    MaeUSD, MfeUSD, PlannedStop, RMultiple, FeesUSD, SignalId, SignalConfidence,
+                    SignalPrice, RequoteCount, SlippageATR
                 ) VALUES (
                     @Timestamp, @OrderType, @Direction, @EntryPrice, @ExitPrice,
                     @OrderSizeUSD, @ProfitLossUSD, @IsProfit,
-                    @MaeUSD, @MfeUSD, @PlannedStop, @RMultiple, @FeesUSD, @SignalId, @SignalConfidence
+                    @MaeUSD, @MfeUSD, @PlannedStop, @RMultiple, @FeesUSD, @SignalId, @SignalConfidence,
+                    @SignalPrice, @RequoteCount, @SlippageATR
                 )"
 
                 Using command As New SQLiteCommand(insertQuery, connection)
@@ -137,6 +167,9 @@ Public Class TradeDatabase
                     command.Parameters.AddWithValue("@FeesUSD", trade.FeesUSD)
                     command.Parameters.AddWithValue("@SignalId", If(trade.SignalId, ""))
                     command.Parameters.AddWithValue("@SignalConfidence", If(trade.SignalConfidence, ""))
+                    command.Parameters.AddWithValue("@SignalPrice", trade.SignalPrice)
+                    command.Parameters.AddWithValue("@RequoteCount", trade.RequoteCount)
+                    command.Parameters.AddWithValue("@SlippageATR", trade.SlippageATR)
 
                     command.ExecuteNonQuery()
 
@@ -196,7 +229,10 @@ Public Class TradeDatabase
             .RMultiple = ReadDecimalOrZero(reader, "RMultiple"),
             .FeesUSD = ReadDecimalOrZero(reader, "FeesUSD"),
             .SignalId = ReadStringOrEmpty(reader, "SignalId"),
-            .SignalConfidence = ReadStringOrEmpty(reader, "SignalConfidence")
+            .SignalConfidence = ReadStringOrEmpty(reader, "SignalConfidence"),
+            .SignalPrice = ReadDecimalOrZero(reader, "SignalPrice"),
+            .RequoteCount = ReadIntegerOrZero(reader, "RequoteCount"),
+            .SlippageATR = ReadDecimalOrZero(reader, "SlippageATR")
         }
     End Function
 
@@ -207,9 +243,93 @@ Public Class TradeDatabase
         Return If(value Is Nothing OrElse value Is DBNull.Value, 0D, Convert.ToDecimal(value))
     End Function
 
+    Private Shared Function ReadIntegerOrZero(reader As SQLiteDataReader, column As String) As Integer
+        Dim value As Object = reader(column)
+        Return If(value Is Nothing OrElse value Is DBNull.Value, 0, Convert.ToInt32(value))
+    End Function
+
     Private Shared Function ReadStringOrEmpty(reader As SQLiteDataReader, column As String) As String
         Dim value As Object = reader(column)
         Return If(value Is Nothing OrElse value Is DBNull.Value, "", value.ToString())
+    End Function
+
+    ' Slippage fields §2.3: one row per aborted entry. NEVER throws - telemetry must not hurt the
+    ' trading path (same fail-silent rule as WsEdgeLog). A failure is reported via DatabaseError
+    ' and returns 0. The form calls this off the receive thread (QueueAbortedEntryWrite).
+    Public Function RecordAbortedEntry(abort As AbortedEntryRecord) As Integer
+        Try
+            Using connection As New SQLiteConnection(connectionString)
+                connection.Open()
+
+                Dim insertQuery As String = "
+                INSERT INTO AbortedEntries (
+                    Timestamp, Direction, Reason, Anchor, LastQuote, SlippageATR,
+                    AtrUsed, AtrSource, RequoteCount, SignalId
+                ) VALUES (
+                    @Timestamp, @Direction, @Reason, @Anchor, @LastQuote, @SlippageATR,
+                    @AtrUsed, @AtrSource, @RequoteCount, @SignalId
+                )"
+
+                Using command As New SQLiteCommand(insertQuery, connection)
+                    command.Parameters.AddWithValue("@Timestamp", abort.Timestamp)
+                    command.Parameters.AddWithValue("@Direction", If(abort.Direction, ""))
+                    command.Parameters.AddWithValue("@Reason", If(abort.Reason, ""))
+                    command.Parameters.AddWithValue("@Anchor", abort.Anchor)
+                    command.Parameters.AddWithValue("@LastQuote", abort.LastQuote)
+                    command.Parameters.AddWithValue("@SlippageATR", abort.SlippageATR)
+                    command.Parameters.AddWithValue("@AtrUsed", abort.AtrUsed)
+                    command.Parameters.AddWithValue("@AtrSource", If(abort.AtrSource, ""))
+                    command.Parameters.AddWithValue("@RequoteCount", abort.RequoteCount)
+                    command.Parameters.AddWithValue("@SignalId", If(abort.SignalId, ""))
+                    command.ExecuteNonQuery()
+
+                    command.CommandText = "SELECT last_insert_rowid();"
+                    Return Convert.ToInt32(command.ExecuteScalar())
+                End Using
+            End Using
+        Catch ex As Exception
+            Try
+                RaiseEvent DatabaseError($"Failed to record aborted entry: {ex.Message}")
+            Catch
+                ' A failing handler must not turn fail-silent into a throw.
+            End Try
+            Return 0
+        End Try
+    End Function
+
+    ' Slippage fields §2.3: for later reporting. Nothing reads it yet (the spec adds no UI).
+    Public Function GetAbortedEntries() As List(Of AbortedEntryRecord)
+        Dim aborts As New List(Of AbortedEntryRecord)
+
+        Try
+            Using connection As New SQLiteConnection(connectionString)
+                connection.Open()
+
+                Using command As New SQLiteCommand("SELECT * FROM AbortedEntries ORDER BY Timestamp DESC", connection)
+                    Using reader = command.ExecuteReader()
+                        While reader.Read()
+                            aborts.Add(New AbortedEntryRecord With {
+                                .AbortId = Convert.ToInt32(reader("AbortId")),
+                                .Timestamp = Convert.ToDateTime(reader("Timestamp")),
+                                .Direction = ReadStringOrEmpty(reader, "Direction"),
+                                .Reason = ReadStringOrEmpty(reader, "Reason"),
+                                .Anchor = ReadDecimalOrZero(reader, "Anchor"),
+                                .LastQuote = ReadDecimalOrZero(reader, "LastQuote"),
+                                .SlippageATR = ReadDecimalOrZero(reader, "SlippageATR"),
+                                .AtrUsed = ReadDecimalOrZero(reader, "AtrUsed"),
+                                .AtrSource = ReadStringOrEmpty(reader, "AtrSource"),
+                                .RequoteCount = ReadIntegerOrZero(reader, "RequoteCount"),
+                                .SignalId = ReadStringOrEmpty(reader, "SignalId")
+                            })
+                        End While
+                    End Using
+                End Using
+            End Using
+        Catch ex As Exception
+            RaiseEvent DatabaseError($"Error getting aborted entries: {ex.Message}")
+        End Try
+
+        Return aborts
     End Function
 
     Public Function DeleteTrade(tradeId As Integer) As Boolean

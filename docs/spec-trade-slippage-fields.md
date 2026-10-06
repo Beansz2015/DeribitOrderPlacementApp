@@ -2,7 +2,9 @@
 
 **Origin:** `docs/ROADMAP-2026-08.md` §5 hygiene row "`TradeRecord.SlippageATR` / `MaxSlippageExceeded`
 are declared and never written". Owner rulings 2026-10-06 (below). **Status at writing:** open, no
-code written. Every fact below verified in code on 2026-10-06 at HEAD `4a3e29d`.
+code written. **Status 2026-10-06: implemented**, coordinator review owed — see
+`docs/impl-report-trade-slippage-fields.md`; its §3 carries three spec-back findings for §1, §2.1 and
+§2.3 of this spec. Every fact below verified in code on 2026-10-06 at HEAD `4a3e29d`.
 **Scope:** `TradeRecord.vb`, `TradeDatabase.vb`, `frmMainPageV2.vb`; OrderCheck fixtures.
 **Touches the entry-chase and position-model paths → Opus, high.**
 **Ships:** ON. Additive: new columns default to 0, a new table, no change to any trading decision.
