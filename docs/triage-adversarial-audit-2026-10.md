@@ -77,3 +77,12 @@ It compiles verbatim line ranges at `8232e9e` and refuses any other commit, so i
 regression test. Its scenarios (`trace`, `emergency-rejected`, `q1`, `partial`, `standdown`,
 `mode-flip`, `close-in-gap`, `restore`) become the acceptance list for each batch's own OrderCheck
 fixtures. Not run from this seat.
+
+## 7. Owner rulings, 2026-10-07
+
+| Question | Ruling | Consequence |
+|---|---|---|
+| Live size cap until partial fills are fixed | **Owner discipline, no code cap** — and the partial-fill fix must sit in the outstanding queue | `N2 LIVE` and any Amount > 10 USD are held by the owner. The fix is a `next_up` item in `docs/outstanding.json`. |
+| Batch 1 | **Split only where a guard does not depend on the experiments; otherwise one batch after them** | Batch 1 = reconnect, side from position sign, restore stop check, emergency messages (`docs/spec-protection-batch1.md`). The emergency reorder (needs X-1(g)) and the dead-leg branch (needs X-1(a)) move to the post-experiment batch. |
+| Who runs X-1 | **A seat, via the harness** | Plan `docs/spec-x1-testnet-experiments.md`, awaiting the owner's approval. Adds (f) reduce-only TP and (g) reduce-only market with legs resting. |
+| Max Size = 0 (no cap) | **Keep, accepted risk** | A10 / M9 F5 closed as accepted. |

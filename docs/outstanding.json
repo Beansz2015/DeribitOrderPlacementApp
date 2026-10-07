@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-07T01:40Z",
+  "updated_utc": "2026-10-08T02:00Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,25 +9,25 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 1 commit ahead of origin (the adversarial-audit triage).",
+      "meaning": "Push master: 2 commits ahead of origin (the audit triage; the batch-1 spec, the experiment plan and the rulings).",
       "since": "2026-10-06"
     },
     {
-      "kind": "ruling",
-      "meaning": "Adversarial-audit rulings: a live 10-USD size cap until partial fills are fixed; the first fix batch (the tripwire flagged the split); who runs the testnet experiments; whether uncapped Max Size stands.",
-      "doc": "docs/triage-adversarial-audit-2026-10.md",
-      "since": "2026-10-07"
+      "kind": "review",
+      "meaning": "Approve the testnet experiment plan (a seat places testnet orders via the harness), and separately the testnet-only reduce-only-TP switch it needs.",
+      "doc": "docs/spec-x1-testnet-experiments.md",
+      "since": "2026-10-08"
+    },
+    {
+      "kind": "go",
+      "meaning": "Launch an implementer seat (Opus, high): the chase-anchor reset spec first, then position-protection batch 1 (reconnect forever with paging, side from the position, restore stop check, honest emergency messages).",
+      "doc": "docs/spec-protection-batch1.md",
+      "since": "2026-10-08"
     },
     {
       "kind": "go",
       "meaning": "ON HOLD (owner, 2026-10-07) until after the adversarial-audit triage: testnet check of the trade slippage fields on the x64 app built 22:43.",
       "doc": "docs/review-trade-slippage-fields.md",
-      "since": "2026-10-06"
-    },
-    {
-      "kind": "go",
-      "meaning": "Launch an implementer seat for the chase-anchor reset spec (Opus, high): reset the anchor when a placement is rejected or a position closes with the socket down, and make a refused bridge act report its real reason instead of timeout.",
-      "doc": "docs/spec-chase-anchor-reset.md",
       "since": "2026-10-06"
     },
     {
@@ -49,6 +49,18 @@
   "in_progress": [],
   "dated": [],
   "next_up": [
+    {
+      "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (S0 above 10 USD). Blocks risk sizing in Live. Needs experiments (d) and (f) first.",
+      "model": "Opus 5.5, high"
+    },
+    {
+      "what": "Post-experiment protection batch: emergency reduce-before-cancel, dead stop-leg branch, position-level loss cap, quote-silence watchdog, stop-side check at fill, stand-down cancels the entry, bounded freshness window",
+      "model": "Opus 5.5, high"
+    },
+    {
+      "what": "Remaining audit rows: trailing trigger offset, close during a socket gap, tick rounding direction, payload reader share mode, small log and feedback items",
+      "model": "Opus 5.5, high"
+    },
     {
       "what": "Remaining hygiene rows need runtime observation or a spec of their own; not clearable by a seat alone",
       "model": "Opus 5.5, medium"
