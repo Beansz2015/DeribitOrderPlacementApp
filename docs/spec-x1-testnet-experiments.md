@@ -47,6 +47,12 @@ acceptance §3 item 4 of `docs/spec-trade-slippage-fields.md`; details in
 - Read a **copy** of `trades.db` from the x64 bin, never the live file. Back the file up before the run.
 - Record (h) and (i) in the same runtime record as the experiments.
 
+**(j) — the chase-anchor reset check** (owner, 2026-10-08): acceptance §3 item 3 of
+`docs/spec-chase-anchor-reset.md`; the step-by-step recipe is `docs/impl-report-chase-anchor-reset.md` §6.
+ATRSlip 0.05; place a **1-USD** `Limit BUY` (the exchange rejects it: not a multiple of the contract size);
+set Amount back to 10; after the bid moves more than ATR × 0.05, `Limit BUY` again. **Pass:** the order is
+placed, with no "slippage exceeds limit" line and no new `AbortedEntries` row. Cancel it afterwards.
+
 ## §2 — Observation
 
 - The app log (`tools/read-log.ps1`) shows order-state lines, but may not show raw `user.changes`

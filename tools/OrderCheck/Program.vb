@@ -1458,6 +1458,17 @@ Module Program
         Check("not-sent fixture 4: a sent placement returns Nothing - await the exchange ack as before",
               frmMainPageV2.UnsentPlacementResult(True, "ATR slippage at placement") Is Nothing)
 
+        ' Chase-anchor reset SB1 (docs/review-chase-anchor-reset.md section 3): a placement that seeded the
+        ' anchor and threw before the send must clear it; nothing else may.
+        Check("anchor-undo fixture 1: seeded by this call, never sent -> undo (today nothing undid it)",
+              frmMainPageV2.ShouldUndoAnchorSeed(False, False, 86000D))
+        Check("anchor-undo fixture 2: reached the send -> keep the anchor",
+              Not frmMainPageV2.ShouldUndoAnchorSeed(False, True, 86000D))
+        Check("anchor-undo fixture 3: anchor already set on entry (an earlier working order) -> never touch it",
+              Not frmMainPageV2.ShouldUndoAnchorSeed(True, False, 86000D))
+        Check("anchor-undo fixture 4: a tripped check already cleared it (anchor 0) -> nothing to undo",
+              Not frmMainPageV2.ShouldUndoAnchorSeed(False, False, 0D))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

@@ -1,0 +1,25 @@
+{
+ "rev": "14db8c080bf07d234771f2408bcc820d3c56de10",
+ "rev7": "14db8c0",
+ "stamp_utc": "20261008T0400Z",
+ "builder": "coordinator seat, Opus 5.5, by hand",
+ "note": "STATE ONLY. Live reads.",
+ "items": [
+  {
+   "id": "docs/impl-report-chase-anchor-reset.md|SB1@14db8c0",
+   "question": "An order app's entry-slippage guard seeds a chase anchor at placement. A fix just made the anchor reset when the exchange rejects a placement. A gap remains: if code throws between the guard and the send (for example a blank Trigger Offset box makes a parse throw), nothing was sent but the anchor stays seeded, so the next placement can be refused against a stale price. A working order's anchor must not be wiped by a failed second click. What to do?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Fold into the current spec: in the placement routine, reset the anchor at exit only if THIS call seeded it and did not reach the send. A local flag; one reset in a Finally; never touches an anchor seeded by an earlier working order."
+    },
+    {
+     "label": "(b)",
+     "text": "Accept: record it; a blank Trigger Offset box is unusual, and the bridge half already reports the real reason."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "(a) closes the last path by which a never-sent placement leaves a stale anchor, with a few local lines that cannot affect a working order. (b) leaves a known spurious-refusal path open, and a blank box is exactly the kind of slip that happens."
+  }
+ ]
+}

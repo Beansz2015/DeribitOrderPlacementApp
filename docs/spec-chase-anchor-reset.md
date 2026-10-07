@@ -17,6 +17,13 @@ instead of `timeout`.
 
 ---
 
+## §0a — `SB1` folded in at review (owner ruling 2026-10-08, `docs/review-chase-anchor-reset.md` §3)
+
+A throw between the slippage check and the send (e.g. a blank Trigger Offset) left the anchor seeded. Both
+placement routines (`ExecuteOrderAsync`, `StopLossForTrailingOrderAsync`) now undo, in a `Finally`, a seed
+**this call** made and never sent (`ShouldUndoAnchorSeed`, OrderCheck-pinned). An anchor set on entry is
+never touched.
+
 ## §0 — Decisions taken in this spec (owner may override before code)
 
 | # | Decision |

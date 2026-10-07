@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-07T17:20Z",
-  "updated_by": "seat implementer (chase-anchor reset), Opus 5.5",
+  "updated_utc": "2026-10-08T05:00Z",
+  "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,22 +9,8 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 5 commits ahead of origin (through the chase-anchor reset implementation).",
+      "meaning": "Push master: 6 commits ahead of origin (through the chase-anchor reset, its review and the SB1 fix).",
       "since": "2026-10-06"
-    },
-    {
-      "kind": "review",
-      "meaning": "Launch the coordinator review (Opus, high) of the chase-anchor reset. Then run its testnet check yourself: a 1-USD rejected entry, then a 10-USD entry after the price moves; the second must place. Recipe in the implementation report, section 6.",
-      "since": "2026-10-08"
-    },
-    {
-      "kind": "ruling",
-      "tick": true,
-      "id": "SB1 (chase-anchor-reset)",
-      "meaning": "An exception between the slippage check and the send leaves the chase anchor set. Fold the fix into the chase-anchor reset spec, or accept it.",
-      "doc": "docs/impl-report-chase-anchor-reset.md",
-      "anchor": "§3",
-      "since": "2026-10-08"
     },
     {
       "kind": "go",
@@ -34,7 +20,7 @@
     },
     {
       "kind": "go",
-      "meaning": "Then launch the testnet experiment seat (Opus, high), after the implementer seat's work is reviewed. It also runs the held trade slippage-fields check. Close your own app first; the seat launches its own testnet instance.",
+      "meaning": "Then launch the testnet experiment seat (Opus, high), after batch 1 is reviewed. It also runs the held slippage-fields check and the chase-anchor reset check. Close your own app first; the seat launches its own testnet instance.",
       "doc": "docs/spec-x1-testnet-experiments.md",
       "since": "2026-10-08"
     },

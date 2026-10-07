@@ -3183,6 +3183,14 @@ Public Class frmMainPageV2
     ' Otherwise ExecuteOrderAsync returned before the send, nothing can ever ack it, and the refusal
     ' is definitive now. The reason is never empty and never "timeout" - the bridge reads "timeout"
     ' as NOT definitive and keeps the signal tag staged. Pure; OrderCheck-pinned.
+    ' Chase-anchor reset SB1: the pure decision behind the placement routines' Finally. True only when
+    ' the anchor was clear on entry (so THIS call seeded it), the call never reached the send, and an
+    ' anchor is set now. OrderCheck-pinned.
+    Friend Shared Function ShouldUndoAnchorSeed(anchorSetOnEntry As Boolean, reachedSend As Boolean,
+                                                anchorNow As Decimal) As Boolean
+        Return Not anchorSetOnEntry AndAlso Not reachedSend AndAlso anchorNow <> 0D
+    End Function
+
     Friend Shared Function UnsentPlacementResult(sent As Boolean, notSentReason As String) As PlacementResult
         If sent Then Return Nothing
         Return New PlacementResult With {.Accepted = False,
@@ -4038,6 +4046,14 @@ Public Class frmMainPageV2
     '-----------------------------------------------------------------------
     Private Async Function ExecuteOrderAsync(TypeOfOrder As String, Optional requestId As Integer = 0,
                                              Optional sizeUsdOverride As Decimal = 0D) As Task
+        ' Chase-anchor reset SB1 (owner ruling 2026-10-08, docs/review-chase-anchor-reset.md section 3):
+        ' the slippage check seeds the anchor, then the trigger-offset parse and the payload build run
+        ' BEFORE RegisterPendingPlacement. A throw in between sent nothing but left the anchor seeded, so
+        ' the next placement was measured from a price that never became an order. Undo ONLY a seed this
+        ' call made and never sent: an anchor already set on entry belongs to an earlier working order and
+        ' is never touched. A tripped check has already reset the anchor itself, so the Finally is a no-op.
+        Dim anchorSetOnEntry As Boolean = (originalSignalPrice <> 0D)
+        Dim reachedSend As Boolean = False
         Try
             Dim takeprofitprice As Decimal
             Dim stoplossTriggerPrice As Decimal
@@ -4382,6 +4398,7 @@ Public Class frmMainPageV2
             ' rollback). Manual buttons pass no id -> self-allocate, no ack awaiter.
             Dim reqId As Integer = If(requestId > 0, requestId, Interlocked.Increment(nextPlacementId))
             RegisterPendingPlacement(reqId)
+            reachedSend = True   ' SB1: from here the order may exist; the Finally leaves the anchor alone
 
             ' Prepare the payload for the linked order
             Dim OrderPayload As New JObject(
@@ -4457,6 +4474,8 @@ Public Class frmMainPageV2
             ' Chase-anchor reset spec §2.3: read only if the throw came before the send (entry not Sent).
             ' After RegisterPendingPlacement the order may exist, so the act still waits for its ack.
             NotePlacementNotSent(requestId, "not sent: error placing order: " & ex.Message)
+        Finally
+            If ShouldUndoAnchorSeed(anchorSetOnEntry, reachedSend, originalSignalPrice) Then ResetOrderAttempt()
         End Try
     End Function
 
@@ -5155,6 +5174,14 @@ Public Class frmMainPageV2
     End Function
 
     Private Async Function StopLossForTrailingOrderAsync(TypeOfOrder As String) As Task
+        ' Chase-anchor reset SB1 (owner ruling 2026-10-08, docs/review-chase-anchor-reset.md section 3):
+        ' the slippage check seeds the anchor, then the trigger-offset parse and the payload build run
+        ' BEFORE RegisterPendingPlacement. A throw in between sent nothing but left the anchor seeded, so
+        ' the next placement was measured from a price that never became an order. Undo ONLY a seed this
+        ' call made and never sent: an anchor already set on entry belongs to an earlier working order and
+        ' is never touched. A tripped check has already reset the anchor itself, so the Finally is a no-op.
+        Dim anchorSetOnEntry As Boolean = (originalSignalPrice <> 0D)
+        Dim reachedSend As Boolean = False
         Try
 
             Dim stoplossTriggerPrice As Decimal
@@ -5313,6 +5340,7 @@ Public Class frmMainPageV2
             ' Decouple v2: unique id per placement + registry entry (snapshots for rejection rollback).
             Dim reqId As Integer = Interlocked.Increment(nextPlacementId)
             RegisterPendingPlacement(reqId)
+            reachedSend = True   ' SB1: from here the order may exist; the Finally leaves the anchor alone
 
             ' Prepare the payload for the linked order
             Dim OrderPayload As New JObject(
@@ -5377,6 +5405,8 @@ Public Class frmMainPageV2
         Catch ex As Exception
             ' Handle any errors
             AppendColoredText(txtLogs, "Error in StopLossForTrailingOrderAsync: " & ex.Message, Color.Red)
+        Finally
+            If ShouldUndoAnchorSeed(anchorSetOnEntry, reachedSend, originalSignalPrice) Then ResetOrderAttempt()
         End Try
     End Function
 
