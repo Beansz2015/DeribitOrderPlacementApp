@@ -993,6 +993,23 @@ Public Class frmMainPageV2
             Await placeCall()
         End If
 
+        ' Chase-anchor reset spec §2.3: ExecuteOrderAsync can return before the send (socket down,
+        ' bad amount, bad quote, the ATR guard, unsupported type, an exception). Nothing can ever ack
+        ' that, so return its recorded reason now instead of waiting out the timeout. If the entry is
+        ' already gone, a response consumed it and the TCS below is complete.
+        Dim placedEntry As PendingPlacement = Nothing
+        If pendingPlacements.TryGetValue(reqId, placedEntry) Then
+            Dim notSent = UnsentPlacementResult(placedEntry.Sent, placedEntry.NotSentReason)
+            If notSent IsNot Nothing Then
+                Dim removedEntry As PendingPlacement = Nothing
+                pendingPlacements.TryRemove(reqId, removedEntry)
+                ' §2.4: the act never reached the exchange, so its staged signal tag must not attach to
+                ' the next manual trade. The same two writes CancelWorkingEntryCoreAsync makes.
+                ClearPendingSignalTag()
+                Return notSent
+            End If
+        End If
+
         ' Await the exchange ack with a timeout. Timeout <> rejection: no rollback (the order may
         ' exist; echoes remain the source of truth) - the caller re-queries state. The entry STAYS
         ' registered, flagged TimedOut, so a >5s-late rejection is logged instead of silently
@@ -2016,6 +2033,11 @@ Public Class frmMainPageV2
                 ' Rollback: restore, don't zero (a zero could stall an actively-trailing SL).
                 placedPrice = entry.PrevPlacedPrice
                 placedStopLossPrice = entry.PrevPlacedSL
+                ' Chase-anchor reset spec §2.1: the rejected placement never became a working order,
+                ' so its anchor must not measure the next placement. Timely rejections only - the
+                ' TimedOut branch above stays log-only (a newer placement's anchor may be live).
+                ' Plain field writes; receive-thread safe.
+                ResetOrderAttempt()
                 UiInvoke(Sub()
                              txtPlacedPrice.Text = entry.PrevPlacedPrice.ToString("F2")
                              txtPlacedStopLossPrice.Text = entry.PrevPlacedSL.ToString("F2")
@@ -3140,6 +3162,12 @@ Public Class frmMainPageV2
         Public PrevPlacedSL As Decimal
         Public CreatedUtc As DateTime = DateTime.UtcNow
         Public TimedOut As Boolean                               ' ack timed out; a late response is LOG ONLY
+        ' Chase-anchor reset spec (docs/spec-chase-anchor-reset.md §2.3): Sent is set by
+        ' RegisterPendingPlacement, the one point every real send passes. NotSentReason is written
+        ' by ExecuteOrderAsync's early returns. Both are written on the UI thread and read by
+        ' PlaceAutomatedOrder after it awaits that call - the await orders the reads after the writes.
+        Public Sent As Boolean
+        Public NotSentReason As String
     End Class
     Private ReadOnly pendingPlacements As New ConcurrentDictionary(Of Integer, PendingPlacement)
 
@@ -3147,8 +3175,26 @@ Public Class frmMainPageV2
     Public Class PlacementResult
         Public Property Accepted As Boolean
         Public Property OrderId As String     ' entry order id when accepted
-        Public Property Reason As String      ' reject reason / "timeout" / gate refusal
+        Public Property Reason As String      ' reject reason / "timeout" / gate refusal / not-sent reason
     End Class
+
+    ' Chase-anchor reset spec §2.3: what PlaceAutomatedOrder returns as soon as the marshalled
+    ' ExecuteOrderAsync completes. Nothing = the placement was sent: await the exchange ack as before.
+    ' Otherwise ExecuteOrderAsync returned before the send, nothing can ever ack it, and the refusal
+    ' is definitive now. The reason is never empty and never "timeout" - the bridge reads "timeout"
+    ' as NOT definitive and keeps the signal tag staged. Pure; OrderCheck-pinned.
+    Friend Shared Function UnsentPlacementResult(sent As Boolean, notSentReason As String) As PlacementResult
+        If sent Then Return Nothing
+        Return New PlacementResult With {.Accepted = False,
+                                         .Reason = If(String.IsNullOrEmpty(notSentReason), "not sent", notSentReason)}
+    End Function
+
+    ' Chase-anchor reset spec §2.3: ExecuteOrderAsync's early returns record why the placement was
+    ' never sent. A manual placement (requestId 0) has no pre-registered entry, so this is a no-op.
+    Private Sub NotePlacementNotSent(requestId As Integer, reason As String)
+        Dim entry As PendingPlacement = Nothing
+        If requestId > 0 AndAlso pendingPlacements.TryGetValue(requestId, entry) Then entry.NotSentReason = reason
+    End Sub
 
     ' Registers a placement just before its send. If the API pre-registered this id (Tcs attached),
     ' keep that entry; otherwise create a snapshot-only entry. Sweeps stale entries (>60s) as hygiene.
@@ -3159,6 +3205,7 @@ Public Class frmMainPageV2
         Dim entry = pendingPlacements(reqId)
         entry.PrevPlacedPrice = placedPrice
         entry.PrevPlacedSL = placedStopLossPrice
+        entry.Sent = True   ' chase-anchor reset spec §2.3: every real send passes here, just before the send
         For Each stale In pendingPlacements.Values.Where(Function(pp) (DateTime.UtcNow - pp.CreatedUtc).TotalSeconds > 60).ToList()
             Dim removed As PendingPlacement = Nothing
             pendingPlacements.TryRemove(stale.RequestId, removed)
@@ -4005,6 +4052,7 @@ Public Class frmMainPageV2
             ' Ensure WebSocket is connected
             If webSocketClient Is Nothing OrElse webSocketClient.State <> WebSocketState.Open Then
                 AppendColoredText(txtLogs, "WebSocket is not connected.", Color.Red)
+                NotePlacementNotSent(requestId, "not sent: WebSocket is not connected")
                 Return
             End If
 
@@ -4014,6 +4062,7 @@ Public Class frmMainPageV2
 
             If Not Decimal.TryParse(amountText, amount) OrElse amount <= 0 Then
                 AppendColoredText(txtLogs, "Please enter a valid positive amount.", Color.Yellow)
+                NotePlacementNotSent(requestId, "not sent: invalid amount")
                 Return
             End If
 
@@ -4030,6 +4079,7 @@ Public Class frmMainPageV2
                     ' Ensure BestBidPrice is valid
                     If BestBidPrice <= 0 Then
                         AppendColoredText(txtLogs, "Best bid price is not valid.", Color.Yellow)
+                        NotePlacementNotSent(requestId, "not sent: best bid price is not valid")
                         Return
                     End If
 
@@ -4057,6 +4107,7 @@ Public Class frmMainPageV2
                     direction = "LONG"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
+                        NotePlacementNotSent(requestId, "ATR slippage at placement") ' chase-anchor reset spec §2.3: the same literal
                         Return
                     End If
 
@@ -4072,6 +4123,7 @@ Public Class frmMainPageV2
                     ' Ensure BestAskPrice is valid
                     If BestAskPrice <= 0 Then
                         AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
+                        NotePlacementNotSent(requestId, "not sent: best ask price is not valid")
                         Return
                     End If
 
@@ -4098,6 +4150,7 @@ Public Class frmMainPageV2
                     direction = "SHORT"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
+                        NotePlacementNotSent(requestId, "ATR slippage at placement") ' chase-anchor reset spec §2.3: the same literal
                         Return
                     End If
 
@@ -4113,6 +4166,7 @@ Public Class frmMainPageV2
                     ' Ensure BestBidPrice is valid
                     If BestAskPrice <= 0 Then
                         AppendColoredText(txtLogs, "Best bid price Is Not valid.", Color.Yellow)
+                        NotePlacementNotSent(requestId, "not sent: best ask price is not valid")
                         Return
                     End If
 
@@ -4138,6 +4192,7 @@ Public Class frmMainPageV2
                     direction = "LONG"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
+                        NotePlacementNotSent(requestId, "ATR slippage at placement") ' chase-anchor reset spec §2.3: the same literal
                         Return
                     End If
 
@@ -4153,6 +4208,7 @@ Public Class frmMainPageV2
                     ' Ensure BestAskPrice is valid
                     If BestBidPrice <= 0 Then
                         AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
+                        NotePlacementNotSent(requestId, "not sent: best bid price is not valid")
                         Return
                     End If
 
@@ -4178,6 +4234,7 @@ Public Class frmMainPageV2
                     direction = "SHORT"
                     If maxSlippageATRchecked AndAlso IsATRSlippageExcessive(BestPrice, direction) Then
                         RecordAbortedEntry("ATR slippage at placement", direction, BestPrice) ' slippage fields §2.3: early-return abort
+                        NotePlacementNotSent(requestId, "ATR slippage at placement") ' chase-anchor reset spec §2.3: the same literal
                         Return
                     End If
 
@@ -4195,6 +4252,7 @@ Public Class frmMainPageV2
                     ' Ensure BestBidPrice is valid
                     If BestAskPrice <= 0 Then
                         AppendColoredText(txtLogs, "Best bid price Is Not valid.", Color.Yellow)
+                        NotePlacementNotSent(requestId, "not sent: best ask price is not valid")
                         Return
                     End If
 
@@ -4229,6 +4287,7 @@ Public Class frmMainPageV2
                     ' Ensure BestAskPrice is valid
                     If BestBidPrice <= 0 Then
                         AppendColoredText(txtLogs, "Best ask price Is Not valid.", Color.Yellow)
+                        NotePlacementNotSent(requestId, "not sent: best bid price is not valid")
                         Return
                     End If
 
@@ -4259,6 +4318,7 @@ Public Class frmMainPageV2
                 Case Else
                     ' Handle unexpected or unsupported order types
                     AppendColoredText(txtLogs, "Unsupported order type specified.", Color.IndianRed)
+                    NotePlacementNotSent(requestId, "not sent: unsupported order type")
                     Return
             End Select
 
@@ -4394,6 +4454,9 @@ Public Class frmMainPageV2
         Catch ex As Exception
             ' Handle any errors
             AppendColoredText(txtLogs, "Error placing order: " & ex.Message, Color.Red)
+            ' Chase-anchor reset spec §2.3: read only if the throw came before the send (entry not Sent).
+            ' After RegisterPendingPlacement the order may exist, so the act still waits for its ack.
+            NotePlacementNotSent(requestId, "not sent: error placing order: " & ex.Message)
         End Try
     End Function
 
@@ -5799,6 +5862,11 @@ Public Class frmMainPageV2
         currentTradeSignalPrice = 0D
         currentTradeRequoteCount = 0
         currentTradeSlippageAtr = 0D
+        ' Chase-anchor reset spec §2.2: unconditional. CancelOrderAsync above returns BEFORE its own
+        ' reset when the socket is down, and the closed trade's anchor would then measure the next
+        ' entry. A second reset on the normal path is harmless. The trade row above read the
+        ' currentTrade* snapshot, never the live anchor.
+        ResetOrderAttempt()
 
         ' Cooloff anchor: the position is now closed. The old autotrader stamped
         ' _indicators.lastAutoTradeTime here; the bridge's cooloff anchors on the same event, so

@@ -1442,6 +1442,22 @@ Module Program
               WsEdgeLog.FormatRow(at, wsDown, Nothing) = "2026-08-13T13:22:41Z | DOWN | " AndAlso
               WsEdgeLog.FormatRow(at, wsDown, Nothing).Split({WsEdgeLog.FieldSeparator}, StringSplitOptions.None).Length = 3)
 
+        ' ---- chase-anchor reset: a never-sent bridge act says why (docs/spec-chase-anchor-reset.md §2.3) ----
+        ' Before this spec, PlaceAutomatedOrder always waited the 5-s ack for a placement that
+        ' ExecuteOrderAsync refused before the send, and returned "timeout". The first three checks
+        ' fail against that behaviour (the seam returned Nothing = "wait for the ack").
+        Dim atrRefusal = frmMainPageV2.UnsentPlacementResult(False, "ATR slippage at placement")
+        Check("not-sent fixture 1: an ATR refusal returns at once, not accepted",
+              atrRefusal IsNot Nothing AndAlso Not atrRefusal.Accepted)
+        Check("not-sent fixture 2: ...with the ATR guard's own literal as the reason, not ""timeout""",
+              atrRefusal IsNot Nothing AndAlso atrRefusal.Reason = "ATR slippage at placement")
+        Dim blankRefusal = frmMainPageV2.UnsentPlacementResult(False, "")
+        Check("not-sent fixture 3: a missing reason still yields a non-empty reason that is not ""timeout""",
+              blankRefusal IsNot Nothing AndAlso Not blankRefusal.Accepted AndAlso
+              Not String.IsNullOrEmpty(blankRefusal.Reason) AndAlso blankRefusal.Reason <> "timeout")
+        Check("not-sent fixture 4: a sent placement returns Nothing - await the exchange ack as before",
+              frmMainPageV2.UnsentPlacementResult(True, "ATR slippage at placement") Is Nothing)
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

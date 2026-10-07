@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-08T03:00Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-07T17:20Z",
+  "updated_by": "seat implementer (chase-anchor reset), Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,12 +9,26 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 4 commits ahead of origin (through the slippage-fields check added to the experiment plan).",
+      "meaning": "Push master: 5 commits ahead of origin (through the chase-anchor reset implementation).",
       "since": "2026-10-06"
     },
     {
+      "kind": "review",
+      "meaning": "Launch the coordinator review (Opus, high) of the chase-anchor reset. Then run its testnet check yourself: a 1-USD rejected entry, then a 10-USD entry after the price moves; the second must place. Recipe in the implementation report, section 6.",
+      "since": "2026-10-08"
+    },
+    {
+      "kind": "ruling",
+      "tick": true,
+      "id": "SB1 (chase-anchor-reset)",
+      "meaning": "An exception between the slippage check and the send leaves the chase anchor set. Fold the fix into the chase-anchor reset spec, or accept it.",
+      "doc": "docs/impl-report-chase-anchor-reset.md",
+      "anchor": "§3",
+      "since": "2026-10-08"
+    },
+    {
       "kind": "go",
-      "meaning": "Launch an implementer seat (Opus, high): the chase-anchor reset spec first, then position-protection batch 1 (reconnect forever with paging, side from the position, restore stop check, honest emergency messages).",
+      "meaning": "Launch an implementer seat (Opus, high) for position-protection batch 1 (reconnect forever with paging, side from the position, restore stop check, honest emergency messages).",
       "doc": "docs/spec-protection-batch1.md",
       "since": "2026-10-08"
     },

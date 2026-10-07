@@ -5,6 +5,8 @@ a rejected placement never resets the chase anchor). Confirmed and traced in
 `docs/review-trade-slippage-fields.md` §4 and §4a. Owner: "go ahead and write the D1 spec", 2026-10-06.
 **Status at writing:** open, no code written. Every fact below verified in code on 2026-10-06 at HEAD
 `5f69134`.
+**Implemented 2026-10-08** — see `docs/impl-report-chase-anchor-reset.md`. Coordinator review and the
+owner's testnet run are owed.
 **Scope:** `frmMainPageV2.vb` only, plus OrderCheck if a pure seam is extracted. **Order path → Opus, high.**
 **Ships:** ON. No setting, no contract change, no change to any chase or abort *threshold*.
 
