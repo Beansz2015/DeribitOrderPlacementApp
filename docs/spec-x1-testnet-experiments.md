@@ -30,6 +30,23 @@ web-search summaries; nothing here has been observed.
 | (f) | **With `reduce_only` on the TP**, does an SL trigger cancel **both** legs? (`frmMainPageV2.vb:4312` says so) | **A14's fix design** (a reduce-only TP) | ⚠ **Needs a code change:** a testnet-only switch that adds `reduce_only` to the TP leg, honoured only when `AppSecrets.IsTestnet`, default off, removed after. **Separate owner approval.** |
 | (g) | A reduce-only **market** sell for the full size while reduce-only legs rest: does it fill? What happens to the resting legs? | **A12's reorder** (reduce before cancel) | Open 10 USD with `Mkt. BUY`, then `Mkt. Rdc. Sell` with the OTOCO legs still resting. Watch the fill and the legs' states. |
 
+## §1b — Riding along: the trade slippage-fields testnet check (owner, 2026-10-08)
+
+The owner put this check on hold and asked for it here, since the harness is already running. It is
+acceptance §3 item 4 of `docs/spec-trade-slippage-fields.md`; details in
+`docs/review-trade-slippage-fields.md` §5.
+
+| # | Check | How | Pass |
+|---|---|---|---|
+| (h) | A chased limit entry that fills records its slippage | ATRSlip ticked at 0.6. `Limit BUY` 10 USD; let it chase at least once and fill; flatten. | Its `Trades` row: `RequoteCount` > 0, `SignalPrice` = the placement price, a plausible `SlippageATR` |
+| (i) | A forced abort is recorded, and adds no trade | ATRSlip 0.05. `Limit BUY` 10 USD; let the chase trip the cap. | One `AbortedEntries` row, reason `ATR slippage`; **no** new `Trades` row |
+
+- `Mkt. BUY` entries (most of §1) never run the chase guard, so their rows carry anchor 0 and
+  `SlippageATR` 0 — correct, and not a pass for (h).
+- A `Trades` row is written only at close, so read after flattening.
+- Read a **copy** of `trades.db` from the x64 bin, never the live file. Back the file up before the run.
+- Record (h) and (i) in the same runtime record as the experiments.
+
 ## §2 — Observation
 
 - The app log (`tools/read-log.ps1`) shows order-state lines, but may not show raw `user.changes`

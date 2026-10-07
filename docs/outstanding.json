@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-08T02:30Z",
+  "updated_utc": "2026-10-08T03:00Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 3 commits ahead of origin (the audit triage; the batch-1 spec and experiment plan; the plan's approval).",
+      "meaning": "Push master: 4 commits ahead of origin (through the slippage-fields check added to the experiment plan).",
       "since": "2026-10-06"
     },
     {
@@ -20,15 +20,9 @@
     },
     {
       "kind": "go",
-      "meaning": "Then launch the testnet experiment seat (Opus, high), after the batch-1 seat finishes so the two do not edit the same file at once. Close your own app first; the seat launches its own testnet instance.",
+      "meaning": "Then launch the testnet experiment seat (Opus, high), after the implementer seat's work is reviewed. It also runs the held trade slippage-fields check. Close your own app first; the seat launches its own testnet instance.",
       "doc": "docs/spec-x1-testnet-experiments.md",
       "since": "2026-10-08"
-    },
-    {
-      "kind": "go",
-      "meaning": "ON HOLD (owner, 2026-10-07) until after the adversarial-audit triage: testnet check of the trade slippage fields on the x64 app built 22:43.",
-      "doc": "docs/review-trade-slippage-fields.md",
-      "since": "2026-10-06"
     },
     {
       "kind": "ruling",
