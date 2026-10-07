@@ -1,6 +1,6 @@
 # Plan — X-1 testnet experiments: how Deribit actually treats our OTOCO legs
 
-**Status:** ⏸ **PLAN, awaiting the owner's approval before any order is placed.**
+**Status:** ✅ **APPROVED by the owner 2026-10-08 — all of it, including (f)'s testnet-only reduce-only-TP switch and (g)'s reduce-only market.** The §2 raw-echo diagnostic, if one proves necessary, still goes to the owner first.
 **Origin:** X-1 of the engine report (`docs/adversarial-audit-2026-09-24.md` §B row A13 and §C C-16,
 engine repo, branch `claude/great-keller-s5f4gp`), and `docs/triage-adversarial-audit-2026-10.md` §4.
 Owner ruling 2026-10-07: **a seat runs them via the harness.** The audit's Deribit facts came from
