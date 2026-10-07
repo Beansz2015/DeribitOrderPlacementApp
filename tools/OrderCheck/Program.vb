@@ -1524,6 +1524,15 @@ Module Program
               frmMainPageV2.WsDownPageText(61.0, -50D).Contains("position OPEN: SHORT 50 USD"))
         Check("page fixture 11: flat -> the page says no position",
               frmMainPageV2.WsDownPageText(61.0, 0D).Contains("no position open"))
+        ' Owner ruling 2026-10-08 (maintenance): the cause in the page, urgent only with a position.
+        Check("page fixture 12: the page carries the last connect error",
+              frmMainPageV2.WsDownPageText(61.0, 0D, "The server returned status code '502' when status code '101' was expected.").Contains("last error: The server returned status code '502'"))
+        Check("page fixture 13: no error yet -> no 'last error' part",
+              Not frmMainPageV2.WsDownPageText(61.0, 0D, Nothing).Contains("last error"))
+        Check("page fixture 14: a long error is cut to 120 chars plus '...'",
+              frmMainPageV2.WsDownPageText(61.0, 0D, New String("x"c, 300)).EndsWith(New String("x"c, 120) & "..."))
+        Check("page fixture 15: a position open -> urgent", frmMainPageV2.WsDownPagePriority(10D) = "urgent" AndAlso frmMainPageV2.WsDownPagePriority(-10D) = "urgent")
+        Check("page fixture 16: flat -> normal priority, not urgent", frmMainPageV2.WsDownPagePriority(0D) = "default")
 
         ' Item 3 - restore NO STOP check: the audit's `restore` scenario plus the owner's 2026-10-08
         ' ruling on what counts as a stop. Before: no alarm in any of these cases.

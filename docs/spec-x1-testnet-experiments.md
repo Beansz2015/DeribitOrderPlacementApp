@@ -53,6 +53,12 @@ ATRSlip 0.05; place a **1-USD** `Limit BUY` (the exchange rejects it: not a mult
 set Amount back to 10; after the bid moves more than ATR × 0.05, `Limit BUY` again. **Pass:** the order is
 placed, with no "slippage exceeds limit" line and no new `AbortedEntries` row. Cancel it afterwards.
 
+**(k) — capture two facts the batch-1 review needs** (coordinator, 2026-10-08, no extra placement):
+- A real order JSON from `user.changes` or the id-778 snapshot, to confirm the field name `order_type`
+  (`IsClosingStop` reads it for hand-placed stops; `docs/review-protection-batch1.md` §2).
+- If a Deribit maintenance window falls inside the run, the exact connect errors the app logs
+  (`Reconnect attempt n failed: …`), for the maintenance-detection decision.
+
 ## §2 — Observation
 
 - The app log (`tools/read-log.ps1`) shows order-state lines, but may not show raw `user.changes`

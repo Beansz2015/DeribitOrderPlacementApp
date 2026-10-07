@@ -1,0 +1,29 @@
+{
+ "rev": "2aa0016e954f0466da29463958cf608fc0eccb50",
+ "rev7": "2aa0016",
+ "stamp_utc": "20261008T1000Z",
+ "builder": "coordinator seat, Opus 5.5, by hand",
+ "note": "STATE ONLY. Live reads.",
+ "items": [
+  {
+   "id": "docs/review-protection-batch1.md|MAINT-PAGE@2aa0016",
+   "question": "An order app now pages its owner urgently when its exchange WebSocket has been down 60 s, then every 10 min. The exchange often goes down for scheduled maintenance, and the app cannot tell maintenance from a real fault; what it sees during maintenance has never been recorded (an old note says the exchange closes the socket gracefully, and one outage produced HTTP 502 on reconnect). How should the pages handle this?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Put the last connect error into every down page (e.g. 'last error: server returned 502'), and page urgently only when a position is open; with no position, send the same page at normal priority. Record what the app sees during the next maintenance, then decide on true maintenance detection."
+    },
+    {
+     "label": "(b)",
+     "text": "Detect maintenance now: query the exchange's announcement or status feed and suppress pages during a scheduled window."
+    },
+    {
+     "label": "(c)",
+     "text": "Leave the pages as they are."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "(a) lets the owner read the cause at a glance and stops a flat-account outage from waking them, without guessing at undocumented exchange behaviour. (b) builds on facts nobody has observed and could suppress a page while a position is open during an unscheduled fault. (c) pages urgently through every maintenance window."
+  }
+ ]
+}

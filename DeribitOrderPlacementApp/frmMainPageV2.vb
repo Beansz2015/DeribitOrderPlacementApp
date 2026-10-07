@@ -1453,6 +1453,7 @@ Public Class frmMainPageV2
     Private ReadOnly wsDownPageGate As New Object()
     Private wsDownSinceUtc As DateTime = DateTime.MinValue
     Private wsDownPagesSent As Integer = 0
+    Private wsLastConnectError As String = Nothing ' owner ruling 2026-10-08: the page carries the cause
 
     ' The delay after failed attempt n (1-based) before attempt n+1. Attempts 1-9 keep the old
     ' 2/4/6/8/10/10/10/10/10 s schedule; from attempt 10 on - where the old loop gave up - a flat cap.
@@ -1475,10 +1476,25 @@ Public Class frmMainPageV2
         Return pagesSent > 0
     End Function
 
-    Friend Shared Function WsDownPageText(downSeconds As Double, positionSize As Decimal) As String
+    ' Owner ruling 2026-10-08 (docs/review-protection-batch1.md section 4): the app cannot tell a Deribit
+    ' maintenance window from a fault, so the page carries the last connect error (maintenance shows as
+    ' HTTP 502 on reconnect, per the owner) and is URGENT only while a position is open. Flat, the same
+    ' page goes at normal priority: it informs, it does not wake.
+    Friend Shared Function WsDownPagePriority(positionSize As Decimal) As String
+        Return If(positionSize <> 0D, "urgent", "default")
+    End Function
+
+    Friend Shared Function WsDownPageText(downSeconds As Double, positionSize As Decimal,
+                                          Optional lastError As String = Nothing) As String
         Dim posPart As String = If(positionSize = 0D, "no position open",
                                    $"position OPEN: {If(positionSize > 0D, "LONG", "SHORT")} {Math.Abs(positionSize).ToString(Globalization.CultureInfo.InvariantCulture)} USD")
-        Return $"WebSocket DOWN for {CInt(Math.Floor(downSeconds))} s, still reconnecting - {posPart}"
+        Dim errPart As String = ""
+        If Not String.IsNullOrWhiteSpace(lastError) Then
+            Dim e As String = lastError.Trim()
+            If e.Length > 120 Then e = e.Substring(0, 120) & "..."
+            errPart = $" - last error: {e}"
+        End If
+        Return $"WebSocket DOWN for {CInt(Math.Floor(downSeconds))} s, still reconnecting - {posPart}{errPart}"
     End Function
 
     ' Fire-and-forget watcher for one outage. Pages on the WsDownPagesDue schedule until the recovery
@@ -1489,18 +1505,21 @@ Public Class frmMainPageV2
             While Not isClosing
                 Await Task.Delay(1000)
                 Dim pageText As String = Nothing
+                Dim pagePriority As String = "urgent"
                 SyncLock wsDownPageGate
                     If wsDownSinceUtc <> downSince Then Return ' recovered: this outage is over
                     Dim downS As Double = (DateTime.UtcNow - downSince).TotalSeconds
                     If WsDownPagesDue(downS) > wsDownPagesSent Then
                         wsDownPagesSent = WsDownPagesDue(downS)
-                        pageText = WsDownPageText(downS, positionSizeUSD)
+                        Dim posNow As Decimal = positionSizeUSD
+                        pageText = WsDownPageText(downS, posNow, wsLastConnectError)
+                        pagePriority = WsDownPagePriority(posNow)
                     End If
                 End SyncLock
                 If pageText IsNot Nothing Then
                     AppendColoredText(txtLogs, pageText, Color.Red)
                     Alert("connection") ' item D: was the give-up alert; there is no give-up now
-                    RemoteNotifier.Post("OrderApp", pageText, priority:="urgent", tags:="rotating_light")
+                    RemoteNotifier.Post("OrderApp", pageText, priority:=pagePriority, tags:="rotating_light")
                 End If
             End While
         Catch
@@ -1522,6 +1541,7 @@ Public Class frmMainPageV2
                 SyncLock wsDownPageGate
                     wsDownSinceUtc = downSince
                     wsDownPagesSent = 0
+                    wsLastConnectError = Nothing
                 End SyncLock
                 Dim pageWatch = Task.Run(Function() WatchWsDownPagesAsync(downSince)) ' fire and forget
 
@@ -1572,6 +1592,9 @@ Public Class frmMainPageV2
                         Return
                     Else
                         reconnectAttempts += 1
+                        SyncLock wsDownPageGate
+                            wsLastConnectError = errorMessage
+                        End SyncLock
                         AppendColoredText(txtLogs, $"Reconnect attempt {attempt} failed: {errorMessage}", Color.Red)
                         Await Task.Delay(ReconnectDelayMs(attempt))
                     End If
@@ -5098,15 +5121,29 @@ Public Class frmMainPageV2
         Return $"Emergency close FAILED — position may have NO orders (market {side}: {reduceFailure})"
     End Function
 
-    Private Sub ReportEmergencyCloseSend(side As String, reduceFailure As String)
+    ' Review D1 (docs/review-protection-batch1.md): the pending state is armed BEFORE the reduce is sent.
+    ' The receive loop processes the fill echo (CompletePositionClose -> NoteEmergencyCloseFlat) and a
+    ' rejection (NoteEmergencyReduceRejected) concurrently with the send's Await, so arming after the
+    ' send could miss a fast outcome and page a false "UNCONFIRMED" 10 s later.
+    Private Function ArmEmergencyClose() As Integer
+        Dim seq As Integer = Interlocked.Increment(emergencyCloseSeq)
+        Interlocked.Exchange(emergencyClosePending, 1)
+        Return seq
+    End Function
+
+    Private Sub ReportEmergencyCloseSend(side As String, reduceFailure As String, seq As Integer)
+        If reduceFailure IsNot Nothing Then
+            ' Not sent: no echo or rejection can follow, so this call owns the outcome.
+            Interlocked.Exchange(emergencyClosePending, 0)
+        ElseIf Volatile.Read(emergencyCloseSeq) = seq AndAlso Volatile.Read(emergencyClosePending) = 0 Then
+            Return ' already resolved (CONFIRMED or FAILED posted) before the send returned - no stale "SENT"
+        End If
         Dim text As String = EmergencyCloseSendText(side, reduceFailure)
         AppendColoredText(txtLogs, text, Color.Red)
         Alert("emergency_stop") ' item D
         RemoteNotifier.Post("OrderApp", text, priority:="urgent") ' Q1
         If reduceFailure IsNot Nothing Then Return
 
-        Dim seq As Integer = Interlocked.Increment(emergencyCloseSeq)
-        Interlocked.Exchange(emergencyClosePending, 1)
         Dim watchdog = Task.Run(Async Function()
                                     Await Task.Delay(EmergencyConfirmTimeoutMs)
                                     If Volatile.Read(emergencyCloseSeq) = seq AndAlso Volatile.Read(emergencyClosePending) = 1 Then
@@ -5161,16 +5198,18 @@ Public Class frmMainPageV2
                 emergencyFired = True
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
+                Dim emgSeq As Integer = ArmEmergencyClose() ' review D1: armed BEFORE the send, so a fast fill or rejection is never missed
                 Dim reduceFailure As String = Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
-                ReportEmergencyCloseSend("sell", reduceFailure)
+                ReportEmergencyCloseSend("sell", reduceFailure, emgSeq)
                 Return ' Exit early after emergency execution
             ElseIf marketStopLossChecked AndAlso Not emergencyFired AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (Not ManagedSideIsLong()) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
                 ' N1 single-fire latch: SET-THEN-SEND (see the long branch above).
                 emergencyFired = True
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
+                Dim emgSeq As Integer = ArmEmergencyClose() ' review D1: armed BEFORE the send, so a fast fill or rejection is never missed
                 Dim reduceFailure As String = Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
-                ReportEmergencyCloseSend("buy", reduceFailure)
+                ReportEmergencyCloseSend("buy", reduceFailure, emgSeq)
                 Return ' Exit early after emergency execution
             End If
 

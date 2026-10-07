@@ -173,9 +173,12 @@ commit, a second editing surface), not a reachable one.
   Ten would-acts in log-only is ONE trade in Live. `docs/HANDOVER-6.md` §5 item 13.
 - **The emitter heartbeat is ~10 s and it republishes UNCHANGED content by design.** A fresh
   `generated_at_utc` proves the process is ALIVE, not that any field changed.
-- **Recovery budget is ~72 s of backoff plus per-attempt connect time**, 10 attempts
-  (`frmMainPageV2.vb:1319`, `:1340`, `:1370`). The 2026-08-14 drop used 8 of 10 over 53 s. **Hold a
-  provoked outage to 20–30 s.**
+- ⚠ **CHANGED 2026-10-08 (protection batch 1, `docs/review-protection-batch1.md`): reconnect NEVER gives
+  up.** Attempts 1–9 keep the old 2–10 s delays, then 30 s forever. An outage of 60 s pages the owner
+  (urgent with a position open, normal priority when flat), then every 10 min, and the page carries the
+  last connect error. **Hold a provoked outage to 20–30 s to avoid a page;** go past 60 s to test one.
+  *(Superseded text: "Recovery budget is ~72 s of backoff plus per-attempt connect time, 10 attempts …
+  The 2026-08-14 drop used 8 of 10 over 53 s.")*
 - **Screenshots capture the APP, never the desktop.** Note `tools/screenshot-full.ps1` is a
   full-**FORM** capture despite its name. `docs/HANDOVER-6.md` §5 item 14.
 - **Seats never place trades and never arm the bridge.** The owner drives every trade, ARM and START.
