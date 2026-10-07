@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-08T05:00Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-07T17:33Z",
+  "updated_by": "seat implementer, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,13 +9,19 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 6 commits ahead of origin (through the chase-anchor reset, its review and the SB1 fix).",
+      "meaning": "Push master: 7 commits ahead of origin (through position-protection batch 1).",
       "since": "2026-10-06"
     },
     {
       "kind": "go",
-      "meaning": "Launch an implementer seat (Opus, high) for position-protection batch 1 (reconnect forever with paging, side from the position, restore stop check, honest emergency messages).",
-      "doc": "docs/spec-protection-batch1.md",
+      "meaning": "Launch the coordinator review (Opus, high) of position-protection batch 1. Built and committed, not pushed; gate passed.",
+      "doc": "docs/impl-report-protection-batch1.md",
+      "since": "2026-10-08"
+    },
+    {
+      "kind": "go",
+      "meaning": "Runtime checks of protection batch 1 on testnet, owner-driven: a network pull over 60 s (one page, then a recovery line) and a restart with the stop cancelled by hand (the NO STOP alarm). Rebuild x64 first.",
+      "doc": "docs/impl-report-protection-batch1.md",
       "since": "2026-10-08"
     },
     {

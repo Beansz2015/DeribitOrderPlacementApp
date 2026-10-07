@@ -1276,13 +1276,24 @@ Public Class frmMainPageV2
         Await SendWebSocketMessageAsync(authPayload.ToString())
 
         ' Read the response (F5: accumulate fragments until EndOfMessage - same fix as the receive loop)
+        ' Protection batch 1 item 1 (docs/spec-protection-batch1.md section 1): the wait is bounded.
+        ' Unbounded, one silent server hung a reconnect attempt - and with it the whole recovery
+        ' loop - forever. A timeout fails this attempt; the reconnect loop retries it.
         Dim buffer = New Byte(1024 * 4) {}
         Dim sb As New StringBuilder()
         Dim result As WebSocketReceiveResult
-        Do
-            result = Await webSocketClient.ReceiveAsync(New ArraySegment(Of Byte)(buffer), cancellationTokenSource.Token)
-            sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count))
-        Loop Until result.EndOfMessage
+        Using authTimeout As New CancellationTokenSource(TimeSpan.FromSeconds(AuthReplyTimeoutSeconds))
+            Using authWait = CancellationTokenSource.CreateLinkedTokenSource(cancellationTokenSource.Token, authTimeout.Token)
+                Try
+                    Do
+                        result = Await webSocketClient.ReceiveAsync(New ArraySegment(Of Byte)(buffer), authWait.Token)
+                        sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count))
+                    Loop Until result.EndOfMessage
+                Catch ex As OperationCanceledException When authTimeout.IsCancellationRequested
+                    Throw New TimeoutException($"auth reply not received within {AuthReplyTimeoutSeconds} s")
+                End Try
+            End Using
+        End Using
         Dim response = sb.ToString()
 
         Dim json = JObject.Parse(response)
@@ -1395,12 +1406,16 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Async Function SendWebSocketMessageAsync(message As String) As Task
+    ' Returns True when the send completed, False when it threw (each failure is still logged and
+    ' swallowed here, as before). Protection batch 1 item 4: the emergency close reads the result so
+    ' it can say FAILED instead of claiming a send that never left. Every other caller discards it.
+    Private Async Function SendWebSocketMessageAsync(message As String) As Task(Of Boolean)
         Try
             Dim bytes = Encoding.UTF8.GetBytes(message)
 
             ' Attempt to send the message
             Await webSocketClient.SendAsync(New ArraySegment(Of Byte)(bytes), WebSocketMessageType.Text, True, cancellationTokenSource.Token)
+            Return True
 
         Catch ex As WebSocketException
             ' Log WebSocket-specific errors
@@ -1416,13 +1431,82 @@ Public Class frmMainPageV2
             ' Fire and forget reconnection attempt
             Dim disconnectTask = HandleWebSocketDisconnect()
         End Try
+        Return False
     End Function
 
     ' These fields are for reconnect logic
     Private isReconnecting As Integer = 0  ' 0 = no, 1 = yes (Interlocked)
     Private reconnectAttempts As Integer = 0
-    Private maxReconnectAttempts As Integer = 10
     Private isClosing As Boolean = False
+
+    ' Protection batch 1 item 1 (docs/spec-protection-batch1.md section 1, audit rows A15/G4/G16).
+    ' The loop used to give up after 10 attempts (~72 s of delays) and tell only the local speaker,
+    ' which nobody hears on a remote box. It now retries until connected or closing, and pages the
+    ' owner when an outage outlives a routine drop.
+    Friend Const AuthReplyTimeoutSeconds As Integer = 10
+    Friend Const ReconnectCapMs As Integer = 30000
+    Friend Const WsDownFirstPageSeconds As Integer = 60
+    Friend Const WsDownRepageSeconds As Integer = 600
+
+    ' Down-page state. wsDownSinceUtc = MinValue means "no outage being paged for". Written by the
+    ' recovery loop and the page watcher (two threadpool threads), so both go through the gate.
+    Private ReadOnly wsDownPageGate As New Object()
+    Private wsDownSinceUtc As DateTime = DateTime.MinValue
+    Private wsDownPagesSent As Integer = 0
+
+    ' The delay after failed attempt n (1-based) before attempt n+1. Attempts 1-9 keep the old
+    ' 2/4/6/8/10/10/10/10/10 s schedule; from attempt 10 on - where the old loop gave up - a flat cap.
+    Friend Shared Function ReconnectDelayMs(failedAttempt As Integer) As Integer
+        If failedAttempt < 10 Then Return 2000 * Math.Min(Math.Max(failedAttempt, 1), 5)
+        Return ReconnectCapMs
+    End Function
+
+    ' How many down pages are due after downSeconds of outage: none inside the first 60 s (drops are
+    ' routine and self-heal - docs/runtime-record-ws-down-emitter-2026-08-14.md), one at 60 s, then
+    ' one more every 10 min.
+    Friend Shared Function WsDownPagesDue(downSeconds As Double) As Integer
+        If downSeconds < WsDownFirstPageSeconds Then Return 0
+        Return 1 + CInt(Math.Floor((downSeconds - WsDownFirstPageSeconds) / WsDownRepageSeconds))
+    End Function
+
+    ' The recovery line goes out only when the outage was paged: a drop the owner never heard about
+    ' needs no all-clear.
+    Friend Shared Function ShouldPostReconnectLine(pagesSent As Integer) As Boolean
+        Return pagesSent > 0
+    End Function
+
+    Friend Shared Function WsDownPageText(downSeconds As Double, positionSize As Decimal) As String
+        Dim posPart As String = If(positionSize = 0D, "no position open",
+                                   $"position OPEN: {If(positionSize > 0D, "LONG", "SHORT")} {Math.Abs(positionSize).ToString(Globalization.CultureInfo.InvariantCulture)} USD")
+        Return $"WebSocket DOWN for {CInt(Math.Floor(downSeconds))} s, still reconnecting - {posPart}"
+    End Function
+
+    ' Fire-and-forget watcher for one outage. Pages on the WsDownPagesDue schedule until the recovery
+    ' loop clears wsDownSinceUtc (reconnected) or the form closes. Checks once a second, so a page is
+    ' at most ~1 s late even while a connect attempt is blocked.
+    Private Async Function WatchWsDownPagesAsync(downSince As DateTime) As Task
+        Try
+            While Not isClosing
+                Await Task.Delay(1000)
+                Dim pageText As String = Nothing
+                SyncLock wsDownPageGate
+                    If wsDownSinceUtc <> downSince Then Return ' recovered: this outage is over
+                    Dim downS As Double = (DateTime.UtcNow - downSince).TotalSeconds
+                    If WsDownPagesDue(downS) > wsDownPagesSent Then
+                        wsDownPagesSent = WsDownPagesDue(downS)
+                        pageText = WsDownPageText(downS, positionSizeUSD)
+                    End If
+                End SyncLock
+                If pageText IsNot Nothing Then
+                    AppendColoredText(txtLogs, pageText, Color.Red)
+                    Alert("connection") ' item D: was the give-up alert; there is no give-up now
+                    RemoteNotifier.Post("OrderApp", pageText, priority:="urgent", tags:="rotating_light")
+                End If
+            End While
+        Catch
+            ' Paging is best-effort; it must never be the reason anything else fails.
+        End Try
+    End Function
 
     Private Async Function HandleWebSocketDisconnect() As Task
 
@@ -1430,9 +1514,16 @@ Public Class frmMainPageV2
             ' Single-flight guard - only one reconnect at a time
             If Interlocked.Exchange(isReconnecting, 1) = 1 Then Return
 
+            Dim downSince As DateTime = DateTime.UtcNow
             Try
                 AppendColoredText(txtLogs, "Connection lost - initiating recovery sequence", Color.Orange)
                 Alert("connection") ' item D: disconnect
+
+                SyncLock wsDownPageGate
+                    wsDownSinceUtc = downSince
+                    wsDownPagesSent = 0
+                End SyncLock
+                Dim pageWatch = Task.Run(Function() WatchWsDownPagesAsync(downSince)) ' fire and forget
 
                 ' Update UI immediately on UI thread
                 Me.BeginInvoke(Sub()
@@ -1444,12 +1535,14 @@ Public Class frmMainPageV2
                 ' Wait before attempting reconnection
                 Await Task.Delay(2000 + (reconnectAttempts * 1000)) ' Progressive backoff
 
-                For attempt = 1 To maxReconnectAttempts
+                Dim attempt As Integer = 0
+                While Not isClosing
+                    attempt += 1
                     Dim success As Boolean = False
                     Dim errorMessage As String = ""
 
                     Try
-                        AppendColoredText(txtLogs, $"Reconnection attempt {attempt}/{maxReconnectAttempts}", Color.Yellow)
+                        AppendColoredText(txtLogs, $"Reconnection attempt {attempt}", Color.Yellow)
 
                         ' Call connection method directly - NOT through UI button
                         Await ConnectToWebSocketDirectly()
@@ -1465,24 +1558,30 @@ Public Class frmMainPageV2
                     If success Then
                         reconnectAttempts = 0
                         AppendColoredText(txtLogs, "Successfully reconnected", Color.LimeGreen)
+                        Dim pagesSent As Integer
+                        SyncLock wsDownPageGate
+                            pagesSent = wsDownPagesSent
+                            wsDownSinceUtc = DateTime.MinValue ' stops the watcher
+                            wsDownPagesSent = 0
+                        End SyncLock
+                        If ShouldPostReconnectLine(pagesSent) Then
+                            Dim upText As String = $"WebSocket reconnected after {CInt(Math.Floor((DateTime.UtcNow - downSince).TotalSeconds))} s"
+                            AppendColoredText(txtLogs, upText, Color.LimeGreen)
+                            RemoteNotifier.Post("OrderApp", upText, priority:="high")
+                        End If
                         Return
                     Else
                         reconnectAttempts += 1
                         AppendColoredText(txtLogs, $"Reconnect attempt {attempt} failed: {errorMessage}", Color.Red)
-
-                        ' Only delay if we have more attempts left
-                        If attempt < maxReconnectAttempts Then
-                            Dim delayMs = 2000 * Math.Min(attempt, 5) ' Cap at 10 second delays
-                            Await Task.Delay(delayMs)
-                        End If
+                        Await Task.Delay(ReconnectDelayMs(attempt))
                     End If
-                Next
-
-                ' All reconnection attempts failed
-                AppendColoredText(txtLogs, "All reconnection attempts failed - manual intervention required", Color.Red)
-                Alert("connection") ' item D: reconnect-failure
+                End While
 
             Finally
+                ' Closing mid-outage: stop the watcher too (it also checks isClosing itself).
+                SyncLock wsDownPageGate
+                    If wsDownSinceUtc = downSince Then wsDownSinceUtc = DateTime.MinValue
+                End SyncLock
                 Interlocked.Exchange(isReconnecting, 0)
             End Try
         Else
@@ -1517,6 +1616,7 @@ Public Class frmMainPageV2
         webSocketClient.Options.KeepAliveTimeout = TimeSpan.FromSeconds(20)
         cancellationTokenSource = New CancellationTokenSource()
         positionRestoreAnnounced = False ' fresh connection: the id-777 seed may announce again
+        ResetRestoreStopCheck()          ' protection batch 1 item 3: one NO STOP check per connection
 
         ' Connect with timeout
         Using connectTimeout As New CancellationTokenSource(TimeSpan.FromSeconds(30))
@@ -1868,6 +1968,9 @@ Public Class frmMainPageV2
             If errorField Is Nothing Then Return
 
             Dim messageId = json.SelectToken("id")?.ToObject(Of Integer)()
+            ' Protection batch 1 item 4: a rejected reduce (id 1) during a pending emergency close pages
+            ' FAILED. Ahead of the skips below on purpose - a 10028 rejection is a failed close too.
+            If messageId.HasValue AndAlso messageId.Value = 1 Then NoteEmergencyReduceRejected(errorField.ToString(Newtonsoft.Json.Formatting.None))
             ' Skip errors that already have dedicated logging (null-safe: HasValue AndAlso, never <>)
             If messageId.HasValue AndAlso
                (messageId.Value = 3 OrElse messageId.Value = 999 OrElse
@@ -2661,7 +2764,8 @@ Public Class frmMainPageV2
                     Dim priceMovement As Decimal = 0D
 
                     If currentStopPrice > 0 Then
-                        If TradeMode Then
+                        ' Protection batch 1 item 2: the position's side, never the toggle.
+                        If ManagedSideIsLong() Then
                             priceMovement = emgBaseline - bestAsk
                         Else
                             priceMovement = bestBid - emgBaseline
@@ -2698,7 +2802,7 @@ Public Class frmMainPageV2
                         ' own-side touch.
                         If emergencyThresholdValid AndAlso baselineKnown AndAlso priceMovement >= emergencyThreshold Then
                             If marketStopLossChecked AndAlso Not emergencyFired Then
-                                Await ForceStopLossUpdate(If(TradeMode, bestAsk, bestBid))
+                                Await ForceStopLossUpdate(If(ManagedSideIsLong(), bestAsk, bestBid))
                                 Return ' Exit early after emergency update
                             End If
                         End If
@@ -2728,7 +2832,7 @@ Public Class frmMainPageV2
                             Dim shouldUpdate As Boolean = False
                             Dim newStopPrice As Decimal = 0D
 
-                            If TradeMode Then
+                            If ManagedSideIsLong() Then
                                 ' Long exit = resting SELL limit: most aggressive non-crossing ask = one tick above the bid.
                                 ' While the sell rests, bestBid < placedStopLossPrice, so chaseTarget <= placedStopLossPrice;
                                 ' "<" is inherent one-tick hysteresis (same argument as the entry chase, mirrored).
@@ -2949,12 +3053,13 @@ Public Class frmMainPageV2
                             TPTrailprice = manualTPval
                             haveTrigger = True
                         ElseIf placedPriceValid AndAlso commsVal > 0 Then
-                            TPTrailprice = If(TradeMode, placedPrice + (tpOffsetVal + commsVal), placedPrice - (tpOffsetVal + commsVal))
+                            TPTrailprice = If(ManagedSideIsLong(), placedPrice + (tpOffsetVal + commsVal), placedPrice - (tpOffsetVal + commsVal))
                             haveTrigger = True
                         End If
 
+                        ' Protection batch 1 item 2: in position (isTrailingPosition) - the position's side.
                         If haveTrigger Then
-                            If TradeMode = True Then
+                            If ManagedSideIsLong() Then
                                 If TPTrailprice <= bestAsk Then
                                     isTrailingStopLossPlaced = False
                                     Await TrailingStopLossOrderAsync()
@@ -3100,6 +3205,21 @@ Public Class frmMainPageV2
     ' Written on the receive thread; UI buttons read them (accepted Decimal torn-read class).
     Private positionSizeUSD As Decimal = 0D
     Private positionAvgEntry As Decimal = 0D
+
+    ' Protection batch 1 item 2 (docs/spec-protection-batch1.md section 2, audit rows A16/G6): the
+    ' side every POSITION-management path acts on. An open position's sign is the truth; the Buy/Sell
+    ' toggle (TradeMode) only means the next entry's side, so it is the answer only when flat. Before
+    ' this, one toggle click while a long was open flipped the triggered-SL chase and the M.SL cap to
+    ' the short side. Entry paths stay on TradeMode. Plain field reads: receive-thread safe.
+    Friend Shared Function ManagedSideIsLongFor(positionSize As Decimal, tradeModeIsLong As Boolean) As Boolean
+        If positionSize > 0D Then Return True
+        If positionSize < 0D Then Return False
+        Return tradeModeIsLong
+    End Function
+
+    Private Function ManagedSideIsLong() As Boolean
+        Return ManagedSideIsLongFor(positionSizeUSD, TradeMode)
+    End Function
     ' Restart restore: one "Open position detected" announcement per connection (display only).
     Private positionRestoreAnnounced As Boolean = False
 
@@ -3366,7 +3486,7 @@ Public Class frmMainPageV2
                                                           ' Tick-rounding (docs/spec-tick-rounding.md): the fill is average_price and can be
                                                           ' fractional; the whole derivation is rounded (idempotent for on-tick values).
                                                           Dim newTP As Decimal = RoundToTick(If(manualTPval > 0D, manualTPval,
-                                                                                    If(TradeMode, pendingReanchorFill + takeProfitOffset,
+                                                                                    If(ManagedSideIsLong(), pendingReanchorFill + takeProfitOffset,
                                                                                                   pendingReanchorFill - takeProfitOffset)))
                                                           ' Skip a pointless edit when the leg already rests at the target
                                                           ' (e.g. manual-TP mode - the absolute price didn't move).
@@ -3614,7 +3734,7 @@ Public Class frmMainPageV2
                                         ' placedOrderSizeUsd runs after this loop, so the fallback is still live here.)
                                         Dim entryShownSize As Decimal = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
                                         If entryShownSize <= 0D Then entryShownSize = If(placedOrderSizeUsd > 0D, placedOrderSizeUsd, orderAmountVal)
-                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {entryShownSize} @ ${entryShownPrice:F2}", Color.LimeGreen)
+                                        AppendColoredText(txtLogs, $"Position entered: {If(ManagedSideIsLong(), "LONG", "SHORT")} {entryShownSize} @ ${entryShownPrice:F2}", Color.LimeGreen)
                                         Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
@@ -3661,7 +3781,7 @@ Public Class frmMainPageV2
                                         ' it is here so the two "Position entered:" lines cannot drift apart.
                                         Dim trailShownSize As Decimal = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
                                         If trailShownSize <= 0D Then trailShownSize = If(placedOrderSizeUsd > 0D, placedOrderSizeUsd, orderAmountVal)
-                                        AppendColoredText(txtLogs, $"Position entered: {If(TradeMode, "LONG", "SHORT")} {trailShownSize} @ ${trailShownPrice:F2}", Color.LimeGreen)
+                                        AppendColoredText(txtLogs, $"Position entered: {If(ManagedSideIsLong(), "LONG", "SHORT")} {trailShownSize} @ ${trailShownPrice:F2}", Color.LimeGreen)
                                         Alert("entry_fill") ' item D
                                         OpenPositions = True
                                         OpenOrderNo = False
@@ -4647,13 +4767,13 @@ Public Class frmMainPageV2
     End Function
 
 
-    Private Async Function SendReduceOrderAsync(price As Decimal?, amount As Decimal, direction As String, isMarketOrder As Boolean) As Task
+    Private Async Function SendReduceOrderAsync(price As Decimal?, amount As Decimal, direction As String, isMarketOrder As Boolean) As Task(Of String)
         Try
             ' Connection guard (runtime test 4, 2026-07-03): same early-return as the entry paths,
             ' before any state mutation (StopLossTriggerOriginal/trailing flags below).
             If Not IsWebSocketConnected Then
                 AppendColoredText(txtLogs, "WebSocket is not connected - reduce order skipped.", Color.Red)
-                Return
+                Return "not connected - reduce skipped"
             End If
 
             'Remember to do a cancel all orders here before sending reduce order
@@ -4700,7 +4820,8 @@ Public Class frmMainPageV2
 
             ' Send the payload via WebSocket
             rateLimiter?.ConsumeCredits()   ' F8: placements are the priciest calls - account for them
-            Await SendWebSocketMessageAsync(payload.ToString())
+            ' Item 4: keep the send's result; the flow below is unchanged either way.
+            Dim sent As Boolean = Await SendWebSocketMessageAsync(payload.ToString())
 
             If Not isMarketOrder Then
                 ' Seed the reposition context at placement. The open echo captures the order id and
@@ -4712,9 +4833,11 @@ Public Class frmMainPageV2
 
             Dim orderDescription As String = $"{orderType.ToUpper()} {direction} {amount} {(If(isMarketOrder, "", $"@ {price}"))}"
             AppendColoredText(txtLogs, $"Reduce-only {orderDescription} order sent.", Color.Green)
+            Return If(sent, Nothing, "the reduce's send threw (see the WebSocket error line above)")
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in SendReduceOrderAsync: {ex.Message}", Color.Red)
+            Return $"error before the send: {ex.Message}"
         End Try
     End Function
     Private UpdateFlag As Boolean = False
@@ -4954,6 +5077,68 @@ Public Class frmMainPageV2
     Private lastSLId As String = ""
     Private pendingLocalMsg As String = ""
 
+    ' Protection batch 1 item 4 (docs/spec-protection-batch1.md section 4, audit rows A12/G1): the M.SL
+    ' emergency close reports what it has SEEN. It used to log and page "Emergency ... Executed."
+    ' unconditionally - also when the reduce was skipped (socket down), threw, or was rejected,
+    ' leaving a position with no orders behind an all-clear. MESSAGES ONLY: the send order (cancel-all,
+    ' then reduce) is untouched; the reorder waits for the testnet experiments.
+    '   SENT        - the reduce's send completed; pending until flat, a rejection, or 10 s.
+    '   CONFIRMED   - CompletePositionClose ran (the position went flat) while pending.
+    '   FAILED      - the reduce was skipped or its send threw (here), or the exchange rejected it
+    '                 (the id-1 error in HandleUnhandledJsonRpcError) while pending.
+    '   UNCONFIRMED - still pending 10 s after SENT. Stays pending: a late flat still pages CONFIRMED.
+    ' Every page is urgent: RemoteNotifier drops a non-urgent post inside 5 s of the last one, and the
+    ' CONFIRMED follow-up usually lands inside 5 s of the SENT page.
+    Friend Const EmergencyConfirmTimeoutMs As Integer = 10000
+    Private emergencyClosePending As Integer = 0   ' 1 = SENT, not yet confirmed or failed (Interlocked)
+    Private emergencyCloseSeq As Integer = 0       ' ties a 10-s watchdog to its own emergency
+
+    Friend Shared Function EmergencyCloseSendText(side As String, reduceFailure As String) As String
+        If reduceFailure Is Nothing Then Return $"Emergency close SENT — awaiting fill (market {side})"
+        Return $"Emergency close FAILED — position may have NO orders (market {side}: {reduceFailure})"
+    End Function
+
+    Private Sub ReportEmergencyCloseSend(side As String, reduceFailure As String)
+        Dim text As String = EmergencyCloseSendText(side, reduceFailure)
+        AppendColoredText(txtLogs, text, Color.Red)
+        Alert("emergency_stop") ' item D
+        RemoteNotifier.Post("OrderApp", text, priority:="urgent") ' Q1
+        If reduceFailure IsNot Nothing Then Return
+
+        Dim seq As Integer = Interlocked.Increment(emergencyCloseSeq)
+        Interlocked.Exchange(emergencyClosePending, 1)
+        Dim watchdog = Task.Run(Async Function()
+                                    Await Task.Delay(EmergencyConfirmTimeoutMs)
+                                    If Volatile.Read(emergencyCloseSeq) = seq AndAlso Volatile.Read(emergencyClosePending) = 1 Then
+                                        Dim late As String = $"Emergency close UNCONFIRMED after {EmergencyConfirmTimeoutMs \ 1000} s — check the position"
+                                        AppendColoredText(txtLogs, late, Color.Red)
+                                        RemoteNotifier.Post("OrderApp", late, priority:="urgent")
+                                    End If
+                                End Function)
+    End Sub
+
+    ' CompletePositionClose: the position went flat. Pages only when an emergency close was pending.
+    Private Sub NoteEmergencyCloseFlat()
+        If Interlocked.Exchange(emergencyClosePending, 0) <> 1 Then Return
+        Const text As String = "Emergency close CONFIRMED — flat"
+        AppendColoredText(txtLogs, text, Color.Red)
+        RemoteNotifier.Post("OrderApp", text, priority:="urgent")
+    End Sub
+
+    ' HandleUnhandledJsonRpcError: an error on id 1 (reduce orders). FAILED only when an emergency
+    ' close is pending; a rejected manual reduce keeps its existing API ERROR line alone.
+    Friend Shared Function EmergencyCloseRejectedText(errorText As String) As String
+        Return $"Emergency close FAILED — position may have NO orders (reduce rejected: {errorText})"
+    End Function
+
+    Private Sub NoteEmergencyReduceRejected(errorText As String)
+        If Interlocked.Exchange(emergencyClosePending, 0) <> 1 Then Return
+        Dim text As String = EmergencyCloseRejectedText(errorText)
+        AppendColoredText(txtLogs, text, Color.Red)
+        Alert("emergency_stop")
+        RemoteNotifier.Post("OrderApp", text, priority:="urgent")
+    End Sub
+
     Private Async Function UpdateStopLossForTriggeredStopLossOrder(newPrice As Decimal) As Task
         Try
             ' Your existing emergency market order logic first. Cross-thread fix: marketStopThreshold mirrors
@@ -4965,7 +5150,10 @@ Public Class frmMainPageV2
             ' or the short branch below fires instantly (newPrice - 0 >= threshold). emgBaseline = the actual
             ' SL price once triggered (emergencyBaseline), else the trigger price (StopLossTriggerOriginal).
             Dim emgBaseline As Decimal = If(emergencyBaseline > 0D, emergencyBaseline, StopLossTriggerOriginal)
-            If marketStopLossChecked AndAlso Not emergencyFired AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = True) AndAlso (emgBaseline - newPrice >= marketStopThreshold) Then
+            ' Protection batch 1 item 2: the branch is picked by the POSITION's side (ManagedSideIsLong), not
+            ' the toggle - a toggle click while a long was open used to arm the short branch here.
+            ' Item 4: the messages report what was SEEN, never "Executed" (the send order is unchanged).
+            If marketStopLossChecked AndAlso Not emergencyFired AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso ManagedSideIsLong() AndAlso (emgBaseline - newPrice >= marketStopThreshold) Then
                 ' N1 single-fire latch: SET-THEN-SEND. This assignment and the branch test are synchronous
                 ' (the first Await is the CancelOrderAsync below), so a re-entrant quote tick arriving during
                 ' the await already sees the latch and cannot dispatch a second market reduce. Cleared only at
@@ -4973,20 +5161,16 @@ Public Class frmMainPageV2
                 emergencyFired = True
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
-                Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
-                AppendColoredText(txtLogs, "Emergency Sell Market Order Executed.", Color.Red)
-                Alert("emergency_stop") ' item D
-                RemoteNotifier.Post("OrderApp", "Emergency Sell Market Order Executed.", priority:="urgent") ' Q1
+                Dim reduceFailure As String = Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
+                ReportEmergencyCloseSend("sell", reduceFailure)
                 Return ' Exit early after emergency execution
-            ElseIf marketStopLossChecked AndAlso Not emergencyFired AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (TradeMode = False) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
+            ElseIf marketStopLossChecked AndAlso Not emergencyFired AndAlso marketStopThreshold > 0D AndAlso emgBaseline > 0D AndAlso (Not ManagedSideIsLong()) AndAlso (newPrice - emgBaseline >= marketStopThreshold) Then
                 ' N1 single-fire latch: SET-THEN-SEND (see the long branch above).
                 emergencyFired = True
                 Await CancelOrderAsync()
                 newPricePublic = newPrice 'For storing reduce market order price for logging
-                Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
-                AppendColoredText(txtLogs, "Emergency Buy Market Order Executed.", Color.Red)
-                Alert("emergency_stop") ' item D
-                RemoteNotifier.Post("OrderApp", "Emergency Buy Market Order Executed.", priority:="urgent") ' Q1
+                Dim reduceFailure As String = Await SendReduceMarketOrderAsync()   ' cross-thread fix: was btnReduceMarket.PerformClick()
+                ReportEmergencyCloseSend("buy", reduceFailure)
                 Return ' Exit early after emergency execution
             End If
 
@@ -5105,7 +5289,9 @@ Public Class frmMainPageV2
             End If
 
             ' Calculate the new stop loss prices based on direction
-            If TradeMode = True Then
+            ' Protection batch 1 item 2: the position's side when one is open (a partly filled
+            ' trailing entry); flat, this is TradeMode exactly as before.
+            If ManagedSideIsLong() Then
                 ' Buy direction
                 If manualSLval > 0 Then
                     newSLprice = manualSLval
@@ -5434,7 +5620,8 @@ Public Class frmMainPageV2
             Dim startoffset As Decimal = tpOffsetVal
             Dim triggerpricing As Decimal
 
-            If TradeMode = True Then
+            ' Protection batch 1 item 2: the trailing stop closes the POSITION - its side, not the toggle.
+            If ManagedSideIsLong() Then
                 method = "private/sell"
                 triggerpricing = TPTrailprice - startoffset
             Else
@@ -5594,6 +5781,10 @@ Public Class frmMainPageV2
                     enabled = If(s Is Nothing, True, s.AlertOrderRejected) : adverse = True
                 Case "connection"
                     enabled = If(s Is Nothing, True, s.AlertConnection) : adverse = True
+                Case "no_stop"
+                    ' Protection batch 1 item 3: an open position with no stop after a restart. No
+                    ' settings key on purpose - always audible.
+                    enabled = True : adverse = True
                 Case Else
                     enabled = True : adverse = True ' unknown kind: fail audible, never silent
             End Select
@@ -5762,6 +5953,8 @@ Public Class frmMainPageV2
         ' Audit2 F1 + position model: snapshot the closing basis BEFORE CancelOrderAsync zeroes placedPrice.
         ' Avg entry is the true basis (survives adds/Cancel-All); placedPrice is the unseeded-model fallback.
         Dim entryPriceAtClose As Decimal = If(positionAvgEntry > 0D, positionAvgEntry, placedPrice)
+
+        NoteEmergencyCloseFlat() ' protection batch 1 item 4: a pending emergency close is now confirmed flat
 
         'Reset all flags
         isTrailingStop = False
@@ -6034,6 +6227,88 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
+    ' ===== Protection batch 1 item 3 (docs/spec-protection-batch1.md section 3, audit rows A20/G10) =====
+    ' After a (re)connect, alarm when a position is open and no stop protects it. Before this, an empty
+    ' order list returned silently ("flat restart") and a position with no stop showed at most a cyan
+    ' "SL=none". The id-777 position seed and the id-778 order snapshot land independently, so each
+    ' records its half and the check runs once, when the second lands. Changes nothing the restore
+    ' re-adopts. Both halves arrive on the receive thread; the gate is cheap insurance.
+    Private ReadOnly restoreCheckGate As New Object()
+    Private restoreCheckPositionKnown As Boolean = False
+    Private restoreCheckPositionSize As Decimal = 0D
+    Private restoreCheckOrders As JArray = Nothing ' Nothing = the id-778 snapshot has not landed
+    Private restoreCheckDone As Boolean = False
+
+    ' What counts as a stop (owner ruling 2026-10-08, folded into the spec section 3): any live order
+    ' that would close the position when the market goes against it - the app's StopLossOrder leg
+    ' (untriggered stop_limit, or the triggered limit), the app's TrailingStopLoss, or any untriggered
+    ' stop_limit / stop_market / trailing_stop of any label (e.g. placed by hand in the Deribit UI).
+    ' In every case its direction must CLOSE the position: a stop on the adding side protects nothing.
+    Friend Shared Function IsClosingStop(order As JToken, positionSize As Decimal) As Boolean
+        If order Is Nothing OrElse positionSize = 0D Then Return False
+        Dim closingDirection As String = If(positionSize > 0D, "sell", "buy")
+        If order.SelectToken("direction")?.ToString() <> closingDirection Then Return False
+        Dim label As String = order.SelectToken("label")?.ToString()
+        Dim state As String = order.SelectToken("order_state")?.ToString()
+        Dim orderType As String = order.SelectToken("order_type")?.ToString()
+        If label = "StopLossOrder" OrElse label = "TrailingStopLoss" Then
+            Return state = "untriggered" OrElse state = "open"
+        End If
+        Return state = "untriggered" AndAlso
+               (orderType = "stop_limit" OrElse orderType = "stop_market" OrElse orderType = "trailing_stop")
+    End Function
+
+    ' The alarm decision. Both halves must be known; a flat account never alarms.
+    Friend Shared Function RestoreNoStopAlarm(positionKnown As Boolean, positionSize As Decimal, orders As JArray) As Boolean
+        If Not positionKnown OrElse orders Is Nothing OrElse positionSize = 0D Then Return False
+        For Each o As JToken In orders
+            If IsClosingStop(o, positionSize) Then Return False
+        Next
+        Return True
+    End Function
+
+    Private Sub ResetRestoreStopCheck()
+        SyncLock restoreCheckGate
+            restoreCheckPositionKnown = False
+            restoreCheckPositionSize = 0D
+            restoreCheckOrders = Nothing
+            restoreCheckDone = False
+        End SyncLock
+    End Sub
+
+    Private Sub NoteRestorePosition(size As Decimal)
+        SyncLock restoreCheckGate
+            If restoreCheckDone OrElse restoreCheckPositionKnown Then Return ' only the connect seed
+            restoreCheckPositionKnown = True
+            restoreCheckPositionSize = size
+        End SyncLock
+        EvaluateRestoreStopCheck()
+    End Sub
+
+    Private Sub NoteRestoreOrders(orders As JArray)
+        SyncLock restoreCheckGate
+            If restoreCheckDone OrElse restoreCheckOrders IsNot Nothing Then Return
+            restoreCheckOrders = orders
+        End SyncLock
+        EvaluateRestoreStopCheck()
+    End Sub
+
+    Private Sub EvaluateRestoreStopCheck()
+        Dim alarm As Boolean
+        Dim size As Decimal
+        SyncLock restoreCheckGate
+            If restoreCheckDone OrElse Not restoreCheckPositionKnown OrElse restoreCheckOrders Is Nothing Then Return
+            restoreCheckDone = True
+            size = restoreCheckPositionSize
+            alarm = RestoreNoStopAlarm(True, size, restoreCheckOrders)
+        End SyncLock
+        If Not alarm Then Return
+        Dim text As String = $"Open position with NO STOP: {If(size > 0D, "LONG", "SHORT")} {Math.Abs(size).ToString(Globalization.CultureInfo.InvariantCulture)} USD - place a stop now"
+        AppendColoredText(txtLogs, text, Color.Red)
+        Alert("no_stop")
+        RemoteNotifier.Post("OrderApp", text, priority:="urgent", tags:="rotating_light")
+    End Sub
+
     ' Restore hardening: restore OTOCO order context from the id-778 snapshot (get_open_orders).
     ' Receive-thread handler: engine fields written here directly, displays via UiInvoke. Mirrors
     ' the echo handler's single-writer discipline - prices seed only when the engine field is 0,
@@ -6054,7 +6329,10 @@ Public Class frmMainPageV2
             End If
 
             Dim result = TryCast(json.SelectToken("result"), JArray)
-            If result Is Nothing OrElse result.Count = 0 Then Return ' flat restart: nothing to restore, no announce
+            ' Protection batch 1 item 3: hand the list to the NO STOP check BEFORE the empty-list Return -
+            ' an empty list with a position open is the very case it exists for.
+            If result IsNot Nothing Then NoteRestoreOrders(result)
+            If result Is Nothing OrElse result.Count = 0 Then Return ' nothing to restore, no announce (flat restart - or a position with no orders, which the check above alarms on)
 
             ' First pass: is a working (unfilled) entry still open? CurrentTPOrderId/CurrentSLOrderId are
             ' the "there is a live OTOCO working order" ids - only adopt them when the entry leg is open.
@@ -6192,6 +6470,7 @@ Public Class frmMainPageV2
             ' Position model: keep the engine fields current from id-777 snapshots too.
             If positionSize.HasValue Then
                 positionSizeUSD = positionSize.Value
+                NoteRestorePosition(positionSize.Value) ' protection batch 1 item 3: first id-777 since connect only
                 If positionSize.Value <> 0D AndAlso averagePrice.HasValue AndAlso averagePrice.Value > 0D Then
                     positionAvgEntry = averagePrice.Value
                 End If
@@ -6491,6 +6770,12 @@ Public Class frmMainPageV2
     ' Decouple v2: mode switching extracted from btnBuy_Click/btnSell_Click (bodies unchanged) so
     ' the automation API can set direction on the UI thread without PerformClick.
     Private Sub SetTradeMode(isLong As Boolean)
+        ' Protection batch 1 item 2: informational only, never a block. Position management follows the
+        ' position (ManagedSideIsLong); the toggle now only picks the next entry's side.
+        Dim posNow As Decimal = positionSizeUSD
+        If posNow <> 0D AndAlso (posNow > 0D) <> isLong Then
+            AppendColoredText(txtLogs, $"Mode set to {If(isLong, "BUY", "SELL")} while a {If(posNow > 0D, "LONG", "SHORT")} position is open - stop, chase and M.SL keep following the position", Color.Yellow)
+        End If
         If isLong Then
 
             'Sets mode to Buy mode
@@ -6718,13 +7003,15 @@ Public Class frmMainPageV2
     ' UpdateStopLossForTriggeredStopLossOrder (receive thread — avoids a cross-thread
     ' btnReduceMarket.PerformClick()). Reads positionSizeUSD (position model) first;
     ' falls back to TradeMode/orderAmountVal only when the model is unseeded.
-    Private Async Function SendReduceMarketOrderAsync() As Task
+    ' Protection batch 1 item 4: returns Nothing when the reduce was sent, else why it was not
+    ' (the emergency close pages FAILED with it). The button and flatten callers discard it.
+    Private Async Function SendReduceMarketOrderAsync() As Task(Of String)
         ' Connection guard first (runtime test 4 follow-up): return before the position-model
         ' fallback logs, so a disconnected click logs the skip line alone - not fallback noise
         ' followed by the skip. SendReduceOrderAsync keeps its own guard for the other callers.
         If Not IsWebSocketConnected Then
             AppendColoredText(txtLogs, "WebSocket is not connected - reduce order skipped.", Color.Red)
-            Return
+            Return "not connected - reduce skipped"
         End If
 
         ' Position model: flatten the ACTUAL position - the emergency stop must close what is
@@ -6743,12 +7030,12 @@ Public Class frmMainPageV2
             amount = orderAmountVal
             If amount <= 0 Then
                 AppendColoredText(txtLogs, "Invalid amount.", Color.Red)
-                Return
+                Return "no position size and no Amount to reduce"
             End If
         End If
 
         ' Call the function to send the reduce-only market order
-        Await SendReduceOrderAsync(Nothing, amount, direction, isMarketOrder:=True)
+        Return Await SendReduceOrderAsync(Nothing, amount, direction, isMarketOrder:=True)
     End Function
 
     Private Async Sub btnReduceMarket_Click(sender As Object, e As EventArgs) Handles btnReduceMarket.Click
@@ -6773,9 +7060,10 @@ Public Class frmMainPageV2
             Dim d As Decimal
             Dim displayPlacedPrice As Decimal = If(Decimal.TryParse(txtPlacedPrice.Text, d), d, 0D)
             If (isTrailingStop = True) And (isTrailingPosition = True) And (isTrailingStopLossPlaced = True) Then
+                ' Protection batch 1 item 2: in position - the target follows the position's side.
                 If manualTPval > 0 Then
                     txtPlacedTakeProfitPrice.Text = txtManualTP.Text
-                    If TradeMode = True Then
+                    If ManagedSideIsLong() Then
                         If manualTPval < (displayPlacedPrice + commsVal) Then
                             AppendColoredText(txtLogs, "Manual TP is less than comms paid.", Color.Yellow)
                         End If
@@ -6786,7 +7074,7 @@ Public Class frmMainPageV2
                     End If
 
                 Else
-                    If TradeMode = True Then
+                    If ManagedSideIsLong() Then
                         txtPlacedTakeProfitPrice.Text = displayPlacedPrice + (tpOffsetVal + commsVal)
                     Else
                         txtPlacedTakeProfitPrice.Text = displayPlacedPrice - (tpOffsetVal + commsVal)
@@ -6871,7 +7159,8 @@ Public Class frmMainPageV2
             Return ' Audit2 F4: don't send an edit with a null order_id
         End If
 
-        If TradeMode = True Then
+        ' Protection batch 1 item 2: the stop protects the POSITION - its side, not the toggle.
+        If ManagedSideIsLong() Then
             newSLprice = newTSprice - Decimal.Parse(txtStopLoss.Text)
         Else
             newSLprice = newTSprice + Decimal.Parse(txtStopLoss.Text)

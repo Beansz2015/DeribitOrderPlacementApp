@@ -1,0 +1,11 @@
+{ "rev": "1ba9f9d068b0bc46e21c6ee36ee938e396d512ec",
+  "items": [ { "id": "docs/spec-protection-batch1.md|restore NO STOP: what counts as a stop@1ba9f9d",
+    "question": "After a restart with an open position, the order app raises an urgent 'open position with NO STOP' alarm when no stop order is among the open orders it fetched. Which open orders count as a stop?",
+    "options": [
+      { "label": "(a)", "text": "Only the app's own StopLossOrder label, untriggered (stop_limit) or triggered (resting limit). This is the spec's literal parenthetical." },
+      { "label": "(b)", "text": "(a) plus the app's own TrailingStopLoss label (a reduce-only trailing_stop the app places in trailing mode)." },
+      { "label": "(c)", "text": "(b) plus any untriggered stop-type order (stop_limit, stop_market, trailing_stop), whatever its label, whose direction closes the position (sell for a long, buy for a short), e.g. a stop placed by hand in the Deribit UI." }
+    ],
+    "recommended": "(c)",
+    "rationale": "The alarm exists to answer one question: is the open position protected by a stop. Under (a) every restart in trailing mode pages a false urgent NO STOP, because the app's own trailing stop does not carry the StopLossOrder label. Under (b) a stop the owner placed by hand in the Deribit UI also pages falsely. False urgent pages train the owner to ignore the alarm. (c) keeps the real alarm: a stop on the wrong side (one that adds to the position) does not count, because of the direction check. The spec's acceptance case, a stop cancelled by hand leaving no stop, still alarms under all three options. Cost of (c) over (a): one type list and one direction comparison."
+  } ] }

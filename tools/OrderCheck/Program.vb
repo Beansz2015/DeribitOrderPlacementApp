@@ -1469,6 +1469,117 @@ Module Program
         Check("anchor-undo fixture 4: a tripped check already cleared it (anchor 0) -> nothing to undo",
               Not frmMainPageV2.ShouldUndoAnchorSeed(False, False, 0D))
 
+        ' ---- protection batch 1 (docs/spec-protection-batch1.md section 5 acceptance 2) ----
+        ' Each group pins the NEW behaviour. Against the code before this batch every seam below is
+        ' absent, and each "before:" note names what that code did instead.
+
+        ' Item 2 - side from the position. Before: every position path read TradeMode alone.
+        Check("side fixture 1: long position, toggle Buy -> long",
+              frmMainPageV2.ManagedSideIsLongFor(120D, True))
+        Check("side fixture 2: short position, toggle Sell -> short",
+              Not frmMainPageV2.ManagedSideIsLongFor(-120D, False))
+        Check("side fixture 3: flat -> the toggle decides (Buy -> long, Sell -> short)",
+              frmMainPageV2.ManagedSideIsLongFor(0D, True) AndAlso Not frmMainPageV2.ManagedSideIsLongFor(0D, False))
+        Check("side fixture 4 (the audit's mode-flip): long open, toggle clicked to Sell -> STILL long (before: short)",
+              frmMainPageV2.ManagedSideIsLongFor(10D, False))
+        Check("side fixture 5: short open, toggle clicked to Buy -> still short (before: long)",
+              Not frmMainPageV2.ManagedSideIsLongFor(-10D, True))
+
+        ' Item 1 - reconnect schedule. Before: attempts 1-10 with these delays, then "manual
+        ' intervention required" and no attempt 11.
+        Dim oldDelays As Integer() = {2000, 4000, 6000, 8000, 10000, 10000, 10000, 10000, 10000}
+        Dim keptOld As Boolean = True
+        For n As Integer = 1 To 9
+            If frmMainPageV2.ReconnectDelayMs(n) <> oldDelays(n - 1) Then keptOld = False
+        Next
+        Check("reconnect fixture 1: attempts 1-9 keep the old 2/4/6/8/10 s schedule", keptOld)
+        Check("reconnect fixture 2: after attempt 10 (where the old loop gave up) -> the 30 s cap",
+              frmMainPageV2.ReconnectDelayMs(10) = 30000)
+        Dim neverGivesUp As Boolean = True
+        For n As Integer = 1 To 5000
+            Dim d As Integer = frmMainPageV2.ReconnectDelayMs(n)
+            If d <= 0 OrElse d > frmMainPageV2.ReconnectCapMs Then neverGivesUp = False
+        Next
+        Check("reconnect fixture 3: attempts 1-5000 each have a positive delay to a next attempt, none above the cap",
+              neverGivesUp)
+        Check("reconnect fixture 4: the cap is 30 s", frmMainPageV2.ReconnectCapMs = 30000)
+        Check("reconnect fixture 5: the auth reply wait is bounded at 10 s (before: unbounded)",
+              frmMainPageV2.AuthReplyTimeoutSeconds = 10)
+
+        ' Item 1 - page policy. Before: no page on any disconnect, however long.
+        Check("page fixture 1: down 59 s -> no page (drops are routine)", frmMainPageV2.WsDownPagesDue(59.0) = 0)
+        Check("page fixture 2: down 59.99 s -> still no page", frmMainPageV2.WsDownPagesDue(59.99) = 0)
+        Check("page fixture 3: down 60 s -> one page", frmMainPageV2.WsDownPagesDue(60.0) = 1)
+        Check("page fixture 4: down 659 s -> still one page", frmMainPageV2.WsDownPagesDue(659.0) = 1)
+        Check("page fixture 5: down 660 s -> a second page (every 10 min after the first)",
+              frmMainPageV2.WsDownPagesDue(660.0) = 2)
+        Check("page fixture 6: down 1260 s -> a third page", frmMainPageV2.WsDownPagesDue(1260.0) = 3)
+        Check("page fixture 7: no page sent -> no recovery line",
+              Not frmMainPageV2.ShouldPostReconnectLine(0))
+        Check("page fixture 8: a page sent -> a recovery line", frmMainPageV2.ShouldPostReconnectLine(1))
+        Dim pageLong As String = frmMainPageV2.WsDownPageText(75.4, 120D)
+        Check("page fixture 9: the page names an open long, its size and the outage length",
+              pageLong.Contains("position OPEN: LONG 120 USD") AndAlso pageLong.Contains("75 s"), $"got '{pageLong}'")
+        Check("page fixture 10: the page names an open short and its size",
+              frmMainPageV2.WsDownPageText(61.0, -50D).Contains("position OPEN: SHORT 50 USD"))
+        Check("page fixture 11: flat -> the page says no position",
+              frmMainPageV2.WsDownPageText(61.0, 0D).Contains("no position open"))
+
+        ' Item 3 - restore NO STOP check: the audit's `restore` scenario plus the owner's 2026-10-08
+        ' ruling on what counts as a stop. Before: no alarm in any of these cases.
+        Dim ord = Function(label As String, orderType As String, state As String, direction As String) As JObject
+                      Dim o As New JObject From {{"order_type", orderType}, {"order_state", state}, {"direction", direction}}
+                      If label IsNot Nothing Then o("label") = label
+                      Return o
+                  End Function
+        Dim slUntriggered As JObject = ord("StopLossOrder", "stop_limit", "untriggered", "sell")
+        Dim tpOnly As JObject = ord("TakeLimitProfit", "limit", "open", "sell")
+        Check("restore fixture 1 (audit case 1): long open, order list [] -> ALARM",
+              frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray()))
+        Check("restore fixture 2 (audit case 2): long open, TP only -> ALARM",
+              frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(tpOnly)))
+        Check("restore fixture 3: long open, TP + untriggered StopLossOrder leg -> no alarm",
+              Not frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(tpOnly, slUntriggered)))
+        Check("restore fixture 4: long open, triggered StopLossOrder (resting limit) -> no alarm",
+              Not frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(ord("StopLossOrder", "limit", "open", "sell"))))
+        Check("restore fixture 5: flat, no orders -> no alarm",
+              Not frmMainPageV2.RestoreNoStopAlarm(True, 0D, New JArray()))
+        Check("restore fixture 6: position not yet known -> no alarm (wait for id-777)",
+              Not frmMainPageV2.RestoreNoStopAlarm(False, 10D, New JArray()))
+        Check("restore fixture 7: order list not yet known -> no alarm (wait for id-778)",
+              Not frmMainPageV2.RestoreNoStopAlarm(True, 10D, Nothing))
+        Check("restore fixture 8 (ruling): the app's own TrailingStopLoss counts -> no alarm",
+              Not frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(ord("TrailingStopLoss", "trailing_stop", "untriggered", "sell"))))
+        Check("restore fixture 9 (ruling): a stop placed by hand (no label) on the closing side counts -> no alarm",
+              Not frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(ord(Nothing, "stop_market", "untriggered", "sell"))))
+        Check("restore fixture 10 (ruling): a stop on the ADDING side protects nothing -> ALARM",
+              frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(ord(Nothing, "stop_market", "untriggered", "buy"))))
+        Check("restore fixture 11: short open, buy-side StopLossOrder -> no alarm",
+              Not frmMainPageV2.RestoreNoStopAlarm(True, -10D, New JArray(ord("StopLossOrder", "stop_limit", "untriggered", "buy"))))
+        Check("restore fixture 12: short open, only a sell-side StopLossOrder (a flipped account) -> ALARM",
+              frmMainPageV2.RestoreNoStopAlarm(True, -10D, New JArray(slUntriggered)))
+        Check("restore fixture 13: a plain resting limit on the closing side is not a stop -> ALARM",
+              frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(ord(Nothing, "limit", "open", "sell"))))
+        Check("restore fixture 14: a cancelled StopLossOrder is not a stop -> ALARM",
+              frmMainPageV2.RestoreNoStopAlarm(True, 10D, New JArray(ord("StopLossOrder", "stop_limit", "cancelled", "sell"))))
+
+        ' Item 4 - the emergency close's messages (the audit's trace-emergency-send-fails and
+        ' emergency-rejected scenarios). Before: "Emergency Sell/Buy Market Order Executed." in all cases.
+        Dim sentText As String = frmMainPageV2.EmergencyCloseSendText("sell", Nothing)
+        Dim skippedText As String = frmMainPageV2.EmergencyCloseSendText("sell", "not connected - reduce skipped")
+        Dim rejectedText As String = frmMainPageV2.EmergencyCloseRejectedText("{""code"":10028,""message"":""too_many_requests""}")
+        Check("emergency fixture 1: a completed send says SENT, awaiting fill",
+              sentText.StartsWith("Emergency close SENT — awaiting fill", StringComparison.Ordinal), $"got '{sentText}'")
+        Check("emergency fixture 2 (trace-emergency-send-fails): a skipped reduce says FAILED, with the reason",
+              skippedText.StartsWith("Emergency close FAILED — position may have NO orders", StringComparison.Ordinal) AndAlso
+              skippedText.Contains("not connected - reduce skipped"), $"got '{skippedText}'")
+        Check("emergency fixture 3 (emergency-rejected): a 10028 rejection says FAILED, with the error",
+              rejectedText.StartsWith("Emergency close FAILED — position may have NO orders", StringComparison.Ordinal) AndAlso
+              rejectedText.Contains("too_many_requests"), $"got '{rejectedText}'")
+        Check("emergency fixture 4: no message claims ""Executed""",
+              Not (sentText & skippedText & rejectedText).Contains("Executed"))
+        Check("emergency fixture 5: the confirmation window is 10 s", frmMainPageV2.EmergencyConfirmTimeoutMs = 10000)
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

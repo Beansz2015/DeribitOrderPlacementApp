@@ -81,6 +81,16 @@ toggle: one click while a long is open flips the chase and the M.SL cap to the s
 - When the restored order list is known **and** the position is known: if `positionSizeUSD <> 0` and
   no stop order is among the restored orders (the untriggered `stop_limit` leg, or the triggered limit
   the app labels as its stop), log red, `Alert`, and page urgent: "open position with NO STOP".
+- ✅ **Owner ruling 2026-10-08 (escalation `E1` of this batch, raised by the implementer before the
+  code): what counts as a stop.** The parenthetical above is widened. A stop is any of these, **and its
+  direction must close the position** (sell for a long, buy for a short):
+  - the app's `StopLossOrder` leg, untriggered or triggered (`open`);
+  - the app's `TrailingStopLoss`, untriggered or `open`;
+  - any untriggered `stop_limit`, `stop_market` or `trailing_stop` order of any label, for example a
+    stop placed by hand in the Deribit UI.
+  Why: under the literal text, every restart in trailing mode, or with a hand-placed stop, paged a false
+  urgent NO STOP. A stop on the adding side protects nothing, so it does not count. Decision-bias
+  tripwire: `docs/harness-runs/decision-bias-20261008T0700Z-jev.json` (`no_richer_option`, agreement 1.0).
 - The id-777 position seed and the id-778 order snapshot arrive independently. Evaluate when the second
   of the two lands, whichever it is. Do not page on a flat account.
 - Do not change what the restore re-adopts.
