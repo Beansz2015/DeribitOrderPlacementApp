@@ -1,0 +1,70 @@
+{
+    "rev":  "87b8c950fed7d3649533ada89328346a2853d42c",
+    "population":  "docs/harness-runs/decision-bias-20261007T0130Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261007T0130Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x10] resolved=[jev-1.13.0 x10] run_utc=2026-10-07T15:48:48Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  10,
+    "usage_input_tokens":  8845,
+    "wall_time_sec":  24.09,
+    "items":  [
+                  {
+                      "id":  "docs/triage-adversarial-audit-2026-10.md|SIZE-CAP@87b8c95",
+                      "verdict":  "no_richer_option",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.658,
+                      "sample_verdicts":  [
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.64,
+                                                       0.69,
+                                                       0.68,
+                                                       0.62,
+                                                       0.66
+                                                   ],
+                      "usage_input_tokens":  4344,
+                      "seat_label":  "no_richer_option"
+                  },
+                  {
+                      "id":  "docs/triage-adversarial-audit-2026-10.md|BATCH1@87b8c95",
+                      "verdict":  "gives_up_for_economy",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.622,
+                      "sample_verdicts":  [
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.55,
+                                                       0.64,
+                                                       0.64,
+                                                       0.64,
+                                                       0.64
+                                                   ],
+                      "usage_input_tokens":  4501,
+                      "seat_label":  "ambiguous"
+                  }
+              ]
+}

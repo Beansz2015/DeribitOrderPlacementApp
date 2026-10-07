@@ -85,6 +85,12 @@ position-field clears (where `currentTradeSignalPrice` etc. are zeroed), so it r
   its caller's thread. Use a field on the `PendingPlacement` entry (already shared across these threads
   via the `ConcurrentDictionary`), not a control.
 
+### 2.4 Clear the staged signal tag on a never-sent act (added 2026-10-07)
+
+From M9 F11 of the order-path audit (`docs/triage-adversarial-audit-2026-10.md` §2): when a bridge act is
+never sent, `pendingSignalId` / `pendingSignalConfidence` stay staged and can attach to the next manual
+trade. In the not-sent branch of §2.3, clear both, exactly as `CancelWorkingEntryCoreAsync` does.
+
 ## §3 — Acceptance
 
 1. Gate passes; OrderCheck all pass; the nine censuses re-run and any change explained.

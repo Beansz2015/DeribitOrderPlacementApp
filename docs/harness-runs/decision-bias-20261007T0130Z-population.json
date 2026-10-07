@@ -1,0 +1,49 @@
+{
+ "rev": "87b8c950fed7d3649533ada89328346a2853d42c",
+ "rev7": "87b8c95",
+ "stamp_utc": "20261007T0130Z",
+ "builder": "coordinator seat, Opus 5.5, by hand",
+ "note": "STATE ONLY. Live reads.",
+ "items": [
+  {
+   "id": "docs/triage-adversarial-audit-2026-10.md|SIZE-CAP@87b8c95",
+   "question": "A trading app's entry is an OTOCO order whose take-profit and stop legs are placed at the FULL entry amount on the first partial fill, and the take-profit leg is not reduce-only, so a partial fill followed by a TP fill can flip the account short with no stop. One contract is 10 USD and cannot partially fill. Risk sizing, awaiting a go-live decision, produces sizes of 80-90 USD. The real fix (legs that track filled quantity) needs exchange experiments first. What now?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Add a code guard: in the live environment, refuse any entry above 10 USD (manual or bridge) until the partial-fill fix ships; testnet stays uncapped for the experiments."
+    },
+    {
+     "label": "(b)",
+     "text": "No code: the owner holds risk sizing's go-live and keeps the Amount box at 10 by discipline."
+    },
+    {
+     "label": "(c)",
+     "text": "Do nothing until the full partial-fill fix ships."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "(a) makes the S0 unreachable in live whatever is typed or enabled, and costs nothing at today's 10 USD. (b) relies on memory across a 6-week absence and a server migration. (c) leaves the S0 one setting away."
+  },
+  {
+   "id": "docs/triage-adversarial-audit-2026-10.md|BATCH1@87b8c95",
+   "question": "An audit found that every protection in an order app hangs off one stop order's state machine or a UI toggle: an emergency market-close that cancels the stop before confirming the close, no handling of a rejected stop leg, reconnect that gives up after 10 tries, position side taken from a UI toggle, and a restore that never checks the position has a stop. The audit's preferred fix also adds a position-level loss cap and a quote-silence watchdog, which need exchange experiments and engine coordination first. What goes in the first implementation batch?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Batch 1 = the five targeted patches now (confirm-before-cancel emergency, rejected-leg branch with alert, reconnect forever with remote paging, side from position sign, restore stop check). The position-level cap and watchdog follow in batch 2 once the exchange experiments answer."
+    },
+    {
+     "label": "(b)",
+     "text": "Wait and build everything, including the position-level cap and the watchdog, in one batch after the experiments."
+    },
+    {
+     "label": "(c)",
+     "text": "Build only the position-level cap; skip the targeted patches."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "(a) ships the guards that cannot make things worse now, before a six-week absence, and leaves the design-dependent cap for when the exchange behaviour is known. (b) delays the S0 fixes for experiments they do not depend on. (c) leaves the false 'Executed' message and the give-up reconnect in place."
+  }
+ ]
+}

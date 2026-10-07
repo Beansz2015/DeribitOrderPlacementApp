@@ -1,0 +1,8 @@
+{
+ "rev": "87b8c95",
+ "written_by": "coordinator seat, claude-opus-5-5, BEFORE the Jev run, 2026-10-07 UTC",
+ "labels": {
+  "docs/triage-adversarial-audit-2026-10.md|SIZE-CAP@87b8c95": "no_richer_option",
+  "docs/triage-adversarial-audit-2026-10.md|BATCH1@87b8c95": "ambiguous"
+ }
+}
