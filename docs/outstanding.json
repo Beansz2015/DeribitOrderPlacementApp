@@ -1,12 +1,17 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-09T16:35Z",
+  "updated_utc": "2026-10-09T17:30Z",
   "updated_by": "seat experiment, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
   },
   "waiting_on_trader": [
+    {
+      "kind": "push",
+      "meaning": "Push master: 2 commits ahead of origin (the testnet experiment results; the temporary test switches were added and removed).",
+      "since": "2026-10-10"
+    },
     {
       "kind": "go",
       "meaning": "Before any live use: confirm Deribit's 'cancel on disconnect' is OFF on the live account and key (it was ON on testnet and deleted every stop on each disconnect; now off there).",
@@ -29,22 +34,15 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [
-    {
-      "what": "Testnet experiments: how Deribit treats the OTOCO legs (crossed stop, trailing trigger, partial fill, reduce-only TP and market reduce), plus the slippage-fields and chase-anchor reset checks",
-      "where": "agent experiment seat, local testnet app",
-      "started_utc": "2026-10-09T16:35Z",
-      "check": "docs/runtime-record-x1-testnet-2026-10-10.md"
-    }
-  ],
+  "in_progress": [],
   "dated": [],
   "next_up": [
     {
-      "what": "Batch-2 spec with the new evidence: live no-stop watchdog, dead stop-leg alert, stop distance checked against the fill, cancel-on-disconnect check at connect, manual reduce while a stop rests, and the emergency close order",
+      "what": "Batch-2 spec with the new evidence, now including the testnet experiment results (the exchange pushes the dead stop leg as rejected; the stop never trails; a reduce-only take-profit cancels both legs): live no-stop watchdog, dead stop-leg alert, stop distance checked against the fill, cancel-on-disconnect check at connect, manual reduce while a stop rests, and the emergency close order",
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (S0 above 10 USD). Blocks risk sizing in Live. Needs experiments (d) and (f) first.",
+      "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (the top-severity audit finding, for entries above 10 USD). Blocks risk sizing in Live. A reduce-only take-profit is ruled out (testnet: it leaves the position with no stop), and testnet could not produce a partial fill.",
       "model": "Opus 5.5, high"
     },
     {
