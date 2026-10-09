@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-09T16:10Z",
+  "updated_utc": "2026-10-10T02:00Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,20 +9,14 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 9 commits ahead of origin (through the batch-1 runtime record).",
+      "meaning": "Push master: 10 commits ahead of origin (through the cancel-on-disconnect and missing-SL findings).",
       "since": "2026-10-06"
     },
     {
       "kind": "go",
-      "meaning": "URGENT check, testnet AND live: is Deribit's 'cancel on disconnect' enabled on the account or the API key? Every app exit and network drop deleted the position's SL and TP on testnet.",
-      "doc": "docs/runtime-record-protection-batch1-2026-10-09.md",
-      "since": "2026-10-09"
-    },
-    {
-      "kind": "go",
-      "meaning": "URGENT check: in Deribit's testnet order history, the missing SL from a fast-market limit fill. What status and reason does it show (rejected, cancelled, triggered)?",
-      "doc": "docs/runtime-record-protection-batch1-2026-10-09.md",
-      "since": "2026-10-09"
+      "meaning": "Before any live use: confirm Deribit's 'cancel on disconnect' is OFF on the live account and key (it was ON on testnet and deleted every stop on each disconnect; now off there).",
+      "doc": "docs/production-cutover-checklist.md",
+      "since": "2026-10-10"
     },
     {
       "kind": "go",
@@ -49,6 +43,10 @@
   "in_progress": [],
   "dated": [],
   "next_up": [
+    {
+      "what": "Batch-2 spec with the new evidence: live no-stop watchdog, dead stop-leg alert, stop distance checked against the fill, cancel-on-disconnect check at connect, manual reduce while a stop rests, and the emergency close order",
+      "model": "Opus 5.5, high"
+    },
     {
       "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (S0 above 10 USD). Blocks risk sizing in Live. Needs experiments (d) and (f) first.",
       "model": "Opus 5.5, high"

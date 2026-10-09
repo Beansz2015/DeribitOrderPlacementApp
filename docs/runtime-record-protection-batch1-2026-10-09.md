@@ -52,3 +52,34 @@ Opus 5.5, from the owner's pasted logs. Spec: `docs/spec-protection-batch1.md`; 
 - Row A13 (alert on a dead stop leg) no longer waits on X-1(a) once the order history confirms it.
 - The restore-only NO STOP check is not enough: Hazard 2 happens **live**, with no restart. A live
   "position with no stop" watchdog is needed.
+
+## 5. Follow-up, 2026-10-10 (owner)
+
+**Hazard 1 — CONFIRMED and fixed on testnet.** The owner confirmed Deribit's cancel-on-disconnect was on,
+and disabled it. Re-run of check 4 with the stop resting:
+`Restored order context: entry=none, TP=122489230852@83201.00, SL=SLTS-11031556@trig 82751.00 (untriggered)`,
+and **no NO STOP line**. ✅ Check 4 passes. The live account still needs the same check before any live
+use; added to `docs/production-cutover-checklist.md` §1.
+
+**Check 2 (short drop, no page)** — the owner's point stands: the first 60 s of each check-1 log show eight
+attempts and no page. That covers "no page under 60 s" at runtime. "No recovery line after a drop that
+never paged" is pinned by OrderCheck (`ShouldPostReconnectLine(0)` false), not observed. Accepted.
+
+**Hazard 2 — the missing SL never existed on the exchange.** The owner reproduced it: Deribit's order and
+trade history show only the filled entry. No SL order appears at all — not rejected, not cancelled, not
+triggered. It happens only with the stop very close to the entry (per the owner: the trigger 5 USD and
+the stop's limit about 3 USD from the entry); never with wider settings.
+**Reading:** this answers the core of experiment X-1(a). A crossed stop leg at OTOCO activation is dropped
+**silently**: there is no order to see, chase or cap, and nothing in history. Whether `user.changes`
+pushes anything for it is still open (the app logs nothing, but it has no `rejected` branch to log with).
+
+**New: a manual reduce is rejected while the triggered SL rests.** The owner's log:
+`Triggered SL placed @ $82743` (the 5-USD stop triggered right after the fill) →
+`Reduce-only LIMIT sell 10 @ 82733.5 order sent.` →
+`API ERROR (id 1 subscribe/reduce order): code 11030 - other_reject invalid_reduce_only_order`, twice.
+The triggered SL chase then closed the position. **Reading:** with a reduce-only order already covering
+the position, Deribit refuses a second reduce-only order. That answers the limit half of experiment
+X-1(g), and it matters for the audit's proposed emergency reorder (reduce **before** cancel), which would
+hit the same rejection while the SL rests. The market half of X-1(g) is still to test.
+It is also a manual-close bug: the Reduce Sell / Reduce Buy buttons cannot work while a reduce-only stop
+covers the position.

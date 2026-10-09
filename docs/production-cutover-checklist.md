@@ -18,6 +18,10 @@ any size-up.
   all keys — the harness passes used a byte-count sanity check; keep that habit).
 - [ ] Confirm account-level safety on Deribit itself: no withdrawal scope on the trading key,
   sensible account-level limits if offered.
+- [ ] 🚨 **"Cancel on disconnect" must be OFF on the live account and key** (added 2026-10-09). With it
+  on, Deribit cancels every open order when the socket drops — so every app exit and every routine drop
+  leaves the position with **no stop**. Found and confirmed on testnet, then disabled there
+  (`docs/runtime-record-protection-batch1-2026-10-09.md` §5). Check it again on the AWS box's key.
 
 ## §2 — Session-start ritual (EVERY live session — pin this)
 
