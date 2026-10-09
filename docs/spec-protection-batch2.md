@@ -6,7 +6,7 @@
 **Status at writing:** open, no code written. Facts verified at HEAD on 2026-10-10.
 **Scope:** `frmMainPageV2.vb` (and `.Designer.vb` for one tooltip); OrderCheck. **Order, receive and
 emergency paths → Opus, high.**
-**Owner rulings:** §0 lists the decisions; each is marked RULED or OPEN. Nothing marked OPEN is built.
+**Owner rulings:** §0 — all four RULED 2026-10-10.
 
 ---
 
@@ -14,10 +14,10 @@ emergency paths → Opus, high.**
 
 | # | Decision | Options | Coordinator recommendation | Status |
 |---|---|---|---|---|
-| R1 | What the app does when the exchange **rejects the stop leg** (item 1) | (a) alarm only · (b) place a replacement reduce-only stop-market · (c) **flatten at once** with a reduce-only market | **(c).** A stop rejected as `price_too_high`/`price_too_low` means the price is already past the stop level, so the stop would have fired: flattening is what the stop was for. (b) can be rejected again for the same reason in a fast market | OPEN |
-| R2 | What the live watchdog does when a position has **no stop for any other reason** (item 2) | (a) **alarm only** · (b) flatten | **(a).** The cause is unknown — the owner may have cancelled it by hand on purpose | OPEN |
-| R3 | A minimum stop distance at placement | (a) **none for now** — R1 handles the crossed case · (b) a configurable floor that refuses placement | **(a).** The owner tests with deliberately tight stops; R1 makes a crossed stop safe | OPEN |
-| R4 | **Reduce** buttons while a **triggered** stop is already closing the position (item 5) | (a) **refuse with a clear message** · (b) cancel the stop, then place the reduce (a naked window) · (c) re-price the stop to the reduce price | **(a).** The triggered stop is already chasing the top of book, and the chase would override (c) within 333 ms. (b) leaves no stop while a limit rests | OPEN |
+| R1 | What the app does when the exchange **rejects the stop leg** (item 1) | (a) alarm only · (b) a replacement stop-market · (c) flatten at once | Coordinator recommended (c) | ✅ **RULED 2026-10-10 by the owner, sharper than (c): do what the stop and the M.SL would have done.** Price past the stop's **trigger** but not past the **M.SL distance** → place the stop's own reduce-only **limit** where the trigger would have placed it, and let the triggered-stop chase take over. Price past the **M.SL distance** → **flatten at once**. See §1 |
+| R2 | What the live watchdog does when a position has **no stop for any other reason** (item 2) | (a) alarm only · (b) flatten | (a) | ✅ **RULED 2026-10-10: alarm only** |
+| R3 | A minimum stop distance at placement | (a) none for now · (b) a configurable floor | (a) — the decision-bias tripwire flagged it `gives_up_for_economy` (5/5), shown to the owner | ✅ **RULED 2026-10-10: no floor for now** |
+| R4 | **Reduce** buttons while a **triggered** stop is already closing the position (item 5) | (a) refuse with a message · (b) cancel, then reduce · (c) re-price the stop | (a) | ✅ **RULED 2026-10-10: refuse with a message** |
 
 ## 🚫 Do-not-touch
 
@@ -39,7 +39,20 @@ emergency paths → Opus, high.**
 **Change:**
 - Add a branch for `orderState` **starting with `rejected`**, any label.
   - Label `StopLossOrder` (or `TrailingStopLoss`): red log naming the reason, `Alert`, urgent page
-    "Stop REJECTED by the exchange (<reason>) — <side> <size> position has NO STOP". Then the R1 action.
+    "Stop REJECTED by the exchange (<reason>) — <side> <size> position has NO STOP". Then the R1 action:
+  - **R1 action (owner ruling 2026-10-10).** Read the rejected leg's own `trigger_price` and `price` (the
+    stop limit) from the push. Compare the current own-side quote with them, for the position's side:
+    - **Past the M.SL distance** — the same test the M.SL emergency uses in
+      `UpdateStopLossForTriggeredStopLossOrder` (its baseline, before a trigger, is the stop's trigger price;
+      `marketStopLossChecked` on and `marketStopThreshold` > 0): **flatten at once** with the reduce-only
+      market path, with batch 1's honest SENT/CONFIRMED/FAILED messages.
+    - **Otherwise** (the price is past the trigger, which is why it was rejected): place a **reduce-only,
+      post-only limit** for the position size at the leg's `price`, label `StopLossOrder`, and set the same
+      triggered-stop context a real trigger sets, so the existing triggered-SL chase and the M.SL cap take it
+      over from there. A post-only limit that would cross is repriced to the top of the book by the exchange
+      (experiment (c)), so it cannot be rejected for crossing.
+    - **M.SL unticked or its threshold 0:** there is no "market stop" distance, so always the limit branch.
+    - Page what was done: "… stop limit placed at <price>" or "… flattening".
   - Any other label: yellow log naming the label and reason; normal-priority page.
 - The push can arrive **before** the entry's fill is processed. Take the side from the leg's direction
   (a `sell` stop protects a long) and act on the position as soon as it is known. Do not drop the event

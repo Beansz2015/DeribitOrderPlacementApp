@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-10T04:30Z",
+  "updated_utc": "2026-10-10T05:00Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,12 +9,12 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 2 commits ahead of origin (the experiment review; the batch-2 spec).",
+      "meaning": "Push master: 3 commits ahead of origin (the experiment review; the batch-2 spec; its rulings).",
       "since": "2026-10-10"
     },
     {
-      "kind": "ruling",
-      "meaning": "Batch-2 rulings before 14 Oct: what the app does when the exchange rejects the stop (flatten?), the no-stop watchdog's action, a minimum stop distance (tripwire flagged the 'none' recommendation), and Reduce while a triggered stop closes.",
+      "kind": "go",
+      "meaning": "Launch the implementer seat for position-protection batch 2 (Opus, high). All four rulings are in the spec.",
       "doc": "docs/spec-protection-batch2.md",
       "since": "2026-10-10"
     },
