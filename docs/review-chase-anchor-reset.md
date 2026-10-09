@@ -43,3 +43,10 @@ not reach the send**. A local flag, one reset in a `Finally`. It can never wipe 
 working order, because that call did not seed it. Decision-bias tripwire:
 `docs/harness-runs/decision-bias-20261008T0400Z-*`, baseline first, no `gives_up_for_economy` flag,
 stable 5/5.
+
+## 4. Runtime acceptance — 2026-10-10
+
+✅ **Accepted on testnet** (`docs/runtime-record-x1-testnet-2026-10-10.md`, item (j)): a 1-USD placement
+was rejected (`-32602 … must be a multiple of contract size`); after a 31-USD move (11× the 2.75 limit) the
+next 10-USD placement went out with no slippage refusal and no `AbortedEntries` row. The bridge half
+(`rejected: <reason>` instead of `timeout`) remains verified by code reading only. **CLOSED.**

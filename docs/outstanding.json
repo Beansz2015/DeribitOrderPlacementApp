@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-09T17:30Z",
-  "updated_by": "seat experiment, Opus 5.5",
+  "updated_utc": "2026-10-10T03:00Z",
+  "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 2 commits ahead of origin (the testnet experiment results; the temporary test switches were added and removed).",
+      "meaning": "Push master: 1 commit ahead of origin (the experiment review).",
       "since": "2026-10-10"
     },
     {
@@ -38,15 +38,15 @@
   "dated": [],
   "next_up": [
     {
-      "what": "Batch-2 spec with the new evidence, now including the testnet experiment results (the exchange pushes the dead stop leg as rejected; the stop never trails; a reduce-only take-profit cancels both legs): live no-stop watchdog, dead stop-leg alert, stop distance checked against the fill, cancel-on-disconnect check at connect, manual reduce while a stop rests, and the emergency close order",
+      "what": "Batch-2 spec from the experiment evidence: dead stop-leg alert (the rejected push exists), live no-stop watchdog, stop distance checked against the fill, cancel-on-disconnect check at connect, manual reduce while a stop rests, Trig.O. does nothing (exchange drops it). Rulings needed before 14 Oct.",
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (the top-severity audit finding, for entries above 10 USD). Blocks risk sizing in Live. A reduce-only take-profit is ruled out (testnet: it leaves the position with no stop), and testnet could not produce a partial fill.",
+      "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (S0 above 10 USD). Blocks risk sizing in Live. A reduce-only TP is ruled out (it cancels both legs on an SL trigger); a partial fill cannot be observed on testnet or at 10 USD, so design without it.",
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Post-experiment protection batch: emergency reduce-before-cancel, dead stop-leg branch, position-level loss cap, quote-silence watchdog, stop-side check at fill, stand-down cancels the entry, bounded freshness window",
+      "what": "Later protection items: position-level loss cap, quote-silence watchdog, stand-down cancels the entry, bounded freshness window; emergency reduce-before-cancel once the triggered-SL case is observed",
       "model": "Opus 5.5, high"
     },
     {

@@ -73,3 +73,10 @@ flag, stable 5/5.
    placement price, a plausible `SlippageATR`.
 2. A forced abort (ATRSlip 0.05) → one `AbortedEntries` row, reason `ATR slippage`, no new `Trades` row.
 3. Read both on a **copy** of `trades.db`. A seat can read the copy for you.
+
+## 6. Runtime acceptance — 2026-10-10
+
+✅ **Accepted on testnet** by the experiment seat (`docs/runtime-record-x1-testnet-2026-10-10.md`, items
+(h) and (i)), checked by the coordinator on a copy of `trades.db` (`docs/review-x1-testnet-experiments.md`).
+Trade #136: `RequoteCount` 1, `SignalPrice` 82520, `SlippageATR` 0.1273. `AbortedEntries` row 3: `ATR
+slippage`, no new `Trades` row. **CLOSED.**
