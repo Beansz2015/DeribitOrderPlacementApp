@@ -1,28 +1,17 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-10T02:00Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-09T16:35Z",
+  "updated_by": "seat experiment, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
   },
   "waiting_on_trader": [
     {
-      "kind": "push",
-      "meaning": "Push master: 10 commits ahead of origin (through the cancel-on-disconnect and missing-SL findings).",
-      "since": "2026-10-06"
-    },
-    {
       "kind": "go",
       "meaning": "Before any live use: confirm Deribit's 'cancel on disconnect' is OFF on the live account and key (it was ON on testnet and deleted every stop on each disconnect; now off there).",
       "doc": "docs/production-cutover-checklist.md",
       "since": "2026-10-10"
-    },
-    {
-      "kind": "go",
-      "meaning": "Then launch the testnet experiment seat (Opus, high), after batch 1 is reviewed. It also runs the held slippage-fields check and the chase-anchor reset check. Close your own app first; the seat launches its own testnet instance.",
-      "doc": "docs/spec-x1-testnet-experiments.md",
-      "since": "2026-10-08"
     },
     {
       "kind": "ruling",
@@ -40,7 +29,14 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [],
+  "in_progress": [
+    {
+      "what": "Testnet experiments: how Deribit treats the OTOCO legs (crossed stop, trailing trigger, partial fill, reduce-only TP and market reduce), plus the slippage-fields and chase-anchor reset checks",
+      "where": "agent experiment seat, local testnet app",
+      "started_utc": "2026-10-09T16:35Z",
+      "check": "docs/runtime-record-x1-testnet-2026-10-10.md"
+    }
+  ],
   "dated": [],
   "next_up": [
     {

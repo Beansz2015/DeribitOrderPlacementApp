@@ -1412,6 +1412,7 @@ Public Class frmMainPageV2
     Private Async Function SendWebSocketMessageAsync(message As String) As Task(Of Boolean)
         Try
             Dim bytes = Encoding.UTF8.GetBytes(message)
+            X1Testnet.Outbound(message) ' TEMPORARY X-1 raw echo (testnet + flag file only)
 
             ' Attempt to send the message
             Await webSocketClient.SendAsync(New ArraySegment(Of Byte)(bytes), WebSocketMessageType.Text, True, cancellationTokenSource.Token)
@@ -1754,6 +1755,7 @@ Public Class frmMainPageV2
 
                 Dim response = sb.ToString()
                 sb.Clear()
+                X1Testnet.Inbound(response) ' TEMPORARY X-1 raw echo (testnet + flag file only)
 
                 ' Call the function to handle heartbeat requests from server
                 HandleHeartbeat(response)
@@ -4521,6 +4523,12 @@ Public Class frmMainPageV2
             )
         ))
     )
+
+            ' TEMPORARY X-1 experiment (f): reduce_only on the TP leg (testnet + flag file only).
+            If X1Testnet.TpReduceOnlyOn Then
+                CType(params("otoco_config")(0), JObject).Add("reduce_only", True)
+                AppendColoredText(txtLogs, "X1 testnet switch: TP leg sent reduce_only", Color.Orange)
+            End If
 
             'Lines below taken out from stop loss order OTOCO code
             'New JProperty("trigger_offset", triggeroffset), ' Offset for dynamic adjustment
