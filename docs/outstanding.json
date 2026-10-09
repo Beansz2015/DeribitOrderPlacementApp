@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-08T11:00Z",
+  "updated_utc": "2026-10-09T16:10Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,14 +9,20 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 8 commits ahead of origin (through position-protection batch 1 and its review).",
+      "meaning": "Push master: 9 commits ahead of origin (through the batch-1 runtime record).",
       "since": "2026-10-06"
     },
     {
       "kind": "go",
-      "meaning": "Batch-1 testnet checks on the x64 app rebuilt in review: a network pull over 60 s (flat: a normal-priority page naming the connect error; hold a position for an urgent one), a 20-30 s pull (no page), and a restart with the stop cancelled by hand (the NO STOP alarm).",
-      "doc": "docs/review-protection-batch1.md",
-      "since": "2026-10-08"
+      "meaning": "URGENT check, testnet AND live: is Deribit's 'cancel on disconnect' enabled on the account or the API key? Every app exit and network drop deleted the position's SL and TP on testnet.",
+      "doc": "docs/runtime-record-protection-batch1-2026-10-09.md",
+      "since": "2026-10-09"
+    },
+    {
+      "kind": "go",
+      "meaning": "URGENT check: in Deribit's testnet order history, the missing SL from a fast-market limit fill. What status and reason does it show (rejected, cancelled, triggered)?",
+      "doc": "docs/runtime-record-protection-batch1-2026-10-09.md",
+      "since": "2026-10-09"
     },
     {
       "kind": "go",
