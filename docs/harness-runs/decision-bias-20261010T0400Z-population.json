@@ -1,0 +1,81 @@
+{
+ "rev": "7a56fd19bfa3099d4500b56f9c19ad7b279501e4",
+ "rev7": "7a56fd1",
+ "stamp_utc": "20261010T0400Z",
+ "builder": "coordinator seat, Opus 5.5, by hand",
+ "note": "STATE ONLY. Live reads.",
+ "items": [
+  {
+   "id": "docs/spec-protection-batch2.md|R1@7a56fd1",
+   "question": "An order app's exchange rejects a position's stop-loss leg at activation because the price is already past the stop level (state rejected:price_too_high). The position now has no stop. What should the app do?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Alarm only: log, sound and page the owner."
+    },
+    {
+     "label": "(b)",
+     "text": "Place a replacement reduce-only stop-market order."
+    },
+    {
+     "label": "(c)",
+     "text": "Flatten the position at once with a reduce-only market order, and alarm."
+    }
+   ],
+   "recommended": "(c)",
+   "rationale": "A rejection for price_too_high means the stop level is already breached, so the stop would have fired: flattening does what the stop was for. (b) can be rejected again for the same reason in a fast market. (a) leaves an unprotected position while the owner may be asleep."
+  },
+  {
+   "id": "docs/spec-protection-batch2.md|R2@7a56fd1",
+   "question": "An order app's watchdog finds a live position with no stop order for more than 5 s, for a reason it cannot identify (for example the owner may have cancelled the stop by hand). What should it do?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Alarm only: log, sound and page urgently once per episode."
+    },
+    {
+     "label": "(b)",
+     "text": "Flatten the position at once."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "The cause is unknown and may be deliberate; flattening a position the owner meant to hold without a stop is an action the app cannot justify. The alarm reaches the owner."
+  },
+  {
+   "id": "docs/spec-protection-batch2.md|R3@7a56fd1",
+   "question": "An order app lets the owner set a stop only 5 USD from entry; in a fast market the stop is already crossed at activation and the exchange rejects it. A separate change will flatten the position when that happens. Should the app also enforce a minimum stop distance at placement?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "No floor for now; the flatten-on-rejection change handles the crossed case."
+    },
+    {
+     "label": "(b)",
+     "text": "Add a configurable minimum distance that refuses placements below it."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "The owner tests with deliberately tight stops; the rejection handler makes a crossed stop safe. A floor can be added later if needed."
+  },
+  {
+   "id": "docs/spec-protection-batch2.md|R4@7a56fd1",
+   "question": "An order app's triggered stop-loss is already a resting reduce-only limit order chasing the top of the book every 333 ms to close the position. The owner presses a Reduce button, which sends a second reduce-only limit; the exchange rejects it (11030). What should Reduce do while a triggered stop is closing?",
+   "options": [
+    {
+     "label": "(a)",
+     "text": "Refuse with a clear message: the triggered stop is already closing the position."
+    },
+    {
+     "label": "(b)",
+     "text": "Cancel the stop first, then place the reduce limit."
+    },
+    {
+     "label": "(c)",
+     "text": "Re-price the triggered stop to the reduce price."
+    }
+   ],
+   "recommended": "(a)",
+   "rationale": "The triggered stop is already as aggressive as a post-only order can be, and the chase would override (c) within 333 ms. (b) leaves the position with no stop while a limit rests. (a) is honest and changes nothing that protects the position."
+  }
+ ]
+}

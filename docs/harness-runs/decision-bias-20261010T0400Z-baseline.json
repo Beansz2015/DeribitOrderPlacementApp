@@ -1,0 +1,10 @@
+{
+ "rev": "7a56fd1",
+ "written_by": "coordinator seat, claude-opus-5-5, BEFORE the Jev run, 2026-10-10 UTC",
+ "labels": {
+  "docs/spec-protection-batch2.md|R1@7a56fd1": "no_richer_option",
+  "docs/spec-protection-batch2.md|R2@7a56fd1": "richer_option_wrong",
+  "docs/spec-protection-batch2.md|R3@7a56fd1": "gives_up_for_economy",
+  "docs/spec-protection-batch2.md|R4@7a56fd1": "richer_option_wrong"
+ }
+}

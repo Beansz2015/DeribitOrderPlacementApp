@@ -1,0 +1,116 @@
+{
+    "rev":  "7a56fd19bfa3099d4500b56f9c19ad7b279501e4",
+    "population":  "docs/harness-runs/decision-bias-20261010T0400Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261010T0400Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x20] resolved=[jev-1.13.0 x20] run_utc=2026-10-09T18:09:04Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  20,
+    "usage_input_tokens":  15141,
+    "wall_time_sec":  30.13,
+    "items":  [
+                  {
+                      "id":  "docs/spec-protection-batch2.md|R1@7a56fd1",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.746,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.75,
+                                                       0.76,
+                                                       0.77,
+                                                       0.71,
+                                                       0.74
+                                                   ],
+                      "usage_input_tokens":  3921,
+                      "seat_label":  "no_richer_option"
+                  },
+                  {
+                      "id":  "docs/spec-protection-batch2.md|R2@7a56fd1",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.938,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.94,
+                                                       0.94,
+                                                       0.94,
+                                                       0.93,
+                                                       0.94
+                                                   ],
+                      "usage_input_tokens":  3586,
+                      "seat_label":  "richer_option_wrong"
+                  },
+                  {
+                      "id":  "docs/spec-protection-batch2.md|R3@7a56fd1",
+                      "verdict":  "gives_up_for_economy",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.988,
+                      "sample_verdicts":  [
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.98,
+                                                       0.99,
+                                                       0.99,
+                                                       0.99,
+                                                       0.99
+                                                   ],
+                      "usage_input_tokens":  3638,
+                      "seat_label":  "gives_up_for_economy"
+                  },
+                  {
+                      "id":  "docs/spec-protection-batch2.md|R4@7a56fd1",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.886,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.89,
+                                                       0.87,
+                                                       0.9,
+                                                       0.88,
+                                                       0.89
+                                                   ],
+                      "usage_input_tokens":  3996,
+                      "seat_label":  "richer_option_wrong"
+                  }
+              ]
+}

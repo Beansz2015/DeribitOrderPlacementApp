@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-10T03:00Z",
+  "updated_utc": "2026-10-10T04:30Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,13 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 1 commit ahead of origin (the experiment review).",
+      "meaning": "Push master: 2 commits ahead of origin (the experiment review; the batch-2 spec).",
+      "since": "2026-10-10"
+    },
+    {
+      "kind": "ruling",
+      "meaning": "Batch-2 rulings before 14 Oct: what the app does when the exchange rejects the stop (flatten?), the no-stop watchdog's action, a minimum stop distance (tripwire flagged the 'none' recommendation), and Reduce while a triggered stop closes.",
+      "doc": "docs/spec-protection-batch2.md",
       "since": "2026-10-10"
     },
     {
@@ -37,10 +43,6 @@
   "in_progress": [],
   "dated": [],
   "next_up": [
-    {
-      "what": "Batch-2 spec from the experiment evidence: dead stop-leg alert (the rejected push exists), live no-stop watchdog, stop distance checked against the fill, cancel-on-disconnect check at connect, manual reduce while a stop rests, Trig.O. does nothing (exchange drops it). Rulings needed before 14 Oct.",
-      "model": "Opus 5.5, high"
-    },
     {
       "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (S0 above 10 USD). Blocks risk sizing in Live. A reduce-only TP is ruled out (it cancels both legs on an SL trigger); a partial fill cannot be observed on testnet or at 10 USD, so design without it.",
       "model": "Opus 5.5, high"
