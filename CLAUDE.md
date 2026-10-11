@@ -16,11 +16,12 @@ this repo, because it has many documents and many finding IDs:
 
 ## Where to start
 
-- **Entry point: `docs/HANDOVER-7.md`.** Read it, then verify it. `docs/HANDOVER-6.md` stays live
-  for its §4–§7 only (bin rules, runtime bite-list, invariants, methodology).
+- **Entry point: `docs/HANDOVER-8.md`.** Read it, then verify it. `docs/HANDOVER-7.md` stays live for its
+  §5 and §6 only; `docs/HANDOVER-6.md` for its §4–§7 only (bin rules, runtime bite-list, invariants,
+  methodology).
 - Then fire the Jev triggers below, and read `docs/outstanding.json`.
 - Then `docs/ROADMAP-2026-08.md` §1 (owner queue), §5 (coordinator queue), §6 (not building).
-- **Do NOT read `docs/HANDOVER-3.md`, `-4` or `-5`.** They are superseded, and `docs/HANDOVER-4.md`
+- **Do NOT read `docs/HANDOVER.md`, `-2`, `-3`, `-4` or `-5`.** They are superseded, and `docs/HANDOVER-4.md`
   §5 carries two runtime instructions that were later reversed.
 - Closed work is indexed in `docs/ARCHIVE-closed-milestones.md`, which is deliberately **not** part
   of the read path.

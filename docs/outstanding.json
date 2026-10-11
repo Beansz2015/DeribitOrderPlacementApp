@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-10T05:00Z",
+  "updated_utc": "2026-10-12T02:00Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 3 commits ahead of origin (the experiment review; the batch-2 spec; its rulings).",
+      "meaning": "Push master: 4 commits ahead of origin (the experiment review; the batch-2 spec; its rulings; HANDOVER-8).",
       "since": "2026-10-10"
     },
     {
