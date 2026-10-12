@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T02:00Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-12T09:06Z",
+  "updated_by": "seat coordinator (HANDOVER-8 intake), Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,8 +9,8 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 4 commits ahead of origin (the experiment review; the batch-2 spec; its rulings; HANDOVER-8).",
-      "since": "2026-10-10"
+      "meaning": "Push master: 1 commit ahead of origin (this pane update: the old 4-commit push row closed, the owner pushed through HANDOVER-8).",
+      "since": "2026-10-12"
     },
     {
       "kind": "go",
