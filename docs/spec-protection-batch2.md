@@ -135,7 +135,11 @@ Source: `docs/impl-report-protection-batch2.md` §3; dispositions in `docs/revie
 - **§1, the M.SL cap after an R1 limit — OWNER RULING 2026-10-12:** the R1 limit's M.SL baseline is the
   **dead stop's trigger**, settled (frozen). It is NOT re-anchored at the top of the book like a real trigger.
   The flatten fires when the price is the M.SL distance past the trigger. Fix specified in
-  `docs/review-protection-batch2.md` §3.
+  `docs/review-protection-batch2.md` §3. Built in `02260d8`, reviewed in `docs/review-sb3-msl-anchor.md`. The
+  pin is also cleared after a failed send of the R1 limit, at the nuclear cancel and at the market-reduce
+  context reset (`SB3-fix/SB1`, accepted). An owner's manual edit of the R1 limit still moves the anchor.
+- **The pin across a restart — OWNER RULING 2026-10-12 (`SB3-fix/E1` (b)):** persist the pin and re-pin it at
+  restore while the same R1 limit rests. Spec: `docs/review-sb3-msl-anchor.md` §3.
 - **§4, "change the `Trig.O.` tooltip":** there was none. One is added to the label.
 
 ## §Model and effort (`docs/HANDOVER-6.md` §7b)

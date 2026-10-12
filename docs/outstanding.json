@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T09:58Z",
-  "updated_by": "seat sb3-msl-anchor (implementer), Opus 5.5",
+  "updated_utc": "2026-10-12T15:21Z",
+  "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 5 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger).",
+      "meaning": "Push master: 6 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling).",
       "since": "2026-10-12"
     },
     {
@@ -32,8 +32,9 @@
   "dated": [],
   "next_up": [
     {
-      "what": "Review the M.SL-anchor fix (committed 2026-10-12, gate passed; report docs/impl-report-sb3-msl-anchor.md). One open question in it: an app restart loses the pin, so the cap falls back to the resting limit's price",
-      "doc": "docs/impl-report-sb3-msl-anchor.md",
+      "what": "Seat: keep the M.SL cap pinned at the dead stop's trigger across an app restart (save it to a small state file; re-pin at restore when the same stop limit is resting). Owner ruling 2026-10-12. Before the testnet session",
+      "doc": "docs/review-sb3-msl-anchor.md",
+      "anchor": "§3",
       "model": "Opus 5.5, high"
     },
     {

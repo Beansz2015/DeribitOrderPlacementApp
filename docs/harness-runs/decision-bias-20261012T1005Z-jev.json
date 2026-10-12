@@ -1,0 +1,47 @@
+{
+    "rev":  "02260d8d7a754eef35b8eff3f349be7daa986aa7",
+    "population":  "docs/harness-runs/decision-bias-20261012T1005Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261012T1005Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x5] resolved=[jev-1.13.0 x5] run_utc=2026-10-12T15:05:10Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  5,
+    "usage_input_tokens":  5214,
+    "wall_time_sec":  2.05,
+    "items":  [
+                  {
+                      "id":  "docs/review-sb3-msl-anchor.md|SB3-fix/E1 restart loses the pin@02260d8",
+                      "verdict":  "gives_up_for_economy",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.484,
+                      "sample_verdicts":  [
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.48,
+                                                       0.5,
+                                                       0.48,
+                                                       0.46,
+                                                       0.5
+                                                   ],
+                      "usage_input_tokens":  5214,
+                      "seat_label":  "gives_up_for_economy"
+                  }
+              ]
+}

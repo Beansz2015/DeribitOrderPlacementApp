@@ -1,0 +1,16 @@
+{
+  "rev": "02260d8d7a754eef35b8eff3f349be7daa986aa7",
+  "items": [
+    {
+      "id": "docs/review-sb3-msl-anchor.md|SB3-fix/E1 restart loses the pin@02260d8",
+      "question": "After a rejected stop leg, the app places a replacement stop limit and now pins the M.SL loss cap at the dead stop's trigger. The pin lives only in memory. If the app restarts while that limit is still resting, the restore code adopts the resting limit's own price as the settled M.SL anchor, which is the existing rule for every triggered stop found at restore. The limit usually rests near the top of the book, so after a restart the flatten fires a further M.SL distance beyond the market, not at the M.SL distance past the dead trigger. What should be done about the restart case?",
+      "options": [
+        { "label": "(a)", "text": "Accept and record it: after a restart, the R1 limit is anchored like any restored triggered stop. The window is short (from a crossed stop until the position closes) and needs a restart inside it. Queue nothing." },
+        { "label": "(b)", "text": "Persist the dead stop's trigger (and the R1 limit's id) to a small state file when the pin is set, and at restore re-pin the anchor when the resting stop limit's id matches. Clear the file at every context reset." },
+        { "label": "(c)", "text": "At restore, for any resting triggered stop, anchor the M.SL at the restored trigger price (StopLossTriggerOriginal) rather than the limit's price, for real triggers as well." }
+      ],
+      "recommended": "(a)",
+      "rationale": "The case needs two rare events together: a crossed stop rejected at the fill, and an app restart before that position closes. After the restart the position still has a live, chased stop limit and the M.SL cap still works, only with a wider bound; that bound is exactly what the owner already accepted for every triggered stop found at restore. (b) closes the gap fully but adds a persisted state file and a restore-matching rule on the stop path for a rare compound case. (c) changes the restore rule for all real triggered stops, which the owner settled earlier (the restored top-of-book stop is the settled anchor), and the restored trigger may be unknown (0) after a restart."
+    }
+  ]
+}
