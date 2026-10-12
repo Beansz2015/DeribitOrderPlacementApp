@@ -6686,7 +6686,7 @@ Public Class frmMainPageV2
         Oversize    ' open part above the position - PF-R3 (a): edit down, yellow log, normal page
         Undersize   ' open part below the position - PF-R5 (a): edit up, gray log, no page
         RestingFlat ' a TP resting with no position - PF-R4 (a): cancel, red log, urgent page
-        WrongSide   ' the TP would ADD to the position - not ruled: alarm only, no order is touched
+        WrongSide   ' the TP would ADD to the position - PF-SB3, owner ruling 2026-10-13: as RestingFlat
     End Enum
 
     Friend Shared Function LegSizeBreachFor(tpAmount As Decimal, tpFilled As Decimal, tpClosesPos As Boolean,
@@ -6716,9 +6716,21 @@ Public Class frmMainPageV2
     End Function
 
     Friend Const TpRestingFlatText As String = "TP resting with no position: cancelled"
+    Friend Const TpWrongSideText As String = "TP on the position's side: cancelled"
 
-    Friend Shared Function TpWrongSideText(tpDirection As String, positionSize As Decimal) As String
-        Return $"TP ({tpDirection}) would ADD to the {If(positionSize > 0D, "LONG", "SHORT")} {Math.Abs(positionSize).ToString(Globalization.CultureInfo.InvariantCulture)} USD position - not touched, check it now"
+    ' PF-R4 (resting flat) and PF-SB3 (wrong side, owner ruling 2026-10-13): cancel the TP by id (request
+    ' id 43), then red log and urgent page. The two size breaches edit the TP instead.
+    Friend Shared Function LegBreachCancelsTp(breach As LegSizeBreach) As Boolean
+        Return breach = LegSizeBreach.RestingFlat OrElse breach = LegSizeBreach.WrongSide
+    End Function
+
+    Friend Shared Function TpGuardCancelText(breach As LegSizeBreach) As String
+        Return If(breach = LegSizeBreach.WrongSide, TpWrongSideText, TpRestingFlatText)
+    End Function
+
+    ' The tail of the urgent page when the cancel is refused or not sent: what is still resting.
+    Friend Shared Function TpGuardStillRestsText(breach As LegSizeBreach) As String
+        Return If(breach = LegSizeBreach.WrongSide, "a TP still rests on the position's side", "a TP still rests with no position")
     End Function
 
     ' --- The live TP, read from batch 2's order map (each order's latest echo: exchange truth) ---
@@ -6868,7 +6880,7 @@ Public Class frmMainPageV2
         Return True
     End Function
 
-    ' The replies to the resize (id 42) and to F3's PF-R4 cancel (id 43). Receive thread; engine fields only.
+    ' The replies to the resize (id 42) and to F3's PF-R4 / PF-SB3 cancel (id 43). Receive thread; engine fields only.
     Private Sub HandleTpGuardResponse(response As String)
         Try
             If response.IndexOf("""id"":4", StringComparison.Ordinal) < 0 Then Return
@@ -6889,7 +6901,7 @@ Public Class frmMainPageV2
                     AppendColoredText(txtLogs, $"TP cancel: the TP was already gone ({errorText})", Color.Gray)
                     Return
                 End If
-                Dim refusedText As String = $"TP cancel REFUSED ({errorText}) — a TP still rests with no position"
+                Dim refusedText As String = $"TP cancel REFUSED ({errorText}) — {TpGuardStillRestsText(tpGuardCancelKind)}"
                 AppendColoredText(txtLogs, refusedText, Color.Red)
                 RemoteNotifier.Post("OrderApp", refusedText, priority:="urgent", tags:="rotating_light")
                 Return
@@ -6919,18 +6931,23 @@ Public Class frmMainPageV2
         End Try
     End Sub
 
-    Private Async Function SendTpGuardCancelAsync(tpId As String) As Task
+    ' The breach behind the last id-43 cancel: words the refusal page. Display only.
+    Private tpGuardCancelKind As LegSizeBreach = LegSizeBreach.RestingFlat
+
+    ' Returns True when the cancel was sent. A failed send pages here.
+    Private Async Function SendTpGuardCancelAsync(tpId As String, kind As LegSizeBreach) As Task(Of Boolean)
+        tpGuardCancelKind = kind
         Dim payload As New JObject From {
             {"jsonrpc", "2.0"},
             {"id", TpGuardCancelRequestId},
             {"method", "private/cancel"},
             {"params", New JObject From {{"order_id", tpId}}}
         }
-        If Not Await SendWebSocketMessageAsync(payload.ToString()) Then
-            Dim failText As String = "TP cancel NOT SENT (socket) — a TP still rests with no position"
-            AppendColoredText(txtLogs, failText, Color.Red)
-            RemoteNotifier.Post("OrderApp", failText, priority:="urgent", tags:="rotating_light")
-        End If
+        If Await SendWebSocketMessageAsync(payload.ToString()) Then Return True
+        Dim failText As String = $"TP cancel NOT SENT (socket) — {TpGuardStillRestsText(kind)}"
+        AppendColoredText(txtLogs, failText, Color.Red)
+        RemoteNotifier.Post("OrderApp", failText, priority:="urgent", tags:="rotating_light")
+        Return False
     End Function
 
     ' --- F3: the leg-size check, one tick. Stands down like the no-stop watchdog (disconnected, or the map
@@ -6980,6 +6997,15 @@ Public Class frmMainPageV2
         End SyncLock
 
         Dim tpOpen As Decimal = tp.Amount - tp.Filled
+        If LegBreachCancelsTp(action) Then
+            ' PF-R4 and PF-SB3: cancel first, then the red log and the urgent page. A failed send has paged already.
+            If Await SendTpGuardCancelAsync(tp.Id, action) Then
+                Dim text As String = TpGuardCancelText(action)
+                AppendColoredText(txtLogs, text, Color.Red)
+                RemoteNotifier.Post("OrderApp", text, priority:="urgent", tags:="rotating_light")
+            End If
+            Return
+        End If
         Select Case action
             Case LegSizeBreach.Oversize
                 Dim text As String = LegSizeResizedText(tpOpen, size)
@@ -6989,15 +7015,6 @@ Public Class frmMainPageV2
             Case LegSizeBreach.Undersize
                 AppendColoredText(txtLogs, $"TP open part {tpOpen:0.##} below position {Math.Abs(size):0.##}: resizing up", Color.Gray)
                 Await RequestTpResizeAsync(True, LegSizeBreach.Undersize)
-            Case LegSizeBreach.RestingFlat
-                AppendColoredText(txtLogs, TpRestingFlatText, Color.Red)
-                RemoteNotifier.Post("OrderApp", TpRestingFlatText, priority:="urgent", tags:="rotating_light")
-                Await SendTpGuardCancelAsync(tp.Id)
-            Case LegSizeBreach.WrongSide
-                Dim text As String = TpWrongSideText(tp.Direction, size)
-                AppendColoredText(txtLogs, text, Color.Red)
-                Alert("no_stop")
-                RemoteNotifier.Post("OrderApp", text, priority:="urgent", tags:="rotating_light")
         End Select
     End Function
 

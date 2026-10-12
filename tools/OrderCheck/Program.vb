@@ -1891,7 +1891,7 @@ Module Program
         Check("PF F3 fixture 5: the OPEN part counts - TP 300 filled 100 vs 200 -> nothing; vs 150 -> Oversize",
               frmMainPageV2.LegSizeBreachFor(300D, 100D, True, 200D) = frmMainPageV2.LegSizeBreach.None AndAlso
               frmMainPageV2.LegSizeBreachFor(300D, 100D, True, 150D) = frmMainPageV2.LegSizeBreach.Oversize)
-        Check("PF F3 fixture 6: a sell TP on a SHORT would add to it -> WrongSide (alarm only); no TP -> nothing",
+        Check("PF F3 fixture 6: a sell TP on a SHORT would add to it -> WrongSide; no TP -> nothing",
               frmMainPageV2.LegSizeBreachFor(20D, 0D, frmMainPageV2.TpClosesPosition("sell", -20D), -20D) = frmMainPageV2.LegSizeBreach.WrongSide AndAlso
               frmMainPageV2.LegSizeBreachFor(0D, 0D, True, 20D) = frmMainPageV2.LegSizeBreach.None)
         Check("PF F3 fixture 7: within the 2-s grace -> no action; past it -> act; once per episode",
@@ -1912,6 +1912,27 @@ Module Program
         Dim found As JToken = frmMainPageV2.FindLiveTakeProfit(tpMap.Values)
         Check("PF F3 fixture 9: an untriggered TP template is not a resting TP; the open post-fill TP is",
               noLive AndAlso found IsNot Nothing AndAlso found.Value(Of String)("order_id") = "TP-1")
+        ' PF-SB3, owner ruling 2026-10-13: a wrong-side TP is cancelled by id, then paged, as PF-R4.
+        Dim wrongSide As frmMainPageV2.LegSizeBreach =
+            frmMainPageV2.LegSizeBreachFor(20D, 0D, frmMainPageV2.TpClosesPosition("buy", 20D), 20D)
+        Check("PF follow-up fixture 1 (PF-SB3): a buy TP on a LONG -> WrongSide -> cancel the TP (id 43), as RestingFlat; Oversize, Undersize and None do not cancel",
+              wrongSide = frmMainPageV2.LegSizeBreach.WrongSide AndAlso
+              frmMainPageV2.LegBreachCancelsTp(wrongSide) AndAlso
+              frmMainPageV2.LegBreachCancelsTp(frmMainPageV2.LegSizeBreach.RestingFlat) AndAlso
+              Not frmMainPageV2.LegBreachCancelsTp(frmMainPageV2.LegSizeBreach.Oversize) AndAlso
+              Not frmMainPageV2.LegBreachCancelsTp(frmMainPageV2.LegSizeBreach.Undersize) AndAlso
+              Not frmMainPageV2.LegBreachCancelsTp(frmMainPageV2.LegSizeBreach.None))
+        Check("PF follow-up fixture 2 (PF-SB3): the cancel page texts, and what a refused cancel says still rests",
+              frmMainPageV2.TpGuardCancelText(frmMainPageV2.LegSizeBreach.WrongSide) = "TP on the position's side: cancelled" AndAlso
+              frmMainPageV2.TpGuardCancelText(frmMainPageV2.LegSizeBreach.RestingFlat) = "TP resting with no position: cancelled" AndAlso
+              frmMainPageV2.TpGuardStillRestsText(frmMainPageV2.LegSizeBreach.WrongSide) = "a TP still rests on the position's side" AndAlso
+              frmMainPageV2.TpGuardStillRestsText(frmMainPageV2.LegSizeBreach.RestingFlat) = "a TP still rests with no position",
+              $"got '{frmMainPageV2.TpGuardCancelText(frmMainPageV2.LegSizeBreach.WrongSide)}'")
+        ' Once per episode holds for the cancel too: a refused cancel is not re-sent in the same episode.
+        Check("PF follow-up fixture 3 (PF-SB3): the wrong-side cancel waits out the 2-s grace and fires once per episode",
+              Not frmMainPageV2.LegSizeCheckFires(wrongSide, 2.0, False) AndAlso
+              frmMainPageV2.LegSizeCheckFires(wrongSide, 2.01, False) AndAlso
+              Not frmMainPageV2.LegSizeCheckFires(wrongSide, 60.0, True))
 
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
