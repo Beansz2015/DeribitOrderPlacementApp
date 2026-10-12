@@ -1,0 +1,70 @@
+{
+    "rev":  "fe89c0ad62354b28eb43833ea20bcf68de5f6ae1",
+    "population":  "docs/harness-runs/decision-bias-20261012T1640Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261012T1640Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x10] resolved=[jev-1.13.0 x10] run_utc=2026-10-12T16:41:13Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  10,
+    "usage_input_tokens":  10044,
+    "wall_time_sec":  3.66,
+    "items":  [
+                  {
+                      "id":  "docs/review-testnet-2026-10-12.md|TN-F2 partial-fill acceptance route@fe89c0a",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.488,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.49,
+                                                       0.49,
+                                                       0.46,
+                                                       0.49,
+                                                       0.51
+                                                   ],
+                      "usage_input_tokens":  5325,
+                      "seat_label":  "no_richer_option"
+                  },
+                  {
+                      "id":  "docs/review-testnet-2026-10-12.md|PF-R2 (b) resize direction@fe89c0a",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.682,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.72,
+                                                       0.65,
+                                                       0.71,
+                                                       0.66,
+                                                       0.67
+                                                   ],
+                      "usage_input_tokens":  4719,
+                      "seat_label":  "no_richer_option"
+                  }
+              ]
+}

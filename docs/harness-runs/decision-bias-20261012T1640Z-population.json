@@ -1,0 +1,26 @@
+{
+  "rev": "fe89c0ad62354b28eb43833ea20bcf68de5f6ae1",
+  "items": [
+    {
+      "id": "docs/review-testnet-2026-10-12.md|TN-F2 partial-fill acceptance route@fe89c0a",
+      "question": "The partial-fill fix (keep first_hit; the app resizes the take-profit to the position) needs an acceptance. Its planned testnet acceptance needed a forced partial fill, but testnet's touch always carries about 720,000 USD or more, so a taker entry of up to 5,000 USD always fills whole. No partial fill can be produced on testnet by the seat. The owner is away for six weeks from tomorrow and holds risk sizing and any Amount above 10 USD in Live until the fix ships. How should the fix be accepted?",
+      "options": [
+        { "label": "(a)", "text": "Offline and indirect only: OrderCheck fixtures replay synthetic partial-fill echoes; a testnet run injects an oversize take-profit by a testnet API edit and checks that the app resizes it, and checks that Edit T.P. and the fill re-anchor keep the take-profit at the position after a normal fill. Nothing more." },
+        { "label": "(b)", "text": "Wait for the owner: after the return, the owner produces a real partial fill on testnet from a second sub-account (a small order that only part-fills the app's resting entry). This works only if the testnet spread is wider than one tick, so the app's order can sit alone at its price. Nothing ships until then." },
+        { "label": "(c)", "text": "Do (a) now so the fix is built and accepted as far as testnet allows; after the return, attempt (b) if the spread allows it; and keep the owner's existing hold on Amount above 10 USD in Live until a real partial fill has been seen with the fix in force (on testnet by (b), or live at small size)." }
+      ],
+      "recommended": "(c)",
+      "rationale": "(c) keeps every check that is possible now and adds the real-fill observation as a gate before any size where a partial fill can happen, without blocking the build for six weeks. (a) alone would accept the fix without ever seeing the exchange's behaviour on a real partial fill, against this project's rule that Deribit behaviour is observed. (b) alone blocks all progress for six weeks and may be impossible if the testnet spread is one tick."
+    },
+    {
+      "id": "docs/review-testnet-2026-10-12.md|PF-R2 (b) resize direction@fe89c0a",
+      "question": "The owner's fallback ruling for partial fills is: keep first_hit; whenever the position changes while a take-profit rests, edit the take-profit (and stop) amount down to the position size. Under first_hit both legs are armed at the full order amount at the first partial fill. If the app resizes the take-profit DOWN to the first partial fill and the entry then fills further, the take-profit stays smaller than the position: it would close only part of it. Should the rule be 'down only', or 'take-profit amount always equals the position, never above it' (down at a partial fill, back up as more fills arrive)?",
+      "options": [
+        { "label": "(a)", "text": "Take-profit amount always equals the absolute position size, never above it: resize down at a partial fill and back up as further fills arrive, event-driven on each position change, with the one-second leg-size check as the backstop." },
+        { "label": "(b)", "text": "Down only, as the ruling's words say: the take-profit is edited down when it exceeds the position and never edited up; after further fills the take-profit closes only part of the position, and the stop (reduce-only, full size) covers the rest." }
+      ],
+      "recommended": "(a)",
+      "rationale": "(a) keeps the take-profit equal to the position in both directions, so a partial fill that later completes ends with exactly today's full-size exit, and the take-profit can never open a position. (b) follows the ruling's words literally but leaves the rest of the position without a take-profit after every partial fill that later completes; it is less work but a behaviour regression the owner did not ask for. Both need the owner's word because the fallback ruling said 'down'."
+    }
+  ]
+}

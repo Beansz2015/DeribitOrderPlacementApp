@@ -11,7 +11,10 @@ in §0 are in (2026-10-12).** Nothing here waits for the owner until `N2 LIVE` (
 edit paths → Opus, high.**
 **Facts below verified at HEAD `96371d4` on 2026-10-12** by read and grep, unless marked otherwise.
 
-Finding and decision IDs in this doc carry the prefix `PF-` (partial fill). Do not confuse `PF-R1`…`PF-R4`
+**Amended 2026-10-13 after X-2:** `incremental` dropped; the fix is app-side resizing with `first_hit` (§4 F1);
+staged acceptance (§5). Rulings PF-R5 and PF-R6 added.
+
+Finding and decision IDs in this doc carry the prefix `PF-` (partial fill). Do not confuse `PF-R1`…`PF-R6`
 with batch 2's `R1`…`R4` in `docs/spec-protection-batch2.md` §0.
 
 ---
@@ -21,7 +24,9 @@ with batch 2's `R1`…`R4` in `docs/spec-protection-batch2.md` §0.
 | # | Decision | Options | Coordinator recommendation | Status |
 |---|---|---|---|---|
 | PF-R1 | Run the X-2 testnet experiment (§3), with three temporary testnet-only switches | (a) yes · (b) no — design from Deribit's docs only | (a) | ✅ **RULED 2026-10-12: (a), a seat runs X-2 after batch 2 lands** |
-| PF-R2 | The mechanism (§4 item F1) | (a) `trigger_fill_condition: incremental` + the app guards · (b) app-side resizing only, keep `first_hit` · (c) `complete_fill` · (d) cancel the remainder at the first partial fill | (a), **conditional** on X-2 confirming §3 questions Q1–Q4 and Q6–Q7; if X-2 refutes any, fall back to (b) | ✅ **RULED 2026-10-12: (a), conditional as written.** The coordinator applies the condition from the X-2 record; no further owner ruling needed either way |
+| PF-R2 | The mechanism (§4 item F1) | (a) `trigger_fill_condition: incremental` + the app guards · (b) app-side resizing only, keep `first_hit` · (c) `complete_fill` · (d) cancel the remainder at the first partial fill | (a), **conditional** on X-2 confirming §3 questions Q1–Q4 and Q6–Q7; if X-2 refutes any, fall back to (b) | ✅ **RULED 2026-10-12: (a), conditional as written.** **RESOLVED 2026-10-13 → (b).** X-2 refuted Q4 (behaviour) and Q6: under `incremental` Deribit refuses every edit of the OTOCO set (`11050`), which kills the entry chase, Edit T.P./T.S. and the triggered-SL chase (`docs/runtime-record-testnet-2026-10-12.md` finding `TN-F1`). `first_hit` stays |
+| PF-R5 | Fallback (b)'s resize direction | (a) TP amount always = the position, never above (down at a partial fill, back up as more fills arrive) · (b) down only | (a) | ✅ **RULED 2026-10-13: (a)** |
+| PF-R6 | How the fix is accepted, given no partial fill can be produced on testnet (`TN-F2`) | (a) fixtures + an injected oversize TP only · (b) wait for the owner's hand-made partial fill · (c) both, staged | (c) | ✅ **RULED 2026-10-13: (c).** See §5 |
 | PF-R3 | What the leg-size check (§4 item F3) does when a take-profit rests **larger than the position** | (a) edit the TP down to the position, then alert · (b) alert only | (a) | ✅ **RULED 2026-10-12: (a)** |
 | PF-R4 | What the leg-size check does when a take-profit rests **while the position is flat** (it would open a position) | (a) cancel it, then alert · (b) alert only | (a) | ✅ **RULED 2026-10-12: (a)** |
 
@@ -128,10 +133,19 @@ grep for `X2Testnet.` to show zero call sites.
 
 ## §4 — Phase 2: the fix (after X-2, after batch 2 lands)
 
-**F1 — the mechanism (PF-R2).** If X-2 confirms Q1–Q4 and Q6–Q7: `ExecuteOrderAsync` sends
-`trigger_fill_condition: "incremental"`. The trailing-entry OTO (`StopLossForTrailingOrderAsync`, `:5543`) stays
-`first_hit`: its only leg is a reduce-only stop, which cannot open a position. If X-2 refutes any of Q1–Q4 or
-Q6–Q7, F1 is dropped, and the fix is F2 + F3 alone (PF-R2 option (b)).
+**F1 — the mechanism (PF-R2 → (b), PF-R5 (a)). `incremental` is DROPPED** (X-2, `TN-F1`). `first_hit` stays,
+and the payload does not change. Instead, the app keeps the take-profit equal to the position:
+- **Rule:** while a take-profit rests and a position exists, the TP amount = `|positionSizeUSD|`. Never above it.
+  Edit it **down** at a partial fill and **back up** as further fills arrive. A partial fill that later completes
+  ends with today's full-size TP.
+- **Trigger:** event-driven, on each position change from the `user.changes` positions pass, while a TP is known.
+  F3's one-second check is the backstop, not the main path.
+- One edit per change, with `LegAmountForEdit()` (F2). Coalesce: if an edit is in flight, send the latest target
+  once it returns. A refused edit is logged and retried by F3; never assume it took effect (`TN-F3` in the testnet
+  record is exactly that failure in the chase path).
+- The stop needs no resize: it is reduce-only, so a full-size stop closes only the position.
+- **Not observed:** an amount edit of a placed TP under `first_hit` (X-2 (f) tried it only under `incremental`).
+  The §5 item 3 injection run is its first observation.
 
 **F2 — one amount source for every take-profit and stop edit.** Add one helper, `LegAmountForEdit()`:
 - a position exists (`positionSizeUSD <> 0`) → `|positionSizeUSD|`;
@@ -142,14 +156,16 @@ templates only while the entry has **no** fill. After any fill it edits the entr
 
 **F3 — the leg-size check.** It runs in batch 2's one-second watchdog tick (`docs/spec-protection-batch2.md` §2).
 It does not fork that tick. Track the live take-profit's `amount` from its echo (exchange truth; a new field).
-- TP resting with `amount > |positionSizeUSD|` for more than 2 s → the PF-R3 action. Default (a): edit it down
+- TP resting with `amount > |positionSizeUSD|` for more than 2 s → the PF-R3 action (ruled (a)): edit it down
   with `LegAmountForEdit()`, yellow log, normal page "TP was <x>, position <y>: resized".
+- TP resting with `amount < |positionSizeUSD|` for more than 2 s → edit it up to the position (PF-R5), gray log,
+  no page. This is the backstop for a missed F1 event.
 - TP resting while the position is flat for more than 2 s → the PF-R4 action. Default (a): cancel it, red log,
   urgent page "TP resting with no position: cancelled".
 - Once per episode, as batch 2's watchdog does. Pure seam (TP amount, position, seconds) → OrderCheck.
-- The 2 s grace covers the gap between a fill echo and the position echo. Under `incremental` the TP should
-  never exceed the position, so in normal running F3 never fires. It is the backstop for every path F1 and F2
-  miss (manual edits on the Deribit UI, a socket gap, a missed echo).
+- The 2 s grace covers the gap between a fill echo and the position echo. With F1 in force the TP should
+  match the position within one edit round trip, so in normal running F3 never fires. It is the backstop for
+  every path F1 and F2 miss (manual edits on the Deribit UI, a socket gap, a missed echo, a refused edit).
 
 **🚫 Do-not-touch**
 
@@ -164,13 +180,29 @@ It does not fork that tick. Track the live take-profit's `amount` from its echo 
 ## §5 — Acceptance
 
 1. Gate passes (`tools/checks/verify-gate.ps1`); the nine `frmMainPageV2.vb` censuses re-run (occurrence counts).
-2. OrderCheck fixtures: `LegAmountForEdit()` (position, flat, placed-size override); the F3 decision (oversize,
-   flat, equal, within grace); the audit's `partial` scenario as a fixture: 500 entry, 10 filled, remainder
-   cancelled → no TP above 10 survives.
-3. Testnet harness run, with `X2_TAKER_ENTRY` and the fix in force: a partial fill → legs at the filled size;
-   remainder cancelled → legs stay at the filled size; re-anchor and Edit TP → TP stays at the position; a
-   hand-edit of the TP amount up on the Deribit UI → F3 resizes it within 3 s.
+**Owner ruling PF-R6 (c), 2026-10-13: staged.** No partial fill can be produced on testnet (`TN-F2`: the touch
+holds about 720,000 USD or more), so items 1–4 accept the build now and item 5 is the gate before size.
+
+1. Gate passes (`tools/checks/verify-gate.ps1`); the nine `frmMainPageV2.vb` censuses re-run (occurrence counts).
+2. OrderCheck fixtures: `LegAmountForEdit()` (position, flat, placed-size override); the F1 resize target over a
+   sequence of synthetic partial-fill echoes (10 → 200 → 500 filled: TP 10 → 200 → 500; remainder cancelled at
+   200: TP 200); the F3 decision (oversize, undersize, flat, equal, within grace); the audit's `partial` scenario:
+   500 entry, 10 filled, remainder cancelled → no TP above 10 survives. Each new fixture must fail against today's
+   code, proven by a mutation run.
+3. Testnet harness run, `first_hit`, 20 USD (two contracts), the fix in force:
+   a. Inject an **oversize** TP by a testnet API `private/edit` (amount up to 30) → F3 edits it back to 20 within
+      3 s and pages "resized". This is also the first observation of a TP amount edit under `first_hit`.
+   b. Inject an **undersize** TP (amount down to 10) → F3 edits it back up to 20, no page.
+   c. Flatten by API with the TP resting → PF-R4: the TP is cancelled and pages.
+   d. Edit T.P. and the fill re-anchor after a normal fill → the TP stays at the position.
+   The testnet API rule of `docs/review-protection-batch2.md` §5 applies (testnet key, logged verbatim, no
+   placement outside `tools/place-and-verify.ps1`).
 4. A normal whole-fill trade at 10 USD behaves exactly as before (echo shape, ids, re-anchor, SL trigger chase).
+5. **Gate before size — after the owner's return.** A real partial fill observed with the fix in force: the
+   owner tries one on testnet from a second sub-account if the testnet spread is wider than one tick (so the
+   app's order can rest alone at its price). Until a real partial fill has been seen with the fix in force (on
+   testnet, or live at small size by the owner's choice), the owner's hold on Amount above 10 USD and on
+   `N2 LIVE` stays.
 
 ## §6 — Sequence
 
@@ -178,9 +210,12 @@ It does not fork that tick. Track the live take-profit's `amount` from its echo 
 2. **After the batch-2 implementer reports and its review passes:** the X-2 seat. The batch-2 implementer is
    editing `frmMainPageV2.vb` in this tree now, and X-2 touches the same placement code and the x64 bin. Its
    testnet session can share one launch with batch 2's own harness acceptance run.
-3. Coordinator reviews the X-2 record and confirms or drops F1.
-4. Phase 2 implementer; coordinator review; acceptance §5 item 3; remove `X2Testnet.vb`.
-5. The owner then decides `N2 LIVE` and Amount above 10 USD (`docs/HANDOVER-7.md` §2 item 3).
+3. ✅ X-2 ran 2026-10-12 (`docs/runtime-record-testnet-2026-10-12.md`); reviewed in
+   `docs/review-testnet-2026-10-12.md`. `incremental` dropped; PF-R5 and PF-R6 ruled 2026-10-13.
+4. Phase 2 implementer; coordinator review; acceptance §5 items 1–4; remove `X2Testnet.vb` (grep shows zero
+   `X2Testnet.` call sites). `X2_TAKER_ENTRY` is no longer needed; `X2_RAW_ECHO` may serve the §5 item 3 run.
+5. After the owner's return: §5 item 5. Then the owner decides `N2 LIVE` and Amount above 10 USD
+   (`docs/HANDOVER-7.md` §2 item 3).
 
 ## §6b — Not verified by this seat
 
