@@ -1,7 +1,7 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T19:47Z",
-    "updated_by":  "seat coordinator, Opus 5.5",
+    "updated_utc":  "2026-10-12T20:00Z",
+    "updated_by":  "seat partial-fill follow-up implementer, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
                  "to":  "2026-11-25"
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 11 commits ahead of origin (the testnet-session start and a push-count fix; the X-2 switches; the testnet record and its review; the partial-fill spec amendment; the partial-fill fix and its report; its review with your wrong-side TP ruling; this pane update starting the follow-up seat).",
+                                  "meaning":  "Push master: 14 commits ahead of origin (the testnet-session start and a push-count fix; the X-2 switches; the testnet record and its review; the partial-fill spec amendment; the partial-fill fix and its report; its review with your wrong-side TP ruling; the pane update starting the follow-up seat; the wrong-side TP cancel; the follow-up's temporary testnet switches; this pane update).",
                                   "since":  "2026-10-12"
                               },
                               {
@@ -30,7 +30,7 @@
                           ],
     "in_progress":  [
                         {
-                            "what":  "Partial fills follow-up seat: cancel a take-profit on the position\u0027s own side, then alert; prove the resting-while-flat cancel at runtime on testnet",
+                            "what":  "Partial fills follow-up seat: the wrong-side take-profit cancel is built and committed. BLOCKED on the testnet run: Claude Code\u0027s auto-mode permission check refused the seat\u0027s testnet order placement. Needs your go (a permission rule, or you place the 10 USD order). Account flat, no orders, cancel-on-disconnect off; the temporary testnet switches are committed, no flag file is set",
                             "where":  "agent pf-followup",
                             "started_utc":  "2026-10-12T19:47Z"
                         }
