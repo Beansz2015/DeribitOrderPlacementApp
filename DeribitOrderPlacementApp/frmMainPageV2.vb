@@ -1234,6 +1234,10 @@ Public Class frmMainPageV2
         ' the heartbeat has a real snapshot to republish from its very first tick. No-op when
         ' unconfigured - no timer at all.
         ExecutorFeedback.StartHeartbeat()
+
+        ' Protection batch 2 item 2: the live no-stop watchdog, once a second for the life of the form.
+        ' Fire and forget; it stands down while disconnected and exits on isClosing.
+        Dim protectionWatchdog = Task.Run(Function() RunProtectionWatchdogAsync())
     End Sub
 
     ' Bridge log sink: prefixes + routes to the main log. AppendColoredText self-marshals and is
@@ -1640,6 +1644,7 @@ Public Class frmMainPageV2
         cancellationTokenSource = New CancellationTokenSource()
         positionRestoreAnnounced = False ' fresh connection: the id-777 seed may announce again
         ResetRestoreStopCheck()          ' protection batch 1 item 3: one NO STOP check per connection
+        ResetLiveOrderMap()              ' protection batch 2 item 2: the watchdog waits for this connection's id-778 snapshot
 
         ' Connect with timeout
         Using connectTimeout As New CancellationTokenSource(TimeSpan.FromSeconds(30))
@@ -1674,6 +1679,10 @@ Public Class frmMainPageV2
         ' context (entry/TP/SL ids + prices). Send-only; the id-778 response drains through
         ' HandleOpenOrdersSnapshot once the receive loop starts (same pattern as the id-777 seed).
         Await RequestOpenOrdersSnapshot()
+
+        ' Protection batch 2 item 3: read-only check of the account's cancel-on-disconnect, every connect.
+        ' Send-only like the two above; HandleCancelOnDisconnectResponse reads the reply.
+        Await RequestCancelOnDisconnectStatus()
 
         ' Update UI on success
         Me.BeginInvoke(Sub()
@@ -1775,6 +1784,8 @@ Public Class frmMainPageV2
                 HandleMarginEstimationResponse(response)
                 ' Restore hardening: OTOCO children snapshot at connect (id 778)
                 HandleOpenOrdersSnapshot(response)
+                ' Protection batch 2 item 3: the cancel-on-disconnect reply at connect (id 41)
+                HandleCancelOnDisconnectResponse(response)
                 ' Decouple v2: placement acks/rejections (ids >= PlacementIdBase)
                 HandlePlacementResponse(response)
                 ' Audit2 F2: surface JSON-RPC errors no dedicated handler owns (silent order rejections)
@@ -1995,15 +2006,31 @@ Public Class frmMainPageV2
             ' FAILED. Ahead of the skips below on purpose - a 10028 rejection is a failed close too.
             If messageId.HasValue AndAlso messageId.Value = 1 Then NoteEmergencyReduceRejected(errorField.ToString(Newtonsoft.Json.Formatting.None))
             ' Skip errors that already have dedicated logging (null-safe: HasValue AndAlso, never <>)
+            ' Protection batch 2 item 1: the rejected-stop replacement limit (id 40) was refused - the
+            ' position is still without a stop. Ahead of the skips, like the id-1 hook above.
+            If messageId.HasValue AndAlso messageId.Value = ReplacementStopRequestId Then
+                Dim stopText As String = $"Stop limit REJECTED ({errorField.ToString(Newtonsoft.Json.Formatting.None)}) — position has NO STOP"
+                AppendColoredText(txtLogs, stopText, Color.Red)
+                Alert("no_stop")
+                RemoteNotifier.Post("OrderApp", stopText, priority:="urgent", tags:="rotating_light")
+                Return
+            End If
             If messageId.HasValue AndAlso
                (messageId.Value = 3 OrElse messageId.Value = 999 OrElse
-                messageId.Value = 777) Then Return
+                messageId.Value = 777 OrElse messageId.Value = CancelOnDisconnectRequestId) Then Return
             If messageId.HasValue AndAlso messageId.Value >= PlacementIdBase Then Return ' HandlePlacementResponse owns placements
 
             Dim errorCode = errorField.SelectToken("code")?.ToObject(Of Integer)()
             If errorCode.HasValue AndAlso errorCode.Value = 10028 Then Return ' HandleRateLimitError owns 10028
 
             Dim errorMessage = errorField.SelectToken("message")?.ToString()
+
+            ' Protection batch 2 item 5: 11030 on a reduce is not specific (seen with a covering reduce-only
+            ' order AND on a flat position - docs/runtime-record-x1-testnet-2026-10-10.md section 4), so say both.
+            If messageId.HasValue AndAlso messageId.Value = 1 AndAlso errorCode.HasValue AndAlso errorCode.Value = 11030 Then
+                AppendColoredText(txtLogs, $"{ReduceOnlyRejectedText} (code 11030 - {errorMessage})", Color.Red)
+                Return
+            End If
 
             ' Expected chase race: a triggered-SL / trailing edit (order-edit ids 223344-223350, see
             ' RequestNameForId) can reach the exchange just after the limit has filled - the order is gone,
@@ -2119,6 +2146,8 @@ Public Class frmMainPageV2
             Case 2 : Return " auth"
             Case 30 : Return " cancel-all/trailing stop"
             Case 31 : Return " scoped entry cancel"
+            Case 40 : Return " rejected-stop stop limit"
+            Case 41 : Return " get_cancel_on_disconnect"
             Case 1 : Return " subscribe/reduce order"
             Case 1001 : Return " set_heartbeat"
             Case 223344, 223345, 223346, 223347, 223348, 223349, 223350 : Return " order edit"
@@ -3453,6 +3482,10 @@ Public Class frmMainPageV2
                             Dim orderId = order.SelectToken("order_id")?.ToString()
                             Dim label = order.SelectToken("label")?.ToString()
 
+                            ' Protection batch 2 item 2: every order message keeps the watchdog's map current,
+                            ' whatever the gates below decide (cancelPending included - the map mirrors the exchange).
+                            NoteLiveOrder(order)
+
                             'Process desc.:
                             'Step 1. Placed order : EntryLimitOrder = Open / TakeLimitProfit + StopLossOrder = Untriggered
                             'Step 2. In position : EntryLimitOrder = Filled / TakeLimitProfit + StopLossOrder = Triggered AND new TakeLimitProfit + StopLossOrder = Open
@@ -3767,8 +3800,9 @@ Public Class frmMainPageV2
                                         ' filled echo the live post-fill TP leg does not exist under its new id yet
                                         ' (the OTOCO fill retires the pre-fill legs), so editing here hits
                                         ' order_not_found. Stage the fill; the post-fill open TakeLimitProfit echo
-                                        ' re-anchors the TP leg. The SL leg is a native trailing stop (trigger_offset)
-                                        ' - the exchange trails it, so it is deliberately NOT re-anchored.
+                                        ' re-anchors the TP leg. The SL leg is deliberately NOT re-anchored. It does NOT
+                                        ' trail: Deribit drops trigger_offset inside otoco_config (experiment (b),
+                                        ' docs/runtime-record-x1-testnet-2026-10-10.md), so the stop stays where placed.
                                         ' Manual-TP fix (spec-emergency-baseline-fix.md §6b): a manual TP is an ABSOLUTE
                                         ' price (placed correctly, fill-independent) - it must NOT be re-anchored to the
                                         ' fill+offset. Decide here (manualTPval is still intact; the OpenPositions=True
@@ -3779,6 +3813,21 @@ Public Class frmMainPageV2
                                         If legAnchorPrice <> 0D AndAlso entryFillPrice > 0D AndAlso entryFillPrice <> legAnchorPrice AndAlso manualTPval <= 0D Then
                                             pendingReanchorFill = entryFillPrice
                                         End If
+                                    Case "EntryMarketOrder"
+                                        ' Protection batch 2 item 6: a Mkt. BUY / Mkt. SELL fill printed no
+                                        ' "Position entered" line. The line, chime and status only, matching the
+                                        ' limit entry's; the in-position transition still comes from the legs'
+                                        ' open echoes, as before. Price: the true average fill, else the order's.
+                                        UiInvoke(Sub()
+                                                     lblOrderStatus.Text = "In Position"
+                                                     lblOrderStatus.ForeColor = Color.Yellow
+                                                 End Sub)
+                                        Dim mktShownPrice As Decimal = If(order.SelectToken("average_price")?.ToObject(Of Decimal?)(), 0D)
+                                        If mktShownPrice <= 0D Then mktShownPrice = If(order.SelectToken("price")?.ToObject(Of Decimal?)(), 0D)
+                                        Dim mktShownSize As Decimal = If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
+                                        If mktShownSize <= 0D Then mktShownSize = orderAmountVal ' every order echo carries amount; the box is a last resort
+                                        AppendColoredText(txtLogs, $"Position entered: {If(ManagedSideIsLong(), "LONG", "SHORT")} {mktShownSize} @ ${mktShownPrice:F2}", Color.LimeGreen)
+                                        Alert("entry_fill") ' item D
                                     Case "TakeLimitProfit"
                                         OpenPositions = True
                                         ExecPrice = order.SelectToken("price")?.ToObject(Of Decimal?)()
@@ -3813,7 +3862,8 @@ Public Class frmMainPageV2
                                         UpdateFlag = False
 
                                         ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md §3): the trailing
-                                        ' bracket has no TP leg and its SL is the native trailing stop, so there is
+                                        ' bracket has no TP leg and its SL leg is not re-anchored (it does not trail
+                                        ' either - Deribit drops trigger_offset inside otoco_config), so there is
                                         ' nothing to re-anchor here - the old (buggy) SL re-anchor hook was removed.
                                     Case "TrailingStopLoss"
                                         OpenPositions = True
@@ -3861,6 +3911,12 @@ Public Class frmMainPageV2
                                         reduceOrderPrice = 0D
                                         reduceOrderAmount = 0D
                                 End Select
+                            ElseIf IsRejectedOrderState(orderState) Then
+                                ' Protection batch 2 item 1 (docs/spec-protection-batch2.md section 1): a dead stop
+                                ' leg used to fall through every branch silently. Prefix match - only
+                                ' "rejected:price_too_high" was observed. Any label: the stop labels alarm and run
+                                ' the R1 action (once the position is known); the rest log yellow.
+                                NoteRejectedOrder(order, orderState, label, orderId)
                             End If
 
                         Next
@@ -3965,6 +4021,10 @@ Public Class frmMainPageV2
                     ' Reliable close: complete a !=0 -> 0 transition exactly once, even when the flat echo
                     ' carried no orders (the closing fill was captured in an earlier echo via pendingClose*).
                     If positionJustClosed Then Await CompletePositionClose()
+
+                    ' Protection batch 2 item 1: a rejected stop's R1 action waits for the position. This
+                    ' echo may be the one that made it known (the positions pass above). No-op when none waits.
+                    Await TryActOnRejectedStopAsync()
 
                 End If
             End If
@@ -4567,6 +4627,7 @@ Public Class frmMainPageV2
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
             emergencyFired = False                ' N1: a fresh order re-establishes a clean emergency context too
+            DropRejectedStopContext()             ' batch 2 item 1: a rejected-stop context never outlives its bracket
             ' N2b: retain the size actually SENT - but ONLY when it came from an OVERRIDE (owner veto
             ' 2026-08-01; spec §2 as amended). The distinction the fix needs is WHERE the placed size
             ' came from, not whether one was retained. A manual placement writes 0, so its chase falls
@@ -4995,7 +5056,8 @@ Public Class frmMainPageV2
     ' Fill-reanchor fix (docs/spec-fill-reanchor-fix.md): re-anchor the TP leg ONLY, to the actual fill.
     ' Called from the post-fill open TakeLimitProfit echo with that echo's live PositionTPOrderId (the
     ' pre-fill CurrentTPOrderId is retired by the OTOCO fill - the old bug). One edit; the price is derived
-    ' by the caller. The SL leg is a native trailing stop (trigger_offset) - deliberately NOT touched, so
+    ' by the caller. The SL leg is deliberately NOT touched (it does not trail: Deribit drops trigger_offset
+    ' inside otoco_config - experiment (b), docs/runtime-record-x1-testnet-2026-10-10.md), so
     ' this is NOT an SL-context reset site (no StopLossTriggerOriginal/emergencyBaseline/commanded writes).
     ' Runs on the receive thread (after the echo's Me.Invoke): engine fields only, self-marshalling output.
     Private Async Function ReanchorTPToFillAsync(tpOrderId As String, fillPrice As Decimal, newTPprice As Decimal) As Task
@@ -5598,6 +5660,7 @@ Public Class frmMainPageV2
             placedStopLossPrice = stoplossPrice
             cancelPending = False                 ' transition-race fix: a fresh order re-establishes a clean context
             emergencyFired = False                ' N1: a fresh order re-establishes a clean emergency context too
+            DropRejectedStopContext()             ' batch 2 item 1: a rejected-stop context never outlives its bracket
             ' N2b: CLEAR, not a set. This bracket is placed at `amount` = orderAmountVal (the box), so 0 -
             ' "use the box" - is the truthful record, and it leaves the whole trailing path byte-identical
             ' to before this change. Load-bearing: this is the ONLY site that sets isTrailingStopLossPlaced,
@@ -6004,6 +6067,7 @@ Public Class frmMainPageV2
         emergencyBaseline = 0
         emergencyBaselineSettled = False   ' hybrid fix: clear the loss-cap latch with the triggered-SL context
         emergencyFired = False             ' N1: the trade is over - a new position gets its own single emergency
+        DropRejectedStopContext()          ' batch 2 item 1: the trade is over
         ResetCommandedSLPrices() ' reconcile: position closed - triggered-SL context is gone
         legAnchorPrice = 0D          ' entry-chase v2: order context is gone (CancelOrderAsync below also clears it)
         pendingReanchorFill = 0D     ' fill-reanchor fix: drop any un-consumed TP re-anchor
@@ -6346,7 +6410,414 @@ Public Class frmMainPageV2
         AppendColoredText(txtLogs, text, Color.Red)
         Alert("no_stop")
         RemoteNotifier.Post("OrderApp", text, priority:="urgent", tags:="rotating_light")
+        MarkNoStopEpisodePaged() ' batch 2 item 2: this page IS the episode's page - the live watchdog stays quiet
     End Sub
+
+    ' ===== Protection batch 2 (docs/spec-protection-batch2.md) =====
+
+    ' --- Item 2: the live no-stop watchdog (owner ruling R2 2026-10-10: alarm only) ---
+    '
+    ' The app keeps its own map of live orders: seeded from the id-778 snapshot at each connect, then
+    ' kept current from every user.changes order. "A live stop" is batch 1's IsClosingStop rule over that
+    ' map - the same rule, not a fork. A triggered stop is a NEW order id carrying trigger_order_id
+    ' (docs/runtime-record-x1-testnet-2026-10-10.md experiment (e)): the map follows the link by keying on
+    ' order_id and dropping the parent when its child appears, so the triggered limit is the live stop. The
+    ' parent's "triggered" echo and the child's "open" echo landed in the same millisecond in the record;
+    ' the 5-s grace covers any gap. Written by the receive thread, read by the watchdog loop: one gate.
+    Friend Const NoStopGraceSeconds As Double = 5.0
+    Private ReadOnly liveOrderGate As New Object()
+    Private ReadOnly liveOrders As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+    Private liveOrdersSeeded As Boolean = False ' False from connect until the id-778 snapshot lands
+    Private noStopSinceUtc As DateTime = DateTime.MinValue ' MinValue = no breach running
+    Private noStopEpisodePaged As Boolean = False
+
+    ' Keeps an order map current from one order message. Open and untriggered orders are live; every
+    ' other state (filled, cancelled, triggered, rejected:*) removes the id. trigger_order_id points BOTH
+    ' ways in the record: on a LIVE child it names the parent (A.3: the new limit names SLTS-…), but on a
+    ' TRIGGERED template it names the child (A.5: OTO-… names the live SLTS-… leg) or itself (A.3). So
+    ' only a live order's link removes the id it names - a triggered echo removes only itself.
+    Friend Shared Sub ApplyOrderToLiveMap(map As Dictionary(Of String, JToken), order As JToken)
+        If map Is Nothing OrElse order Is Nothing Then Return
+        Dim id As String = order.SelectToken("order_id")?.ToString()
+        If String.IsNullOrEmpty(id) Then Return
+        Dim state As String = order.SelectToken("order_state")?.ToString()
+        If state = "open" OrElse state = "untriggered" Then
+            Dim parentId As String = order.SelectToken("trigger_order_id")?.ToString()
+            If Not String.IsNullOrEmpty(parentId) AndAlso parentId <> id Then map.Remove(parentId)
+            map(id) = order
+        Else
+            map.Remove(id)
+        End If
+    End Sub
+
+    ' True when any order in the list closes the position on an adverse move (batch 1's rule).
+    Friend Shared Function HasClosingStop(orders As IEnumerable(Of JToken), positionSize As Decimal) As Boolean
+        If orders Is Nothing Then Return False
+        For Each o As JToken In orders
+            If IsClosingStop(o, positionSize) Then Return True
+        Next
+        Return False
+    End Function
+
+    ' The page decision for one tick. Fires once per episode: a position open, no live stop, for longer
+    ' than the grace, and not yet paged. The caller resets the episode when a stop reappears or the
+    ' position goes flat.
+    Friend Shared Function NoStopWatchdogFires(positionSize As Decimal, stopKnown As Boolean,
+                                               secondsWithoutStop As Double, alreadyPaged As Boolean) As Boolean
+        Return positionSize <> 0D AndAlso Not stopKnown AndAlso Not alreadyPaged AndAlso
+               secondsWithoutStop > NoStopGraceSeconds
+    End Function
+
+    Friend Shared Function NoStopWatchdogText(positionSize As Decimal) As String
+        Return $"Position {If(positionSize > 0D, "LONG", "SHORT")} {Math.Abs(positionSize).ToString(Globalization.CultureInfo.InvariantCulture)} USD has had NO STOP for {CInt(NoStopGraceSeconds)} s"
+    End Function
+
+    ' Connect: the map is unknown until the id-778 snapshot lands, so the watchdog stands down.
+    Private Sub ResetLiveOrderMap()
+        SyncLock liveOrderGate
+            liveOrders.Clear()
+            liveOrdersSeeded = False
+        End SyncLock
+    End Sub
+
+    Private Sub SeedLiveOrderMap(snapshot As JArray)
+        SyncLock liveOrderGate
+            liveOrders.Clear()
+            For Each o As JToken In snapshot
+                ApplyOrderToLiveMap(liveOrders, o)
+            Next
+            liveOrdersSeeded = True
+        End SyncLock
+    End Sub
+
+    Private Sub NoteLiveOrder(order As JToken)
+        SyncLock liveOrderGate
+            ApplyOrderToLiveMap(liveOrders, order)
+        End SyncLock
+    End Sub
+
+    Private Sub MarkNoStopEpisodePaged()
+        SyncLock liveOrderGate
+            noStopEpisodePaged = True
+        End SyncLock
+    End Sub
+
+    ' One tick of the watchdog. Stands down while disconnected or before the snapshot has seeded the map
+    ' (batch 1's restore check owns the moment of connect). Engine fields only - no control is read.
+    Private Sub EvaluateNoStopWatchdog()
+        Dim pageText As String = Nothing
+        SyncLock liveOrderGate
+            Dim size As Decimal = positionSizeUSD
+            If Not IsWebSocketConnected OrElse Not liveOrdersSeeded Then
+                noStopSinceUtc = DateTime.MinValue
+                Return
+            End If
+            Dim stopKnown As Boolean = HasClosingStop(liveOrders.Values, size)
+            If size = 0D OrElse stopKnown Then
+                ' The episode ends: a new one starts at the next breach.
+                noStopSinceUtc = DateTime.MinValue
+                noStopEpisodePaged = False
+                Return
+            End If
+            Dim nowUtc As DateTime = DateTime.UtcNow
+            If noStopSinceUtc = DateTime.MinValue Then noStopSinceUtc = nowUtc
+            If NoStopWatchdogFires(size, stopKnown, (nowUtc - noStopSinceUtc).TotalSeconds, noStopEpisodePaged) Then
+                noStopEpisodePaged = True
+                pageText = NoStopWatchdogText(size)
+            End If
+        End SyncLock
+        If pageText Is Nothing Then Return
+        AppendColoredText(txtLogs, pageText, Color.Red)
+        Alert("no_stop")
+        RemoteNotifier.Post("OrderApp", pageText, priority:="urgent", tags:="rotating_light")
+    End Sub
+
+    ' Started once from Load. A one-second loop for the life of the form; it also gives a rejected-stop
+    ' action that is waiting for its position a second chance to run, and to expire.
+    Private Async Function RunProtectionWatchdogAsync() As Task
+        While Not isClosing
+            Await Task.Delay(1000)
+            Try
+                EvaluateNoStopWatchdog()
+                Await TryActOnRejectedStopAsync()
+            Catch ex As Exception
+                AppendColoredText(txtLogs, $"Error in the protection watchdog: {ex.Message}", Color.Red)
+            End Try
+        End While
+    End Function
+
+    ' --- Item 1: the rejected stop leg (row A13 of docs/triage-adversarial-audit-2026-10.md; owner ruling R1) ---
+    '
+    ' A crossed OTOCO stop never becomes an order: the OTO template is pushed as "rejected:price_too_high"
+    ' (docs/runtime-record-x1-testnet-2026-10-10.md Appendix A.1). Match the prefix, never the full string -
+    ' the buy-side reason was not observed. R1: do what the stop and the M.SL would have done. Past the M.SL
+    ' distance from the trigger -> flatten at once. Otherwise -> the stop's own reduce-only limit, whose open
+    ' echo then sets the triggered-SL context exactly as a real trigger's does (HandleOrderPositionUpdates,
+    ' "Trigger FLIP"), so the existing chase and M.SL cap take over.
+    Friend Shared Function IsRejectedOrderState(orderState As String) As Boolean
+        Return orderState IsNot Nothing AndAlso orderState.StartsWith("rejected", StringComparison.Ordinal)
+    End Function
+
+    ' "rejected:price_too_high" -> "price_too_high"; a bare "rejected" -> "rejected".
+    Friend Shared Function RejectedReason(orderState As String) As String
+        If orderState Is Nothing Then Return "rejected"
+        Dim i As Integer = orderState.IndexOf(":"c)
+        If i < 0 OrElse i = orderState.Length - 1 Then Return orderState
+        Return orderState.Substring(i + 1)
+    End Function
+
+    Friend Enum RejectedStopAction
+        PlaceStopLimit
+        Flatten
+    End Enum
+
+    ' The R1 decision. The M.SL test is the one UpdateStopLossForTriggeredStopLossOrder uses: measured
+    ' from the baseline it has before a trigger (the stop's trigger price) to the own-side quote (the ask
+    ' for a long, the bid for a short). M.SL unticked or its threshold 0 -> there is no market-stop
+    ' distance, so always the limit. An unknown trigger or quote also falls to the limit.
+    Friend Shared Function DecideRejectedStopAction(positionIsLong As Boolean, ownSideQuote As Decimal,
+                                                    triggerPrice As Decimal, mslChecked As Boolean,
+                                                    mslThreshold As Decimal) As RejectedStopAction
+        If Not mslChecked OrElse mslThreshold <= 0D OrElse triggerPrice <= 0D OrElse ownSideQuote <= 0D Then
+            Return RejectedStopAction.PlaceStopLimit
+        End If
+        Dim movement As Decimal = If(positionIsLong, triggerPrice - ownSideQuote, ownSideQuote - triggerPrice)
+        Return If(movement >= mslThreshold, RejectedStopAction.Flatten, RejectedStopAction.PlaceStopLimit)
+    End Function
+
+    ' A sell stop protects a long, a buy stop a short. Anything else (flat, or a flipped account) -> no action.
+    Friend Shared Function RejectedLegProtects(legIsSell As Boolean, positionSize As Decimal) As Boolean
+        Return (legIsSell AndAlso positionSize > 0D) OrElse ((Not legIsSell) AndAlso positionSize < 0D)
+    End Function
+
+    Friend Shared Function RejectedStopPageText(reason As String, legIsSell As Boolean, size As Decimal) As String
+        Return $"Stop REJECTED by the exchange ({reason}) — {If(legIsSell, "LONG", "SHORT")} {Math.Abs(size).ToString(Globalization.CultureInfo.InvariantCulture)} position has NO STOP"
+    End Function
+
+    ' The push can land BEFORE the entry's fill is processed (A.1 carries positions: []), so the action
+    ' waits here for the position, then runs once. 30 s bounds the wait: the template is rejected when the
+    ' entry fills, so the position follows within milliseconds; a stale context must never act on a later
+    ' position.
+    Friend Const RejectedStopWaitSeconds As Integer = 30
+    Private Const ReplacementStopRequestId As Integer = 40
+    Private ReadOnly rejectedStopGate As New Object()
+    Private rejectedStopPending As Boolean = False
+    Private rejectedStopLegIsSell As Boolean
+    Private rejectedStopTrigger As Decimal
+    Private rejectedStopPrice As Decimal
+    Private rejectedStopReason As String
+    Private rejectedStopSeenUtc As DateTime
+
+    ' Receive thread, from the order loop. Alarm at once; the action waits for the position.
+    Private Sub NoteRejectedOrder(order As JToken, orderState As String, label As String, orderId As String)
+        Dim reason As String = RejectedReason(orderState)
+        If label <> "StopLossOrder" AndAlso label <> "TrailingStopLoss" Then
+            Dim other As String = $"Order REJECTED by the exchange ({reason}): {If(label, "no label")} {If(orderId, "")}"
+            AppendColoredText(txtLogs, other, Color.Yellow)
+            RemoteNotifier.Post("OrderApp", other)
+            Return
+        End If
+
+        Dim legIsSell As Boolean = (order.SelectToken("direction")?.ToString() = "sell")
+        Dim posNow As Decimal = positionSizeUSD
+        Dim shownSize As Decimal = If(RejectedLegProtects(legIsSell, posNow), posNow,
+                                      If(order.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D))
+        Dim text As String = RejectedStopPageText(reason, legIsSell, shownSize)
+        AppendColoredText(txtLogs, text, Color.Red)
+        Alert("no_stop")
+        RemoteNotifier.Post("OrderApp", text, priority:="urgent", tags:="rotating_light")
+
+        ' Audit G2: the executor feedback reads placedStopLossPrice as working.stop - the dead leg must
+        ' not stay there. Only when no triggered stop is live (that one would be the working stop), and
+        ' only ids that ARE the dead leg are dropped.
+        If Not SLTriggered Then
+            placedStopLossPrice = 0D
+            UiInvoke(Sub()
+                         txtPlacedStopLossPrice.Text = "0"
+                         txtPlacedTrigStopPrice.Text = "0"
+                     End Sub)
+        End If
+        If orderId IsNot Nothing AndAlso PositionSLOrderId = orderId Then PositionSLOrderId = Nothing
+        If orderId IsNot Nothing AndAlso CurrentSLOrderId = orderId Then CurrentSLOrderId = Nothing
+
+        SyncLock rejectedStopGate
+            rejectedStopPending = True
+            rejectedStopLegIsSell = legIsSell
+            rejectedStopTrigger = If(order.SelectToken("trigger_price")?.ToObject(Of Decimal?)(), 0D)
+            rejectedStopPrice = If(order.SelectToken("price")?.ToObject(Of Decimal?)(), 0D)
+            rejectedStopReason = reason
+            rejectedStopSeenUtc = DateTime.UtcNow
+        End SyncLock
+    End Sub
+
+    ' Runs the waiting R1 action once the position is known. Called after every user.changes message and
+    ' every watchdog tick; the claim under the gate makes it single-fire across both threads.
+    Private Async Function TryActOnRejectedStopAsync() As Task
+        Dim legIsSell As Boolean
+        Dim trigger, legPrice As Decimal
+        Dim size As Decimal
+        SyncLock rejectedStopGate
+            If Not rejectedStopPending Then Return
+            If (DateTime.UtcNow - rejectedStopSeenUtc).TotalSeconds > RejectedStopWaitSeconds Then
+                rejectedStopPending = False
+                AppendColoredText(txtLogs, $"Rejected stop: no position appeared within {RejectedStopWaitSeconds} s - no action taken", Color.Yellow)
+                Return
+            End If
+            size = positionSizeUSD
+            If size = 0D Then Return ' not known yet - wait
+            rejectedStopPending = False
+            legIsSell = rejectedStopLegIsSell
+            trigger = rejectedStopTrigger
+            legPrice = rejectedStopPrice
+        End SyncLock
+
+        If Not RejectedLegProtects(legIsSell, size) Then
+            AppendColoredText(txtLogs, $"Rejected stop: the leg ({If(legIsSell, "sell", "buy")}) does not close the {If(size > 0D, "LONG", "SHORT")} position - no action taken", Color.Yellow)
+            Return
+        End If
+
+        Dim isLong As Boolean = size > 0D
+        Dim quote As Decimal = If(isLong, BestAskPrice, BestBidPrice)
+        Dim action As RejectedStopAction = DecideRejectedStopAction(isLong, quote, trigger, marketStopLossChecked, marketStopThreshold)
+
+        If action = RejectedStopAction.Flatten Then
+            ' The M.SL emergency's own sequence and messages (cancel, then reduce - do-not-touch).
+            If emergencyFired Then
+                AppendColoredText(txtLogs, "Rejected stop: an emergency close is already in flight - not sent again", Color.Red)
+                Return
+            End If
+            Dim flatText As String = $"Stop REJECTED — price {quote:F2} is past the M.SL distance ({marketStopThreshold}) from the trigger {trigger:F2}: flattening"
+            AppendColoredText(txtLogs, flatText, Color.Red)
+            RemoteNotifier.Post("OrderApp", flatText, priority:="urgent", tags:="rotating_light")
+            emergencyFired = True
+            Await CancelOrderAsync()
+            newPricePublic = quote
+            Dim emgSeq As Integer = ArmEmergencyClose()
+            Dim reduceFailure As String = Await SendReduceMarketOrderAsync()
+            ReportEmergencyCloseSend(If(isLong, "sell", "buy"), reduceFailure, emgSeq)
+            Return
+        End If
+
+        ' The stop's own limit. A trailing stop carries no limit price; fall back to its trigger, and
+        ' with neither there is nothing to place - the alarm stands and the owner acts.
+        Dim limitPrice As Decimal = If(legPrice > 0D, legPrice, trigger)
+        If limitPrice <= 0D Then
+            AppendColoredText(txtLogs, "Rejected stop: the leg carries no price - no stop limit placed. Place a stop by hand.", Color.Red)
+            Return
+        End If
+        Dim placed As Boolean = Await SendReplacementStopLimitAsync(isLong, Math.Abs(size), limitPrice)
+        Dim doneText As String = If(placed,
+            $"Stop REJECTED — stop limit placed at {limitPrice:F2} ({If(isLong, "sell", "buy")} {Math.Abs(size).ToString(Globalization.CultureInfo.InvariantCulture)}, reduce-only, post-only)",
+            "Stop REJECTED — the stop limit could not be sent: position has NO STOP")
+        AppendColoredText(txtLogs, doneText, If(placed, Color.Orange, Color.Red))
+        RemoteNotifier.Post("OrderApp", doneText, priority:="urgent", tags:="rotating_light")
+    End Function
+
+    ' A reduce-only, post-only limit labelled StopLossOrder. reject_post_only False: a price that would
+    ' cross is repriced to the top of the book by the exchange (experiment (c)), never rejected for it.
+    ' Its open echo adopts it as the triggered stop; a rejection comes back on id 40.
+    Private Async Function SendReplacementStopLimitAsync(isLong As Boolean, amount As Decimal, price As Decimal) As Task(Of Boolean)
+        Try
+            If Not IsWebSocketConnected Then
+                AppendColoredText(txtLogs, "WebSocket is not connected - stop limit not sent.", Color.Red)
+                Return False
+            End If
+            Dim payload As New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", ReplacementStopRequestId},
+                {"method", If(isLong, "private/sell", "private/buy")},
+                {"params", New JObject From {
+                    {"instrument_name", "BTC-PERPETUAL"},
+                    {"amount", amount},
+                    {"type", "limit"},
+                    {"price", RoundToTick(price)},
+                    {"label", "StopLossOrder"},
+                    {"time_in_force", "good_til_cancelled"},
+                    {"post_only", True},
+                    {"reject_post_only", False},
+                    {"reduce_only", True}
+                }}
+            }
+            rateLimiter?.ConsumeCredits()
+            Return Await SendWebSocketMessageAsync(payload.ToString())
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error sending the stop limit: {ex.Message}", Color.Red)
+            Return False
+        End Try
+    End Function
+
+    ' Fresh placement / close: a rejected-stop context from an earlier bracket must never act on a later one.
+    Private Sub DropRejectedStopContext()
+        SyncLock rejectedStopGate
+            rejectedStopPending = False
+        End SyncLock
+    End Sub
+
+    ' --- Item 3: cancel-on-disconnect check at connect ---
+    '
+    ' Read-only. Never changes the setting. Method and shape confirmed on testnet 2026-10-12:
+    ' {"result":{"enabled":false,"scope":"account"}}.
+    Private Const CancelOnDisconnectRequestId As Integer = 41
+    Friend Const CancelOnDisconnectOnText As String = "Deribit cancel-on-disconnect is ON — every disconnect deletes your stops"
+
+    ' True = ON, False = OFF, Nothing = the response does not say.
+    Friend Shared Function CancelOnDisconnectEnabled(result As JToken) As Boolean?
+        Dim enabled As JToken = result?.SelectToken("enabled")
+        If enabled Is Nothing OrElse enabled.Type <> JTokenType.Boolean Then Return Nothing
+        Return enabled.ToObject(Of Boolean)()
+    End Function
+
+    Private Async Function RequestCancelOnDisconnectStatus() As Task
+        Try
+            Dim payload As New JObject From {
+                {"jsonrpc", "2.0"},
+                {"id", CancelOnDisconnectRequestId},
+                {"method", "private/get_cancel_on_disconnect"},
+                {"params", New JObject From {{"scope", "account"}}}
+            }
+            Await SendWebSocketMessageAsync(payload.ToString())
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Cancel-on-disconnect check not sent: {ex.Message}", Color.Yellow)
+        End Try
+    End Function
+
+    Private Sub HandleCancelOnDisconnectResponse(response As String)
+        Try
+            If response.IndexOf("""id"":" & CancelOnDisconnectRequestId.ToString(Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal) < 0 Then Return
+            Dim json = JObject.Parse(response)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer?)()
+            If Not (messageId.HasValue AndAlso messageId.Value = CancelOnDisconnectRequestId) Then Return
+            Dim errorField = json.SelectToken("error")
+            If errorField IsNot Nothing Then
+                AppendColoredText(txtLogs, $"Cancel-on-disconnect check failed: {errorField.ToString(Newtonsoft.Json.Formatting.None)}", Color.Yellow)
+                Return
+            End If
+            Dim enabled As Boolean? = CancelOnDisconnectEnabled(json.SelectToken("result"))
+            If Not enabled.HasValue Then
+                AppendColoredText(txtLogs, $"Cancel-on-disconnect check: unexpected reply {json.SelectToken("result")?.ToString(Newtonsoft.Json.Formatting.None)}", Color.Yellow)
+            ElseIf enabled.Value Then
+                AppendColoredText(txtLogs, CancelOnDisconnectOnText, Color.Red)
+                Alert("no_stop")
+                RemoteNotifier.Post("OrderApp", CancelOnDisconnectOnText, priority:="urgent", tags:="rotating_light")
+            Else
+                AppendColoredText(txtLogs, "Deribit cancel-on-disconnect is off", Color.Gray)
+            End If
+        Catch
+            ' Parse noise: ignore, like the other handlers.
+        End Try
+    End Sub
+
+    ' --- Item 5: Reduce while a triggered stop is closing (owner ruling R4 2026-10-10: refuse) ---
+    '
+    ' A triggered reduce-only SL limit already covers the position at the top of the book; a reduce-only
+    ' limit on top of it came back 11030 twice (docs/runtime-record-protection-batch1-2026-10-09.md
+    ' section 5). With an untriggered SL, or none, the Reduce limit is sent as before.
+    Friend Const ReduceRefusedText As String = "Reduce not sent: the triggered stop is already closing the position at the top of the book"
+    Friend Const ReduceOnlyRejectedText As String = "reduce-only rejected — a reduce-only order may already cover the position, or the position is already flat"
+
+    Friend Shared Function ReduceLimitRefused(slTriggered As Boolean, positionSlOrderId As String) As Boolean
+        Return slTriggered AndAlso Not String.IsNullOrEmpty(positionSlOrderId)
+    End Function
 
     ' Restore hardening: restore OTOCO order context from the id-778 snapshot (get_open_orders).
     ' Receive-thread handler: engine fields written here directly, displays via UiInvoke. Mirrors
@@ -6357,6 +6828,12 @@ Public Class frmMainPageV2
             Dim json = JObject.Parse(response)
             Dim messageId = json.SelectToken("id")?.ToObject(Of Integer?)()
             If Not (messageId.HasValue AndAlso messageId.Value = 778) Then Return
+
+            ' Protection batch 2 item 2: seed the watchdog's order map. Ahead of the cancelPending gate on
+            ' purpose - the map mirrors the exchange and restores no context, so a cancel in flight does not
+            ' stop it. An error reply leaves the map unseeded, and the watchdog stands down.
+            Dim mapSeed = TryCast(json.SelectToken("result"), JArray)
+            If mapSeed IsNot Nothing Then SeedLiveOrderMap(mapSeed)
 
             ' Echo-handler convention: a cancel in flight means the context we'd restore is being torn down.
             If cancelPending Then Return
@@ -7014,6 +7491,13 @@ Public Class frmMainPageV2
             Dim posSize As Decimal = positionSizeUSD
             If posSize = 0D Then
                 AppendColoredText(txtLogs, "No open position to reduce.", Color.Yellow)
+                Return
+            End If
+            ' Protection batch 2 item 5 (owner ruling R4 2026-10-10): a triggered stop is already closing the
+            ' position at the top of the book - a reduce-only limit on top of it is refused by the exchange
+            ' (11030). Refuse here instead. Reduce Market is unchanged.
+            If ReduceLimitRefused(SLTriggered, PositionSLOrderId) Then
+                AppendColoredText(txtLogs, ReduceRefusedText, Color.Yellow)
                 Return
             End If
             Dim direction As String = If(posSize > 0D, "sell", "buy")

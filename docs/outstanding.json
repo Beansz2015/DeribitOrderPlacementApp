@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T09:16Z",
-  "updated_by": "seat coordinator (HANDOVER-8 intake), Opus 5.5",
+  "updated_utc": "2026-10-12T09:33Z",
+  "updated_by": "seat batch-2 implementer, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,14 +9,8 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 1 commit ahead of origin (the pane update and the COD tick in the cutover checklist).",
+      "meaning": "Push master: 2 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code, not yet reviewed).",
       "since": "2026-10-12"
-    },
-    {
-      "kind": "go",
-      "meaning": "Launch the implementer seat for position-protection batch 2 (Opus, high). All four rulings are in the spec.",
-      "doc": "docs/spec-protection-batch2.md",
-      "since": "2026-10-10"
     },
     {
       "kind": "ruling",
@@ -43,6 +37,10 @@
   ],
   "dated": [],
   "next_up": [
+    {
+      "what": "Review position-protection batch 2 (docs/impl-report-protection-batch2.md, four spec-back findings), rebuild x64, then a harness testnet run of its acceptance",
+      "model": "Opus 5.5, high"
+    },
     {
       "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (S0 above 10 USD). Blocks risk sizing in Live. A reduce-only TP is ruled out (it cancels both legs on an SL trigger); a partial fill cannot be observed on testnet or at 10 USD, so design without it.",
       "model": "Opus 5.5, high"

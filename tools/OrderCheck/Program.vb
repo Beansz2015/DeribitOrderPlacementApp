@@ -1589,6 +1589,154 @@ Module Program
               Not (sentText & skippedText & rejectedText).Contains("Executed"))
         Check("emergency fixture 5: the confirmation window is 10 s", frmMainPageV2.EmergencyConfirmTimeoutMs = 10000)
 
+        ' ---- Protection batch 2 (docs/spec-protection-batch2.md) ----
+
+        ' Item 1 - the rejected stop leg. Before: the state chain matched four exact strings, so every
+        ' "rejected:*" push fell through silently.
+        Check("rejected fixture 1 (experiment (a)): ""rejected:price_too_high"" is a rejection",
+              frmMainPageV2.IsRejectedOrderState("rejected:price_too_high"))
+        Check("rejected fixture 2: the unobserved buy-side reason matches by prefix",
+              frmMainPageV2.IsRejectedOrderState("rejected:price_too_low"))
+        Check("rejected fixture 3: a bare ""rejected"" matches", frmMainPageV2.IsRejectedOrderState("rejected"))
+        Dim liveStates As String() = {"open", "untriggered", "filled", "cancelled", "triggered", Nothing, ""}
+        Dim noneRejected As Boolean = True
+        For Each st As String In liveStates
+            If frmMainPageV2.IsRejectedOrderState(st) Then noneRejected = False
+        Next
+        Check("rejected fixture 4: open/untriggered/filled/cancelled/triggered/null/empty are not rejections", noneRejected)
+        Check("rejected fixture 5: the reason is the text after the colon",
+              frmMainPageV2.RejectedReason("rejected:price_too_high") = "price_too_high")
+        Check("rejected fixture 6: a bare ""rejected"" is its own reason", frmMainPageV2.RejectedReason("rejected") = "rejected")
+        Dim rejPage As String = frmMainPageV2.RejectedStopPageText("price_too_high", True, 10D)
+        Check("rejected fixture 7: the page names the reason, the side from the leg (sell = LONG), the size and NO STOP",
+              rejPage.StartsWith("Stop REJECTED by the exchange (price_too_high)", StringComparison.Ordinal) AndAlso
+              rejPage.Contains("LONG 10 position has NO STOP"), $"got '{rejPage}'")
+        Check("rejected fixture 8: a buy leg pages SHORT",
+              frmMainPageV2.RejectedStopPageText("price_too_low", False, -10D).Contains("SHORT 10 position has NO STOP"))
+        Check("rejected fixture 9: a sell leg protects a long", frmMainPageV2.RejectedLegProtects(True, 10D))
+        Check("rejected fixture 10: a buy leg protects a short", frmMainPageV2.RejectedLegProtects(False, -10D))
+        Check("rejected fixture 11: a sell leg does not protect a short (flipped account) -> no action",
+              Not frmMainPageV2.RejectedLegProtects(True, -10D))
+        Check("rejected fixture 12: flat -> no action (wait for the position)",
+              Not frmMainPageV2.RejectedLegProtects(True, 0D) AndAlso Not frmMainPageV2.RejectedLegProtects(False, 0D))
+
+        ' R1 (owner ruling 2026-10-10): past the M.SL distance from the trigger -> flatten; otherwise the limit.
+        Dim limitAct As frmMainPageV2.RejectedStopAction = frmMainPageV2.RejectedStopAction.PlaceStopLimit
+        Dim flatAct As frmMainPageV2.RejectedStopAction = frmMainPageV2.RejectedStopAction.Flatten
+        Check("R1 fixture 1 (experiment (a) prices): long, trigger 82790, ask 82785, M.SL 50 -> stop limit",
+              frmMainPageV2.DecideRejectedStopAction(True, 82785D, 82790D, True, 50D) = limitAct)
+        Check("R1 fixture 2: long, ask exactly 50 under the trigger -> flatten (the M.SL test is >=)",
+              frmMainPageV2.DecideRejectedStopAction(True, 82740D, 82790D, True, 50D) = flatAct)
+        Check("R1 fixture 3: long, ask 49.5 under the trigger -> stop limit",
+              frmMainPageV2.DecideRejectedStopAction(True, 82740.5D, 82790D, True, 50D) = limitAct)
+        Check("R1 fixture 4: short, bid 50 over the trigger -> flatten",
+              frmMainPageV2.DecideRejectedStopAction(False, 82840D, 82790D, True, 50D) = flatAct)
+        Check("R1 fixture 5: short, bid 49.5 over the trigger -> stop limit",
+              frmMainPageV2.DecideRejectedStopAction(False, 82839.5D, 82790D, True, 50D) = limitAct)
+        Check("R1 fixture 6: M.SL unticked, price 500 past -> always the stop limit",
+              frmMainPageV2.DecideRejectedStopAction(True, 82290D, 82790D, False, 50D) = limitAct)
+        Check("R1 fixture 7: M.SL threshold 0, price 500 past -> always the stop limit",
+              frmMainPageV2.DecideRejectedStopAction(True, 82290D, 82790D, True, 0D) = limitAct)
+        Check("R1 fixture 8: no quote yet (0) -> stop limit, never a flatten measured from 0",
+              frmMainPageV2.DecideRejectedStopAction(False, 0D, 82790D, True, 50D) = limitAct)
+        Check("R1 fixture 9: no trigger on the leg (0) -> stop limit, never a flatten measured from 0",
+              frmMainPageV2.DecideRejectedStopAction(False, 82840D, 0D, True, 50D) = limitAct)
+
+        ' Item 2 - the live no-stop watchdog. Before: no check after the restore; experiments (a) and (f)
+        ' each left a live position with no stop and the app said nothing.
+        Check("watchdog fixture 1: long, no stop, 5.0 s -> no page (inside the grace)",
+              Not frmMainPageV2.NoStopWatchdogFires(10D, False, 5.0, False))
+        Check("watchdog fixture 2: long, no stop, 5.01 s -> PAGE",
+              frmMainPageV2.NoStopWatchdogFires(10D, False, 5.01, False))
+        Check("watchdog fixture 3: short, no stop, 6 s -> PAGE", frmMainPageV2.NoStopWatchdogFires(-10D, False, 6.0, False))
+        Check("watchdog fixture 4: already paged this episode -> no second page",
+              Not frmMainPageV2.NoStopWatchdogFires(10D, False, 600.0, True))
+        Check("watchdog fixture 5: a stop known -> no page", Not frmMainPageV2.NoStopWatchdogFires(10D, True, 600.0, False))
+        Check("watchdog fixture 6: flat -> no page", Not frmMainPageV2.NoStopWatchdogFires(0D, False, 600.0, False))
+        Check("watchdog fixture 7: the grace is 5 s", frmMainPageV2.NoStopGraceSeconds = 5.0)
+        Check("watchdog fixture 8: the page names the side, the size and NO STOP for 5 s",
+              frmMainPageV2.NoStopWatchdogText(10D) = "Position LONG 10 USD has had NO STOP for 5 s",
+              $"got '{frmMainPageV2.NoStopWatchdogText(10D)}'")
+
+        ' The order map, replaying experiment (e)'s trigger (A.3) and experiment (f)'s cancel (A.6).
+        Dim echo = Function(id As String, label As String, orderType As String, state As String, direction As String,
+                            triggerOrderId As String) As JObject
+                       Dim o As New JObject From {{"order_id", id}, {"label", label}, {"order_type", orderType},
+                                                  {"order_state", state}, {"direction", direction}}
+                       If triggerOrderId IsNot Nothing Then o("trigger_order_id") = triggerOrderId
+                       Return o
+                   End Function
+        Dim map As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+        frmMainPageV2.ApplyOrderToLiveMap(map, echo("122493703010", "TakeLimitProfit", "limit", "open", "sell", Nothing))
+        frmMainPageV2.ApplyOrderToLiveMap(map, echo("SLTS-11031625", "StopLossOrder", "stop_limit", "untriggered", "sell", Nothing))
+        Check("map fixture 1: TP + untriggered SL leg -> a stop is known",
+              frmMainPageV2.HasClosingStop(map.Values, 10D))
+        frmMainPageV2.ApplyOrderToLiveMap(map, echo("SLTS-11031625", "StopLossOrder", "stop_limit", "triggered", "sell", "SLTS-11031625"))
+        Check("map fixture 2 (A.3, first echo): the parent's triggered echo names itself; the parent alone is no longer a stop",
+              Not frmMainPageV2.HasClosingStop(map.Values, 10D) AndAlso Not map.ContainsKey("SLTS-11031625"))
+        frmMainPageV2.ApplyOrderToLiveMap(map, echo("122494618555", "StopLossOrder", "limit", "open", "sell", "SLTS-11031625"))
+        Check("map fixture 3 (A.3, second echo): the NEW id linked by trigger_order_id is the live stop",
+              frmMainPageV2.HasClosingStop(map.Values, 10D) AndAlso map.ContainsKey("122494618555"))
+        frmMainPageV2.ApplyOrderToLiveMap(map, echo("122494618555", "StopLossOrder", "limit", "cancelled", "sell", "SLTS-11031625"))
+        frmMainPageV2.ApplyOrderToLiveMap(map, echo("122493703010", "TakeLimitProfit", "limit", "cancelled", "sell", Nothing))
+        Check("map fixture 4 (experiment (f)): the triggered limit cancelled oco_other_closed -> NO stop",
+              Not frmMainPageV2.HasClosingStop(map.Values, 10D) AndAlso map.Count = 0)
+        Dim map2 As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+        frmMainPageV2.ApplyOrderToLiveMap(map2, echo("SLTS-1", "StopLossOrder", "stop_limit", "untriggered", "sell", Nothing))
+        frmMainPageV2.ApplyOrderToLiveMap(map2, echo("777001", "StopLossOrder", "limit", "open", "sell", "SLTS-1"))
+        Check("map fixture 5: the parent's triggered echo missed -> the child still replaces it (one stop, the new id)",
+              map2.Count = 1 AndAlso map2.ContainsKey("777001"))
+        Dim map3 As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+        frmMainPageV2.ApplyOrderToLiveMap(map3, echo("122493703011", "TakeLimitProfit", "limit", "open", "sell", Nothing))
+        frmMainPageV2.ApplyOrderToLiveMap(map3, echo("OTO-11031614", "StopLossOrder", "stop_limit", "rejected:price_too_high", "sell", Nothing))
+        Check("map fixture 6 (experiment (a)): the rejected leg is never a stop; TP only -> NO stop",
+              Not frmMainPageV2.HasClosingStop(map3.Values, 10D) AndAlso map3.Count = 1)
+        Dim map4 As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+        frmMainPageV2.ApplyOrderToLiveMap(map4, echo("SLTS-2", "StopLossOrder", "stop_limit", "untriggered", "sell", Nothing))
+        frmMainPageV2.ApplyOrderToLiveMap(map4, echo("SLTS-2", "StopLossOrder", "stop_limit", "cancelled", "sell", Nothing))
+        Check("map fixture 7: the SL cancelled by hand (acceptance 2b) -> NO stop", Not frmMainPageV2.HasClosingStop(map4.Values, 10D))
+        Dim map5 As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+        frmMainPageV2.ApplyOrderToLiveMap(map5, New JObject From {{"label", "StopLossOrder"}, {"order_state", "open"}, {"direction", "sell"}})
+        Check("map fixture 8: an order with no id changes nothing", map5.Count = 0)
+        ' A.5, in its echo order: a NORMAL entry. The triggered OTO templates name their live CHILD in
+        ' trigger_order_id - following that link would delete the live legs and false-page every entry.
+        Dim map6 As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+        frmMainPageV2.ApplyOrderToLiveMap(map6, echo("122494918155", "EntryLimitOrder", "limit", "filled", "buy", Nothing))
+        frmMainPageV2.ApplyOrderToLiveMap(map6, echo("122494919676", "TakeLimitProfit", "limit", "open", "sell", Nothing))
+        frmMainPageV2.ApplyOrderToLiveMap(map6, echo("OTO-11031637", "TakeLimitProfit", "limit", "triggered", "sell", "122494919676"))
+        frmMainPageV2.ApplyOrderToLiveMap(map6, echo("SLTS-11031639", "StopLossOrder", "stop_limit", "untriggered", "sell", Nothing))
+        frmMainPageV2.ApplyOrderToLiveMap(map6, echo("OTO-11031638", "StopLossOrder", "stop_limit", "triggered", "sell", "SLTS-11031639"))
+        Check("map fixture 9 (A.5, a normal 2000-USD entry): the SL leg survives the OTO template's triggered echo -> a stop is known",
+              frmMainPageV2.HasClosingStop(map6.Values, 2000D) AndAlso map6.ContainsKey("SLTS-11031639") AndAlso
+              map6.ContainsKey("122494919676") AndAlso map6.Count = 2, $"map holds {String.Join(",", map6.Keys)}")
+
+        ' Item 3 - cancel-on-disconnect at connect. Shape confirmed on testnet 2026-10-12.
+        Check("COD fixture 1: {enabled:false} -> OFF",
+              frmMainPageV2.CancelOnDisconnectEnabled(JObject.Parse("{""enabled"":false,""scope"":""account""}")).Equals(False))
+        Check("COD fixture 2: {enabled:true} -> ON",
+              frmMainPageV2.CancelOnDisconnectEnabled(JObject.Parse("{""enabled"":true,""scope"":""account""}")).Equals(True))
+        Check("COD fixture 3: no enabled field -> unknown, never a false all-clear",
+              Not frmMainPageV2.CancelOnDisconnectEnabled(JObject.Parse("{""scope"":""account""}")).HasValue)
+        Check("COD fixture 4: enabled as a string -> unknown",
+              Not frmMainPageV2.CancelOnDisconnectEnabled(JObject.Parse("{""enabled"":""true""}")).HasValue)
+        Check("COD fixture 5: no result -> unknown", Not frmMainPageV2.CancelOnDisconnectEnabled(Nothing).HasValue)
+        Check("COD fixture 6: the ON page says what it does",
+              frmMainPageV2.CancelOnDisconnectOnText = "Deribit cancel-on-disconnect is ON — every disconnect deletes your stops")
+
+        ' Item 5 - R4 (owner ruling 2026-10-10): refuse Reduce Limit while a triggered stop is closing.
+        ' Before: the reduce was sent and came back 11030 twice.
+        Check("R4 fixture 1: triggered SL live -> refused", frmMainPageV2.ReduceLimitRefused(True, "122494618555"))
+        Check("R4 fixture 2: untriggered SL (experiment (g): a reduce fills) -> sent",
+              Not frmMainPageV2.ReduceLimitRefused(False, "SLTS-11031625"))
+        Check("R4 fixture 3: no SL -> sent", Not frmMainPageV2.ReduceLimitRefused(False, Nothing))
+        Check("R4 fixture 4: triggered flag with no SL id -> sent (no live stop to defer to)",
+              Not frmMainPageV2.ReduceLimitRefused(True, Nothing) AndAlso Not frmMainPageV2.ReduceLimitRefused(True, ""))
+        Check("R4 fixture 5: the refusal message",
+              frmMainPageV2.ReduceRefusedText = "Reduce not sent: the triggered stop is already closing the position at the top of the book")
+        Check("R4 fixture 6: the 11030 text names both causes",
+              frmMainPageV2.ReduceOnlyRejectedText.Contains("may already cover the position") AndAlso
+              frmMainPageV2.ReduceOnlyRejectedText.Contains("already flat"))
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

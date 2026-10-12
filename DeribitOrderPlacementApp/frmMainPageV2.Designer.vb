@@ -301,6 +301,7 @@ Partial Class frmMainPageV2
         CustomLabel11.Size = New Size(97, 35)
         CustomLabel11.TabIndex = 82
         CustomLabel11.Text = "Trig.O.:"
+        ToolTip1.SetToolTip(CustomLabel11, "Trigger offset. No effect on OTOCO stops: Deribit drops it" & vbCrLf & "inside the bracket, so the stop does not trail.")
         ' 
         ' CustomLabel10
         ' 
