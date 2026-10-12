@@ -1788,6 +1788,8 @@ Public Class frmMainPageV2
                 HandleOpenOrdersSnapshot(response)
                 ' Protection batch 2 item 3: the cancel-on-disconnect reply at connect (id 41)
                 HandleCancelOnDisconnectResponse(response)
+                ' Partial fills F1/F3: the TP resize (id 42) and the PF-R4 TP cancel (id 43)
+                HandleTpGuardResponse(response)
                 ' Decouple v2: placement acks/rejections (ids >= PlacementIdBase)
                 HandlePlacementResponse(response)
                 ' Audit2 F2: surface JSON-RPC errors no dedicated handler owns (silent order rejections)
@@ -2020,7 +2022,8 @@ Public Class frmMainPageV2
             End If
             If messageId.HasValue AndAlso
                (messageId.Value = 3 OrElse messageId.Value = 999 OrElse
-                messageId.Value = 777 OrElse messageId.Value = CancelOnDisconnectRequestId) Then Return
+                messageId.Value = 777 OrElse messageId.Value = CancelOnDisconnectRequestId OrElse
+                messageId.Value = TpResizeRequestId OrElse messageId.Value = TpGuardCancelRequestId) Then Return ' 42/43: HandleTpGuardResponse owns them
             If messageId.HasValue AndAlso messageId.Value >= PlacementIdBase Then Return ' HandlePlacementResponse owns placements
 
             Dim errorCode = errorField.SelectToken("code")?.ToObject(Of Integer)()
@@ -2151,6 +2154,8 @@ Public Class frmMainPageV2
             Case 31 : Return " scoped entry cancel"
             Case 40 : Return " rejected-stop stop limit"
             Case 41 : Return " get_cancel_on_disconnect"
+            Case 42 : Return " TP resize"
+            Case 43 : Return " TP cancel (no position)"
             Case 1 : Return " subscribe/reduce order"
             Case 1001 : Return " set_heartbeat"
             Case 223344, 223345, 223346, 223347, 223348, 223349, 223350 : Return " order edit"
@@ -2660,8 +2665,8 @@ Public Class frmMainPageV2
                                         If EntryOnlyChase AndAlso Math.Abs(chaseTarget.Value - legAnchorPrice) < legReanchorDriftMax Then
                                             Await UpdateEntryOrderOnlyAsync(chaseTarget)
                                         Else
-                                            Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
-                                            legAnchorPrice = chaseTarget
+                                            ' Partial fills F2: the anchor moves only when the legs moved (no fill yet).
+                                            If Await UpdateLimitOrderWithOTOCOAsync(chaseTarget) Then legAnchorPrice = chaseTarget
                                         End If
 
                                         ' Runaway fix: advance engine state SYNCHRONOUSLY before the (non-blocking)
@@ -2713,8 +2718,8 @@ Public Class frmMainPageV2
                                         If EntryOnlyChase AndAlso Math.Abs(chaseTarget.Value - legAnchorPrice) < legReanchorDriftMax Then
                                             Await UpdateEntryOrderOnlyAsync(chaseTarget)
                                         Else
-                                            Await UpdateLimitOrderWithOTOCOAsync(chaseTarget)
-                                            legAnchorPrice = chaseTarget
+                                            ' Partial fills F2: the anchor moves only when the legs moved (no fill yet).
+                                            If Await UpdateLimitOrderWithOTOCOAsync(chaseTarget) Then legAnchorPrice = chaseTarget
                                         End If
 
                                         ' Runaway fix: advance engine state synchronously before the display mirror.
@@ -3420,11 +3425,18 @@ Public Class frmMainPageV2
                     ' after the orders block below - even when THIS echo carries no orders array (the split
                     ' case that lost the close). New position (0 -> !=0) drops any stale close capture.
                     Dim positionJustClosed As Boolean = False
+                    ' Partial fills F1: did this echo move the position, and did it grow it (an edit UP is
+                    ' sent only on a fresh, larger size - see TpResizeTargetFor)? Did it carry a TP?
+                    Dim positionChanged As Boolean = False
+                    Dim positionGrew As Boolean = False
+                    Dim tpEchoSeen As Boolean = False
                     Dim posTokens = orderData.SelectToken("positions")?.ToObject(Of List(Of JObject))()
                     If posTokens IsNot Nothing Then
                         For Each p In posTokens
                             Dim sz = p.SelectToken("size")?.ToObject(Of Decimal?)()
                             If sz.HasValue Then
+                                If sz.Value <> positionSizeUSD Then positionChanged = True
+                                If Math.Abs(sz.Value) > Math.Abs(positionSizeUSD) Then positionGrew = True
                                 Dim wasOpen As Boolean = (positionSizeUSD <> 0D)
                                 positionSizeUSD = sz.Value
                                 If sz.Value <> 0D Then
@@ -3488,6 +3500,7 @@ Public Class frmMainPageV2
                             ' Protection batch 2 item 2: every order message keeps the watchdog's map current,
                             ' whatever the gates below decide (cancelPending included - the map mirrors the exchange).
                             NoteLiveOrder(order)
+                            If label = "TakeLimitProfit" Then tpEchoSeen = True ' partial fills F1
 
                             'Process desc.:
                             'Step 1. Placed order : EntryLimitOrder = Open / TakeLimitProfit + StopLossOrder = Untriggered
@@ -3505,6 +3518,7 @@ Public Class frmMainPageV2
                                 Dim tpReanchorFill As Decimal = 0D
                                 Dim tpReanchorTarget As Decimal = 0D
                                 Dim tpReanchorId As String = Nothing
+                                Dim tpReanchorFilled As Decimal = 0D ' partial fills F2: the TP's own filled part
 
                                 ' Update textboxes based on the label
                                 Me.Invoke(Sub()
@@ -3553,6 +3567,7 @@ Public Class frmMainPageV2
                                                               tpReanchorFill = pendingReanchorFill
                                                               tpReanchorTarget = newTP
                                                               tpReanchorId = orderId
+                                                              tpReanchorFilled = If(order.SelectToken("filled_amount")?.ToObject(Of Decimal?)(), 0D)
                                                           End If
                                                           pendingReanchorFill = 0D   ' consumed (edit or skip)
                                                       End If
@@ -3726,7 +3741,7 @@ Public Class frmMainPageV2
                                 ' re-anchor OUTSIDE the lambda (receive thread here; the lambda is a Sub, cannot
                                 ' Await). Targets PositionTPOrderId - the live post-fill leg, not the retired one.
                                 If tpReanchorId IsNot Nothing Then
-                                    Await ReanchorTPToFillAsync(tpReanchorId, tpReanchorFill, tpReanchorTarget)
+                                    Await ReanchorTPToFillAsync(tpReanchorId, tpReanchorFill, tpReanchorTarget, tpReanchorFilled)
                                 End If
 
                                 'If UpdateFlag = True Then
@@ -4042,6 +4057,11 @@ Public Class frmMainPageV2
                     ' Protection batch 2 item 1: a rejected stop's R1 action waits for the position. This
                     ' echo may be the one that made it known (the positions pass above). No-op when none waits.
                     Await TryActOnRejectedStopAsync()
+
+                    ' Partial fills F1 (docs/spec-partial-fill-fix.md section 4): after the whole echo is
+                    ' applied, keep the live TP's open part equal to the position. No edit when they already
+                    ' match (every whole fill) or when flat (F3 owns a TP resting with no position).
+                    If positionChanged OrElse tpEchoSeen Then Await RequestTpResizeAsync(positionGrew)
 
                 End If
             End If
@@ -4956,7 +4976,8 @@ Public Class frmMainPageV2
         End Try
     End Function
     Private UpdateFlag As Boolean = False
-    Private Async Function UpdateLimitOrderWithOTOCOAsync(newPrice As Decimal) As Task
+    ' Returns False only when the entry was part-filled and moved alone (the legs stay where they are).
+    Private Async Function UpdateLimitOrderWithOTOCOAsync(newPrice As Decimal) As Task(Of Boolean)
         Try
             ' Ensure rate limiter exists
             If rateLimiter Is Nothing Then
@@ -4974,7 +4995,7 @@ Public Class frmMainPageV2
             ' Only proceed if we can consume credits for all 3 API calls needed
             If Not (rateLimiter.ConsumeCredits() AndAlso rateLimiter.CanMakeRequest() AndAlso rateLimiter.CanMakeRequest()) Then
                 AppendColoredText(txtLogs, "Insufficient credits for order update - skipping", Color.Orange)
-                Return
+                Return True ' unchanged: the caller still advances the anchor, as before
             End If
 
             Dim newTPprice, newTrigSLprice, newSLprice As Decimal
@@ -4987,7 +5008,17 @@ Public Class frmMainPageV2
             If amount <= 0D Then
                 ' Preserve the old "no edit on a bad amount" behaviour (Decimal.Parse used to throw on blank).
                 AppendColoredText(txtLogs, "Order amount blank/zero - skipping order update", Color.Orange)
-                Return
+                Return True ' unchanged: the caller still advances the anchor, as before
+            End If
+
+            ' Partial fills F2 (docs/spec-partial-fill-fix.md section 4): the TP and SL templates are edited
+            ' only while the entry has NO fill. After a fill the legs are the position's - F1 owns the TP's
+            ' size - so the entry moves alone and the stop context below is left as it is.
+            If Not BracketChaseEditsLegs(LiveOrderFilled(CurrentOpenOrderId)) Then
+                Await SendRateLimitedUpdate("main", CurrentOpenOrderId, newPrice, amount)
+                UpdateFlag = True
+                AppendColoredText(txtLogs, "Entry part-filled: chase moves the entry only, the TP and SL stay", Color.Gray)
+                Return False
             End If
 
             ' Your existing price calculation logic remains the same
@@ -5039,6 +5070,7 @@ Public Class frmMainPageV2
         Catch ex As Exception
             AppendColoredText(txtLogs, "Error in rate-limited UpdateLimitOrderWithOTOCOAsync: " & ex.Message, Color.Red)
         End Try
+        Return True
     End Function
 
     ' Entry-chase v2 §4: slim chase path - move ONLY the entry leg (1 matching-engine edit instead of
@@ -5092,15 +5124,17 @@ Public Class frmMainPageV2
     ' inside otoco_config - experiment (b), docs/runtime-record-x1-testnet-2026-10-10.md), so
     ' this is NOT an SL-context reset site (no StopLossTriggerOriginal/emergencyBaseline/commanded writes).
     ' Runs on the receive thread (after the echo's Me.Invoke): engine fields only, self-marshalling output.
-    Private Async Function ReanchorTPToFillAsync(tpOrderId As String, fillPrice As Decimal, newTPprice As Decimal) As Task
+    Private Async Function ReanchorTPToFillAsync(tpOrderId As String, fillPrice As Decimal, newTPprice As Decimal,
+                                                 tpFilled As Decimal) As Task
         Try
             If rateLimiter Is Nothing Then
                 AppendColoredText(txtLogs, "Rate limiter not initialized - creating emergency limiter", Color.Yellow)
                 rateLimiter = New DeribitRateLimiter(1000, 50) ' Emergency conservative limiter
             End If
 
-            ' Cross-thread fix: read engine input fields, never the textboxes.
-            Dim amount As Decimal = orderAmountVal
+            ' Partial fills F2 (docs/spec-partial-fill-fix.md section 2): the leg covers the POSITION. The
+            ' Amount box re-inflated a part-filled entry's TP to the full order (the box), not the position.
+            Dim amount As Decimal = LegAmountForEdit(tpFilled)
             If amount <= 0D Then
                 AppendColoredText(txtLogs, "TP re-anchor skipped - amount blank/zero", Color.Orange)
                 Return
@@ -5112,6 +5146,7 @@ Public Class frmMainPageV2
             End If
 
             rateLimiter.ConsumeCredits()
+            NoteTpPriceCommand(tpOrderId, newTPprice) ' F1: a resize before this echo carries the new price
             Await SendRateLimitedUpdate("takeprofit", tpOrderId, newTPprice, amount)
             UpdateFlag = True
 
@@ -5332,7 +5367,11 @@ Public Class frmMainPageV2
             ' model, falling back to the input mirror only when the model is unseeded. After a restart
             ' (or whenever txtAmount <> position size) orderAmountVal would resize the stop off the position.
             ' (cross-thread fix retained: read engine fields, not txtAmount.)
-            Dim amount As Decimal = If(positionSizeUSD <> 0D, Math.Abs(positionSizeUSD), orderAmountVal)
+            ' Partial fills PF-D1 (docs/spec-partial-fill-fix.md section 4 F2): the edit's amount is the
+            ' order's TOTAL, so a triggered limit that part-filled and is then chased sends its own filled
+            ' part plus the position. |position| alone cut it BELOW the position. Flat: the placed size,
+            ' else the box (was the box).
+            Dim amount As Decimal = LegAmountForEdit(LiveOrderFilled(PositionSLOrderId))
             If amount <= 0 Then
                 AppendColoredText(txtLogs, "Invalid amount for SL update", Color.Red)
                 Return
@@ -6574,10 +6613,399 @@ Public Class frmMainPageV2
             Try
                 EvaluateNoStopWatchdog()
                 Await TryActOnRejectedStopAsync()
+                Await EvaluateLegSizeCheckAsync() ' partial fills F3: the leg-size check shares this tick
             Catch ex As Exception
                 AppendColoredText(txtLogs, $"Error in the protection watchdog: {ex.Message}", Color.Red)
             End Try
         End While
+    End Function
+
+    ' ===== Partial fills, Phase 2 (docs/spec-partial-fill-fix.md section 4) =====
+    '
+    ' Under first_hit the first partial fill arms a FULL-size take-profit. It is not reduce-only (a
+    ' reduce-only TP makes an SL trigger cancel both legs), so if the entry remainder dies and the TP
+    ' fills, the account flips to the other side with no stop (audit row A14). Owner rulings PF-R2 (b) and
+    ' PF-R5 (a): the app keeps the TP's OPEN part (amount - filled_amount) equal to the position - down at
+    ' a partial fill, back up as more fills arrive, never above. F1 does it on each position change; F3,
+    ' in the watchdog tick above, is the backstop (PF-R3 (a) edit down + page; PF-R4 (a) cancel a TP
+    ' resting with no position + page). F2 sizes every TP and stop edit from the position.
+    '
+    ' Deribit's private/edit "amount" is read as the order's TOTAL, filled part included. The docs
+    ' (docs.deribit.com private/edit, read 2026-10-13) give it the order object's own wording, "It
+    ' represents the requested order size", and say nothing about a part-filled order. So a leg that
+    ' covers the position sends its own filled part plus the position. Not observed: no partial fill can
+    ' be produced on testnet (docs/spec-partial-fill-fix.md section 5 item 5 observes it).
+
+    ' F2: the one amount source for every take-profit and stop edit. A position exists -> the leg's own
+    ' filled part plus the position (filled 100, position 200 -> 300). Flat (pre-fill templates) -> the
+    ' placed size, else the Amount box (the chase's 0-means-the-box convention).
+    Friend Shared Function LegAmountForEditFor(legFilled As Decimal, positionSize As Decimal,
+                                               placedSize As Decimal, boxAmount As Decimal) As Decimal
+        If positionSize <> 0D Then Return Math.Max(legFilled, 0D) + Math.Abs(positionSize)
+        If placedSize > 0D Then Return placedSize
+        Return boxAmount
+    End Function
+
+    Private Function LegAmountForEdit(legFilled As Decimal) As Decimal
+        Return LegAmountForEditFor(legFilled, positionSizeUSD, placedOrderSizeUsd, orderAmountVal)
+    End Function
+
+    ' F2, the bracket chase arm: it edits the pre-fill TP and SL templates only while the entry has no
+    ' fill. After any fill the TP is the position's (F1 owns its size), so the chase moves the entry alone.
+    Friend Shared Function BracketChaseEditsLegs(entryFilled As Decimal) As Boolean
+        Return entryFilled <= 0D
+    End Function
+
+    ' The live take-profit in an order map: the first OPEN order labelled TakeLimitProfit (the post-fill
+    ' leg). An untriggered TakeLimitProfit is a pre-fill template that rests legitimately while flat.
+    Friend Shared Function FindLiveTakeProfit(orders As IEnumerable(Of JToken)) As JToken
+        If orders Is Nothing Then Return Nothing
+        For Each o As JToken In orders
+            If o Is Nothing Then Continue For
+            If o.SelectToken("label")?.ToString() = "TakeLimitProfit" AndAlso
+               o.SelectToken("order_state")?.ToString() = "open" Then Return o
+        Next
+        Return Nothing
+    End Function
+
+    ' A sell closes a long; a buy closes a short. An unknown direction is taken as closing (the old view).
+    Friend Shared Function TpClosesPosition(tpDirection As String, positionSize As Decimal) As Boolean
+        If positionSize > 0D AndAlso tpDirection = "buy" Then Return False
+        If positionSize < 0D AndAlso tpDirection = "sell" Then Return False
+        Return True
+    End Function
+
+    ' F1 (PF-R5 (a)): the amount to send so the TP's open part equals the position, or 0 for no edit.
+    ' allowUp is False on an echo that did not grow the position: a TP fill and the position that it
+    ' shrinks can arrive in separate messages, and an edit up on the stale size would oversize the TP.
+    ' F3 raises an undersize TP after its grace instead.
+    Friend Shared Function TpResizeTargetFor(tpAmount As Decimal, tpFilled As Decimal, tpClosesPos As Boolean,
+                                             positionSize As Decimal, allowUp As Boolean) As Decimal
+        If positionSize = 0D OrElse tpAmount <= 0D OrElse Not tpClosesPos Then Return 0D
+        Dim target As Decimal = LegAmountForEditFor(tpFilled, positionSize, 0D, 0D)
+        If target = tpAmount Then Return 0D
+        If target > tpAmount AndAlso Not allowUp Then Return 0D
+        Return target
+    End Function
+
+    ' F3: what is wrong with the live TP, if anything. tpAmount 0 = no live TP.
+    Friend Enum LegSizeBreach
+        None
+        Oversize    ' open part above the position - PF-R3 (a): edit down, yellow log, normal page
+        Undersize   ' open part below the position - PF-R5 (a): edit up, gray log, no page
+        RestingFlat ' a TP resting with no position - PF-R4 (a): cancel, red log, urgent page
+        WrongSide   ' the TP would ADD to the position - not ruled: alarm only, no order is touched
+    End Enum
+
+    Friend Shared Function LegSizeBreachFor(tpAmount As Decimal, tpFilled As Decimal, tpClosesPos As Boolean,
+                                            positionSize As Decimal) As LegSizeBreach
+        If tpAmount <= 0D Then Return LegSizeBreach.None
+        Dim openPart As Decimal = tpAmount - Math.Max(tpFilled, 0D)
+        If openPart <= 0D Then Return LegSizeBreach.None
+        If positionSize = 0D Then Return LegSizeBreach.RestingFlat
+        If Not tpClosesPos Then Return LegSizeBreach.WrongSide
+        Dim pos As Decimal = Math.Abs(positionSize)
+        If openPart > pos Then Return LegSizeBreach.Oversize
+        If openPart < pos Then Return LegSizeBreach.Undersize
+        Return LegSizeBreach.None
+    End Function
+
+    ' The 2-s grace covers the gap between a fill echo and the position echo. Once per episode, like the
+    ' no-stop watchdog; the caller starts a new episode when the breach kind or the TP id changes.
+    Friend Const LegSizeGraceSeconds As Double = 2.0
+
+    Friend Shared Function LegSizeCheckFires(breach As LegSizeBreach, secondsInBreach As Double,
+                                             alreadyActed As Boolean) As Boolean
+        Return breach <> LegSizeBreach.None AndAlso Not alreadyActed AndAlso secondsInBreach > LegSizeGraceSeconds
+    End Function
+
+    Friend Shared Function LegSizeResizedText(tpOpen As Decimal, positionSize As Decimal) As String
+        Return $"TP was {tpOpen.ToString(Globalization.CultureInfo.InvariantCulture)}, position {Math.Abs(positionSize).ToString(Globalization.CultureInfo.InvariantCulture)}: resized"
+    End Function
+
+    Friend Const TpRestingFlatText As String = "TP resting with no position: cancelled"
+
+    Friend Shared Function TpWrongSideText(tpDirection As String, positionSize As Decimal) As String
+        Return $"TP ({tpDirection}) would ADD to the {If(positionSize > 0D, "LONG", "SHORT")} {Math.Abs(positionSize).ToString(Globalization.CultureInfo.InvariantCulture)} USD position - not touched, check it now"
+    End Function
+
+    ' --- The live TP, read from batch 2's order map (each order's latest echo: exchange truth) ---
+
+    Private Structure LiveTpView
+        Public Id As String          ' Nothing = no live TP
+        Public Amount As Decimal
+        Public Filled As Decimal
+        Public Price As Decimal
+        Public Direction As String
+    End Structure
+
+    Private Shared Function ReadTpView(tp As JToken) As LiveTpView
+        Dim v As New LiveTpView
+        If tp Is Nothing Then Return v
+        v.Id = tp.SelectToken("order_id")?.ToString()
+        v.Amount = If(tp.SelectToken("amount")?.ToObject(Of Decimal?)(), 0D)
+        v.Filled = If(tp.SelectToken("filled_amount")?.ToObject(Of Decimal?)(), 0D)
+        v.Price = If(tp.SelectToken("price")?.ToObject(Of Decimal?)(), 0D)
+        v.Direction = tp.SelectToken("direction")?.ToString()
+        Return v
+    End Function
+
+    Private Function SnapshotLiveTakeProfit() As LiveTpView
+        SyncLock liveOrderGate
+            Return ReadTpView(FindLiveTakeProfit(liveOrders.Values))
+        End SyncLock
+    End Function
+
+    ' One order's filled_amount from its latest echo; 0 when unknown (an unfilled leg, or not in the map).
+    Private Function LiveOrderFilled(orderId As String) As Decimal
+        If String.IsNullOrEmpty(orderId) Then Return 0D
+        SyncLock liveOrderGate
+            Dim o As JToken = Nothing
+            If liveOrders.TryGetValue(orderId, o) Then Return If(o.SelectToken("filled_amount")?.ToObject(Of Decimal?)(), 0D)
+        End SyncLock
+        Return 0D
+    End Function
+
+    ' --- F1: the resize edit. One in flight at a time; a request meanwhile is coalesced into one re-run
+    ' that reads the LATEST TP and position when the reply lands. A refused edit is never assumed to have
+    ' taken effect: the size is always re-read from the echo (TN-F3 in docs/review-testnet-2026-10-12.md
+    ' section 2 is exactly that failure in the chase path). ---
+
+    Friend Const TpResizeRequestId As Integer = 42
+    Friend Const TpGuardCancelRequestId As Integer = 43
+    Private Const TpResizeInFlightTimeoutSeconds As Double = 5.0 ' a lost reply frees the gate
+    Private Const TpCommandedPriceSeconds As Double = 3.0         ' an app price edit not yet echoed
+
+    Private ReadOnly tpResizeGate As New Object()
+    Private tpResizeInFlightSince As DateTime = DateTime.MinValue ' MinValue = none in flight
+    Private tpResizeInFlightKind As LegSizeBreach = LegSizeBreach.None ' None = an F1 event edit
+    Private tpResizeInFlightText As String = Nothing
+    Private tpResizeRerun As Boolean = False
+    Private tpResizeRerunAllowUp As Boolean = False
+    ' The app's own last TP price edit (the fill re-anchor, Edit T.P.). A resize sent before that edit's
+    ' echo lands carries the commanded price, so it cannot put the TP back at the old one.
+    Private tpCommandedPriceId As String = Nothing
+    Private tpCommandedPrice As Decimal = 0D
+    Private tpCommandedUtc As DateTime = DateTime.MinValue
+
+    Private Sub NoteTpPriceCommand(orderId As String, price As Decimal)
+        SyncLock tpResizeGate
+            tpCommandedPriceId = orderId
+            tpCommandedPrice = price
+            tpCommandedUtc = DateTime.UtcNow
+        End SyncLock
+    End Sub
+
+    Private Function TpPriceForResize(tp As LiveTpView) As Decimal
+        SyncLock tpResizeGate
+            If tpCommandedPriceId = tp.Id AndAlso tpCommandedPrice > 0D AndAlso
+               (DateTime.UtcNow - tpCommandedUtc).TotalSeconds < TpCommandedPriceSeconds Then Return tpCommandedPrice
+        End SyncLock
+        Return tp.Price
+    End Function
+
+    ' kind None = an F1 event edit (allowUp from the caller); Oversize/Undersize = F3's backstop edit.
+    Private Async Function RequestTpResizeAsync(allowUp As Boolean, Optional kind As LegSizeBreach = LegSizeBreach.None,
+                                                Optional checkText As String = Nothing) As Task
+        SyncLock tpResizeGate
+            If tpResizeInFlightSince <> DateTime.MinValue AndAlso
+               (DateTime.UtcNow - tpResizeInFlightSince).TotalSeconds < TpResizeInFlightTimeoutSeconds Then
+                tpResizeRerun = True
+                tpResizeRerunAllowUp = tpResizeRerunAllowUp OrElse allowUp
+                Return
+            End If
+            tpResizeInFlightSince = DateTime.UtcNow ' claim before the first Await
+            tpResizeInFlightKind = kind
+            tpResizeInFlightText = checkText
+        End SyncLock
+        Dim sent As Boolean = False
+        Try
+            sent = Await SendTpResizeAsync(allowUp, kind)
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"Error in the TP resize: {ex.Message}", Color.Red)
+        Finally
+            If Not sent Then ReleaseTpResize() ' nothing to wait for
+        End Try
+    End Function
+
+    ' Frees the gate. A coalesced request re-runs once, on the latest TP and position.
+    Private Sub ReleaseTpResize()
+        Dim rerun As Boolean = False
+        Dim rerunUp As Boolean = False
+        SyncLock tpResizeGate
+            tpResizeInFlightSince = DateTime.MinValue
+            tpResizeInFlightKind = LegSizeBreach.None
+            tpResizeInFlightText = Nothing
+            rerun = tpResizeRerun
+            rerunUp = tpResizeRerunAllowUp
+            tpResizeRerun = False
+            tpResizeRerunAllowUp = False
+        End SyncLock
+        If rerun Then
+            Dim _rerun = RequestTpResizeAsync(rerunUp)
+        End If
+    End Sub
+
+    ' Returns True only when an edit was sent (the gate then waits for its reply).
+    Private Async Function SendTpResizeAsync(allowUp As Boolean, kind As LegSizeBreach) As Task(Of Boolean)
+        If Not IsWebSocketConnected Then Return False
+        Dim tp As LiveTpView = SnapshotLiveTakeProfit()
+        If tp.Id Is Nothing Then Return False
+        Dim size As Decimal = positionSizeUSD
+        Dim target As Decimal = TpResizeTargetFor(tp.Amount, tp.Filled, TpClosesPosition(tp.Direction, size), size, allowUp)
+        If target <= 0D Then Return False
+        Dim price As Decimal = TpPriceForResize(tp)
+        If price <= 0D Then Return False
+        Dim payload As New JObject From {
+            {"jsonrpc", "2.0"},
+            {"id", TpResizeRequestId},
+            {"method", "private/edit"},
+            {"params", New JObject From {
+                {"order_id", tp.Id},
+                {"price", price},
+                {"amount", target},
+                {"post_only", True},         ' as every post-fill TP edit (the fill re-anchor, Edit T.P.)
+                {"reject_post_only", False}
+            }}
+        }
+        If Not Await SendWebSocketMessageAsync(payload.ToString()) Then Return False
+        If kind = LegSizeBreach.None Then
+            AppendColoredText(txtLogs, $"TP sized to the position: open {(tp.Amount - tp.Filled):0.##} -> {Math.Abs(size):0.##} (amount {tp.Amount:0.##} -> {target:0.##})", Color.Gray)
+        End If
+        Return True
+    End Function
+
+    ' The replies to the resize (id 42) and to F3's PF-R4 cancel (id 43). Receive thread; engine fields only.
+    Private Sub HandleTpGuardResponse(response As String)
+        Try
+            If response.IndexOf("""id"":4", StringComparison.Ordinal) < 0 Then Return
+            Dim json = JObject.Parse(response)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer?)()
+            If Not messageId.HasValue Then Return
+            If messageId.Value <> TpResizeRequestId AndAlso messageId.Value <> TpGuardCancelRequestId Then Return
+            Dim errorField = json.SelectToken("error")
+            Dim errorText As String = errorField?.ToString(Newtonsoft.Json.Formatting.None)
+            Dim gone As Boolean = errorText IsNot Nothing AndAlso
+                (errorText.IndexOf("already_closed", StringComparison.OrdinalIgnoreCase) >= 0 OrElse
+                 errorText.IndexOf("not_open_order", StringComparison.OrdinalIgnoreCase) >= 0 OrElse
+                 errorText.IndexOf("order_not_found", StringComparison.OrdinalIgnoreCase) >= 0)
+
+            If messageId.Value = TpGuardCancelRequestId Then
+                If errorField Is Nothing Then Return ' the cancelled echo confirms it
+                If gone Then
+                    AppendColoredText(txtLogs, $"TP cancel: the TP was already gone ({errorText})", Color.Gray)
+                    Return
+                End If
+                Dim refusedText As String = $"TP cancel REFUSED ({errorText}) — a TP still rests with no position"
+                AppendColoredText(txtLogs, refusedText, Color.Red)
+                RemoteNotifier.Post("OrderApp", refusedText, priority:="urgent", tags:="rotating_light")
+                Return
+            End If
+
+            ' Resize reply.
+            Dim kind As LegSizeBreach
+            Dim checkText As String
+            SyncLock tpResizeGate
+                kind = tpResizeInFlightKind
+                checkText = tpResizeInFlightText
+            End SyncLock
+            If errorField IsNot Nothing Then
+                If gone Then
+                    AppendColoredText(txtLogs, $"TP resize skipped: the TP is gone ({errorText})", Color.Gray)
+                ElseIf kind = LegSizeBreach.Oversize Then
+                    Dim refusedText As String = $"TP resize REFUSED ({errorText}) — {If(checkText, "the TP is still above the position")}"
+                    AppendColoredText(txtLogs, refusedText, Color.Yellow)
+                    RemoteNotifier.Post("OrderApp", refusedText)
+                Else
+                    AppendColoredText(txtLogs, $"TP resize refused ({errorText}) — the leg-size check retries", Color.Yellow)
+                End If
+            End If
+            ReleaseTpResize()
+        Catch
+            ' Parse noise: ignore, like the other handlers.
+        End Try
+    End Sub
+
+    Private Async Function SendTpGuardCancelAsync(tpId As String) As Task
+        Dim payload As New JObject From {
+            {"jsonrpc", "2.0"},
+            {"id", TpGuardCancelRequestId},
+            {"method", "private/cancel"},
+            {"params", New JObject From {{"order_id", tpId}}}
+        }
+        If Not Await SendWebSocketMessageAsync(payload.ToString()) Then
+            Dim failText As String = "TP cancel NOT SENT (socket) — a TP still rests with no position"
+            AppendColoredText(txtLogs, failText, Color.Red)
+            RemoteNotifier.Post("OrderApp", failText, priority:="urgent", tags:="rotating_light")
+        End If
+    End Function
+
+    ' --- F3: the leg-size check, one tick. Stands down like the no-stop watchdog (disconnected, or the map
+    ' not yet seeded by this connection's id-778 snapshot). Engine fields only - no control is read. ---
+
+    Private legBreachKind As LegSizeBreach = LegSizeBreach.None
+    Private legBreachTpId As String = Nothing
+    Private legBreachSinceUtc As DateTime = DateTime.MinValue
+    Private legBreachActed As Boolean = False
+
+    Private Async Function EvaluateLegSizeCheckAsync() As Task
+        ' A lost reply must not hold the resize gate for ever.
+        Dim stale As Boolean
+        SyncLock tpResizeGate
+            stale = tpResizeInFlightSince <> DateTime.MinValue AndAlso
+                    (DateTime.UtcNow - tpResizeInFlightSince).TotalSeconds >= TpResizeInFlightTimeoutSeconds
+        End SyncLock
+        If stale Then ReleaseTpResize()
+
+        Dim action As LegSizeBreach = LegSizeBreach.None
+        Dim tp As LiveTpView
+        Dim size As Decimal
+        SyncLock liveOrderGate
+            size = positionSizeUSD
+            If Not IsWebSocketConnected OrElse Not liveOrdersSeeded Then
+                legBreachKind = LegSizeBreach.None
+                Return
+            End If
+            tp = ReadTpView(FindLiveTakeProfit(liveOrders.Values))
+            Dim breach As LegSizeBreach = If(tp.Id Is Nothing, LegSizeBreach.None,
+                                             LegSizeBreachFor(tp.Amount, tp.Filled, TpClosesPosition(tp.Direction, size), size))
+            If breach = LegSizeBreach.None Then
+                legBreachKind = LegSizeBreach.None ' the episode ends
+                Return
+            End If
+            Dim nowUtc As DateTime = DateTime.UtcNow
+            If breach <> legBreachKind OrElse tp.Id <> legBreachTpId Then
+                legBreachKind = breach
+                legBreachTpId = tp.Id
+                legBreachSinceUtc = nowUtc
+                legBreachActed = False
+            End If
+            If LegSizeCheckFires(breach, (nowUtc - legBreachSinceUtc).TotalSeconds, legBreachActed) Then
+                legBreachActed = True
+                action = breach
+            End If
+        End SyncLock
+
+        Dim tpOpen As Decimal = tp.Amount - tp.Filled
+        Select Case action
+            Case LegSizeBreach.Oversize
+                Dim text As String = LegSizeResizedText(tpOpen, size)
+                AppendColoredText(txtLogs, text, Color.Yellow)
+                RemoteNotifier.Post("OrderApp", text)
+                Await RequestTpResizeAsync(False, LegSizeBreach.Oversize, $"TP {tpOpen:0.##} still above position {Math.Abs(size):0.##}")
+            Case LegSizeBreach.Undersize
+                AppendColoredText(txtLogs, $"TP open part {tpOpen:0.##} below position {Math.Abs(size):0.##}: resizing up", Color.Gray)
+                Await RequestTpResizeAsync(True, LegSizeBreach.Undersize)
+            Case LegSizeBreach.RestingFlat
+                AppendColoredText(txtLogs, TpRestingFlatText, Color.Red)
+                RemoteNotifier.Post("OrderApp", TpRestingFlatText, priority:="urgent", tags:="rotating_light")
+                Await SendTpGuardCancelAsync(tp.Id)
+            Case LegSizeBreach.WrongSide
+                Dim text As String = TpWrongSideText(tp.Direction, size)
+                AppendColoredText(txtLogs, text, Color.Red)
+                Alert("no_stop")
+                RemoteNotifier.Post("OrderApp", text, priority:="urgent", tags:="rotating_light")
+        End Select
     End Function
 
     ' --- Item 1: the rejected stop leg (row A13 of docs/triage-adversarial-audit-2026-10.md; owner ruling R1) ---
@@ -7806,7 +8234,6 @@ Public Class frmMainPageV2
             Else
                 Dim newTPprice As Decimal = If(Decimal.TryParse(txtPlacedTakeProfitPrice.Text, d), d, 0D)
                 If newTPprice > 0 Then
-                    Dim amount As Decimal = orderAmountVal
                     Dim TPOrderID As String = Nothing
 
                     ' Ensure WebSocket is connected
@@ -7824,6 +8251,15 @@ Public Class frmMainPageV2
                         AppendColoredText(txtLogs, "T.P. Order ID not found for edit.", Color.Yellow)
                         Return ' Audit2 F4: don't send an edit with a null order_id
                     End If
+
+                    ' Partial fills F2: the position's TP is sized from the position (its own filled part
+                    ' plus the position); a pre-fill template keeps the placed size. Was: the Amount box.
+                    Dim amount As Decimal = LegAmountForEdit(LiveOrderFilled(TPOrderID))
+                    If amount <= 0D Then
+                        AppendColoredText(txtLogs, "T.P. edit not sent - amount blank/zero", Color.Yellow)
+                        Return
+                    End If
+                    NoteTpPriceCommand(TPOrderID, newTPprice) ' F1: a resize before this echo carries the new price
 
                     ' Construct the payload for updating the take profit order
                     Dim updateTakeProfitPayload As New JObject From {
@@ -7862,7 +8298,6 @@ Public Class frmMainPageV2
     Private Async Function EditStopLossTo(newTrigger As Decimal) As Task
         Dim newTSprice As Decimal = newTrigger
         Dim newSLprice As Decimal
-        Dim amount As Decimal = Decimal.Parse(txtAmount.Text)
         Dim SLOrderID As String = Nothing
 
         ' Ensure WebSocket is connected
@@ -7878,6 +8313,14 @@ Public Class frmMainPageV2
         Else
             AppendColoredText(txtLogs, "S.L. Order ID not found for edit.", Color.Yellow)
             Return ' Audit2 F4: don't send an edit with a null order_id
+        End If
+
+        ' Partial fills F2: the stop covers the POSITION (its own filled part plus the position); a pre-fill
+        ' template keeps the placed size. Was: the Amount box, which could cut the stop below the position.
+        Dim amount As Decimal = LegAmountForEdit(LiveOrderFilled(SLOrderID))
+        If amount <= 0D Then
+            AppendColoredText(txtLogs, "S.L. edit not sent - amount blank/zero", Color.Yellow)
+            Return
         End If
 
         ' Protection batch 1 item 2: the stop protects the POSITION - its side, not the toggle.

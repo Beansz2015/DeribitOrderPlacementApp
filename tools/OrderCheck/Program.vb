@@ -1802,6 +1802,117 @@ Module Program
               frmMainPageV2.ReduceOnlyRejectedText.Contains("may already cover the position") AndAlso
               frmMainPageV2.ReduceOnlyRejectedText.Contains("already flat"))
 
+        ' ==== Partial fills, Phase 2 (docs/spec-partial-fill-fix.md section 4; acceptance section 5 item 2) ====
+        ' Before: every TP edit re-sent the Amount box, the triggered-SL edit sent |position| alone, nothing
+        ' resized a full-size first_hit TP after a partial fill, and nothing checked the TP against the position.
+        ' Each Check below carries a positive claim, so code that never resizes or never checks fails it.
+
+        ' F2 - LegAmountForEdit (position, flat, placed-size override, a part-filled leg).
+        Check("PF F2 fixture 1: position +200, unfilled leg -> 200 (not the box 500, not the placed size)",
+              frmMainPageV2.LegAmountForEditFor(0D, 200D, 500D, 500D) = 200D,
+              $"got {frmMainPageV2.LegAmountForEditFor(0D, 200D, 500D, 500D)}")
+        Check("PF F2 fixture 2: a part-filled leg (filled 100, position -200) -> 300, the order's total",
+              frmMainPageV2.LegAmountForEditFor(100D, -200D, 0D, 10D) = 300D,
+              $"got {frmMainPageV2.LegAmountForEditFor(100D, -200D, 0D, 10D)}")
+        Check("PF F2 fixture 3: flat with a placed size 80 (bridge risk size) -> 80, not the box 10",
+              frmMainPageV2.LegAmountForEditFor(0D, 0D, 80D, 10D) = 80D)
+        Check("PF F2 fixture 4: flat, nothing placed -> the box; a position still wins over both",
+              frmMainPageV2.LegAmountForEditFor(0D, 0D, 0D, 10D) = 10D AndAlso frmMainPageV2.LegAmountForEditFor(0D, 10D, 0D, 500D) = 10D)
+        Check("PF-D1 fixture: a triggered SL limit 20, filled 10, chased with position 10 -> 20 (|position| alone sent 10: 10 - 10 filled = 0 open)",
+              frmMainPageV2.LegAmountForEditFor(10D, 10D, 0D, 20D) = 20D)
+        Check("PF F2 fixture 5: the bracket chase edits the templates only while the entry has no fill",
+              frmMainPageV2.BracketChaseEditsLegs(0D) AndAlso Not frmMainPageV2.BracketChaseEditsLegs(10D))
+
+        ' F1 - the resize target over a sequence of synthetic partial-fill echoes. A first_hit TP is armed
+        ' at the FULL order (500) at the first fill. Each step applies the edit as its echo would.
+        Dim tpEcho = Function(state As String, amount As Decimal, filled As Decimal, direction As String) As JObject
+                         Return New JObject From {{"order_id", "TP-1"}, {"label", "TakeLimitProfit"}, {"order_type", "limit"},
+                                                  {"order_state", state}, {"direction", direction}, {"price", 83000D},
+                                                  {"amount", amount}, {"filled_amount", filled}}
+                     End Function
+        ' Runs F1 once against a TP echo and a position; returns the TP's amount afterwards.
+        Dim f1Step = Function(tp As JObject, position As Decimal, grew As Boolean) As Decimal
+                         Dim amt As Decimal = tp.Value(Of Decimal)("amount")
+                         Dim target As Decimal = frmMainPageV2.TpResizeTargetFor(amt, tp.Value(Of Decimal)("filled_amount"),
+                                                     frmMainPageV2.TpClosesPosition(tp.Value(Of String)("direction"), position), position, grew)
+                         If target > 0D Then tp("amount") = target
+                         Return tp.Value(Of Decimal)("amount")
+                     End Function
+        Dim seqTp As JObject = tpEcho("open", 500D, 0D, "sell")
+        Dim pfS1 As Decimal = f1Step(seqTp, 10D, True)
+        Dim pfS2 As Decimal = f1Step(seqTp, 200D, True)
+        Dim pfS3 As Decimal = f1Step(seqTp, 500D, True)
+        Check("PF F1 fixture 1: fills 10 -> 200 -> 500 move the full-size TP 500 to 10 -> 200 -> 500",
+              pfS1 = 10D AndAlso pfS2 = 200D AndAlso pfS3 = 500D, $"got {pfS1} -> {pfS2} -> {pfS3}")
+        Dim cutTp As JObject = tpEcho("open", 500D, 0D, "sell")
+        f1Step(cutTp, 10D, True)
+        Dim c2 As Decimal = f1Step(cutTp, 200D, True)
+        Dim c3 As Decimal = f1Step(cutTp, 200D, False) ' the remainder is cancelled: the position stays 200
+        Check("PF F1 fixture 2: remainder cancelled at 200 -> the TP stays 200",
+              c2 = 200D AndAlso c3 = 200D, $"got {c2} then {c3}")
+        Dim pfTp As JObject = tpEcho("open", 300D, 100D, "sell")
+        Dim noEdit As Decimal = frmMainPageV2.TpResizeTargetFor(300D, 100D, True, 200D, True)
+        Dim p2 As Decimal = f1Step(pfTp, 150D, False)
+        Check("PF F1 fixture 3: TP 300 part-filled 100 with position 200 -> no edit; then position 150 -> amount 250",
+              noEdit = 0D AndAlso p2 = 250D, $"got {noEdit} then {p2}")
+        Check("PF F1 fixture 4: the edit-up waits for a fresh larger position (allowUp); the edit-down never does",
+              frmMainPageV2.TpResizeTargetFor(20D, 0D, True, 30D, False) = 0D AndAlso
+              frmMainPageV2.TpResizeTargetFor(20D, 0D, True, 30D, True) = 30D AndAlso
+              frmMainPageV2.TpResizeTargetFor(30D, 0D, True, 20D, False) = 20D)
+        Check("PF F1 fixture 5: flat or a wrong-side TP -> F1 sends nothing; a short's buy TP 500 at position -10 -> 10",
+              frmMainPageV2.TpResizeTargetFor(500D, 0D, True, 0D, True) = 0D AndAlso
+              frmMainPageV2.TpResizeTargetFor(500D, 0D, False, 10D, True) = 0D AndAlso
+              frmMainPageV2.TpResizeTargetFor(500D, 0D, frmMainPageV2.TpClosesPosition("buy", -10D), -10D, True) = 10D)
+        ' Both readings of private/edit "amount", by arithmetic. Total reading (the one built): the open part
+        ' after the edit is amount - filled = the position. Had the app sent |position| alone (the open-part
+        ' reading), the total reading would leave only 200 - 100 = 100 open against a 200 position.
+        Dim totalReading As Decimal = frmMainPageV2.LegAmountForEditFor(100D, 200D, 0D, 0D)
+        Check("PF F1 fixture 6 (readings): total reading -> send 300, open part 300 - 100 = 200 = the position; |position| alone would leave 100",
+              totalReading = 300D AndAlso totalReading - 100D = 200D AndAlso 200D - 100D <> 200D)
+        ' The audit's "partial" scenario (row A14): 500 entry, 10 filled, remainder cancelled. Before the fix the
+        ' 500 TP filled against a 10 long and left the account short 490 with no stop.
+        Dim auditTp As JObject = tpEcho("open", 500D, 0D, "sell")
+        f1Step(auditTp, 10D, True)       ' the first partial fill
+        f1Step(auditTp, 10D, False)      ' the remainder is cancelled: no position change
+        Dim auditOpen As Decimal = auditTp.Value(Of Decimal)("amount") - auditTp.Value(Of Decimal)("filled_amount")
+        Check("PF audit fixture (A14 'partial'): 500 entry, 10 filled, remainder cancelled -> no TP above 10 survives; its fill leaves 10 - 10 = flat, not short 490",
+              auditOpen = 10D AndAlso 10D - auditOpen = 0D, $"TP open part {auditOpen}")
+
+        ' F3 - the leg-size check on the OPEN part.
+        Check("PF F3 fixture 1: oversize (TP 500 open, position +10) -> Oversize (PF-R3: edit down + page)",
+              frmMainPageV2.LegSizeBreachFor(500D, 0D, True, 10D) = frmMainPageV2.LegSizeBreach.Oversize)
+        Check("PF F3 fixture 2: undersize (TP 10, position +200) -> Undersize (PF-R5: edit up, no page)",
+              frmMainPageV2.LegSizeBreachFor(10D, 0D, True, 200D) = frmMainPageV2.LegSizeBreach.Undersize)
+        Check("PF F3 fixture 3: TP 20 resting, position flat -> RestingFlat (PF-R4: cancel + urgent page)",
+              frmMainPageV2.LegSizeBreachFor(20D, 0D, True, 0D) = frmMainPageV2.LegSizeBreach.RestingFlat)
+        Check("PF F3 fixture 4: equal open part -> nothing; one contract more -> Oversize",
+              frmMainPageV2.LegSizeBreachFor(20D, 0D, True, -20D) = frmMainPageV2.LegSizeBreach.None AndAlso
+              frmMainPageV2.LegSizeBreachFor(30D, 0D, True, -20D) = frmMainPageV2.LegSizeBreach.Oversize)
+        Check("PF F3 fixture 5: the OPEN part counts - TP 300 filled 100 vs 200 -> nothing; vs 150 -> Oversize",
+              frmMainPageV2.LegSizeBreachFor(300D, 100D, True, 200D) = frmMainPageV2.LegSizeBreach.None AndAlso
+              frmMainPageV2.LegSizeBreachFor(300D, 100D, True, 150D) = frmMainPageV2.LegSizeBreach.Oversize)
+        Check("PF F3 fixture 6: a sell TP on a SHORT would add to it -> WrongSide (alarm only); no TP -> nothing",
+              frmMainPageV2.LegSizeBreachFor(20D, 0D, frmMainPageV2.TpClosesPosition("sell", -20D), -20D) = frmMainPageV2.LegSizeBreach.WrongSide AndAlso
+              frmMainPageV2.LegSizeBreachFor(0D, 0D, True, 20D) = frmMainPageV2.LegSizeBreach.None)
+        Check("PF F3 fixture 7: within the 2-s grace -> no action; past it -> act; once per episode",
+              Not frmMainPageV2.LegSizeCheckFires(frmMainPageV2.LegSizeBreach.Oversize, 2.0, False) AndAlso
+              frmMainPageV2.LegSizeCheckFires(frmMainPageV2.LegSizeBreach.Oversize, 2.01, False) AndAlso
+              Not frmMainPageV2.LegSizeCheckFires(frmMainPageV2.LegSizeBreach.Oversize, 60.0, True) AndAlso
+              Not frmMainPageV2.LegSizeCheckFires(frmMainPageV2.LegSizeBreach.None, 60.0, False) AndAlso
+              frmMainPageV2.LegSizeGraceSeconds = 2.0)
+        Check("PF F3 fixture 8: the page texts",
+              frmMainPageV2.LegSizeResizedText(30D, 20D) = "TP was 30, position 20: resized" AndAlso
+              frmMainPageV2.TpRestingFlatText = "TP resting with no position: cancelled",
+              $"got '{frmMainPageV2.LegSizeResizedText(30D, 20D)}'")
+        ' The live TP in the order map: the open post-fill leg, never the untriggered pre-fill template.
+        Dim tpMap As New Dictionary(Of String, JToken)(StringComparer.Ordinal)
+        frmMainPageV2.ApplyOrderToLiveMap(tpMap, New JObject From {{"order_id", "OTO-1"}, {"label", "TakeLimitProfit"}, {"order_state", "untriggered"}, {"direction", "sell"}, {"amount", 500D}})
+        Dim noLive As Boolean = frmMainPageV2.FindLiveTakeProfit(tpMap.Values) Is Nothing
+        frmMainPageV2.ApplyOrderToLiveMap(tpMap, tpEcho("open", 500D, 0D, "sell"))
+        Dim found As JToken = frmMainPageV2.FindLiveTakeProfit(tpMap.Values)
+        Check("PF F3 fixture 9: an untriggered TP template is not a resting TP; the open post-fill TP is",
+              noLive AndAlso found IsNot Nothing AndAlso found.Value(Of String)("order_id") = "TP-1")
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then
