@@ -135,9 +135,17 @@ grep for `X2Testnet.` to show zero call sites.
 
 **F1 — the mechanism (PF-R2 → (b), PF-R5 (a)). `incremental` is DROPPED** (X-2, `TN-F1`). `first_hit` stays,
 and the payload does not change. Instead, the app keeps the take-profit equal to the position:
-- **Rule:** while a take-profit rests and a position exists, the TP amount = `|positionSizeUSD|`. Never above it.
-  Edit it **down** at a partial fill and **back up** as further fills arrive. A partial fill that later completes
-  ends with today's full-size TP.
+- **Rule:** while a take-profit rests and a position exists, the TP's **open part** (`amount − filled_amount`)
+  = `|positionSizeUSD|`. Never above it. Edit it **down** at a partial fill and **back up** as further fills
+  arrive. A partial fill that later completes ends with today's full-size TP.
+- **The open part, not `amount` (amended 2026-10-13, owner go).** Deribit's `amount` is read here as the order's
+  **total, filled part included**. So the edit sends `amount = filled_amount + |positionSizeUSD|`, with the TP's
+  own `filled_amount` from its latest echo. Example: TP 300, 100 of it filled, position +200 → the open part is
+  200 = the position → no edit. Sending `amount` 200 there would leave only 100 open.
+  **Not verified:** that an edit's `amount` is the total. The implementer reads docs.deribit.com
+  (`private/edit`) and records the exact wording before coding; if it says the open part, escalate (`E`) first.
+  A part-filled order cannot be produced on testnet, so fixtures cover both readings' arithmetic, and §5 item 5
+  observes it for real.
 - **Trigger:** event-driven, on each position change from the `user.changes` positions pass, while a TP is known.
   F3's one-second check is the backstop, not the main path.
 - One edit per change, with `LegAmountForEdit()` (F2). Coalesce: if an edit is in flight, send the latest target
@@ -147,19 +155,26 @@ and the payload does not change. Instead, the app keeps the take-profit equal to
 - **Not observed:** an amount edit of a placed TP under `first_hit` (X-2 (f) tried it only under `incremental`).
   The §5 item 3 injection run is its first observation.
 
-**F2 — one amount source for every take-profit and stop edit.** Add one helper, `LegAmountForEdit()`:
-- a position exists (`positionSizeUSD <> 0`) → `|positionSizeUSD|`;
+**F2 — one amount source for every take-profit and stop edit.** Add one helper, `LegAmountForEdit(legFilled)`:
+- a position exists (`positionSizeUSD <> 0`) → `legFilled + |positionSizeUSD|`, where `legFilled` is **that
+  leg's own** `filled_amount` (0 for an unfilled leg);
 - otherwise (pre-fill templates) → the placed size (`placedOrderSizeUsd` if > 0, else `orderAmountVal`).
+- **The same total-amount rule applies to the stop.** `UpdateStopLossForTriggeredStopLossOrder` (`:5241` at
+  `96371d4`) sends `|positionSizeUSD|`. If `amount` is the total, a triggered SL limit that part-fills and is then
+  chased is cut **below** the position: an under-size stop. Bring it onto the helper. This is a possible
+  existing defect, found while amending this spec — scope it `PF-D1` (a partial-fill-feature code defect,
+  unconfirmed until the docs wording above is recorded).
 Use it at `ReanchorTPToFillAsync`, `btnEditTPPrice_Click` and `EditStopLossTo`. The bracket chase arm edits the
 templates only while the entry has **no** fill. After any fill it edits the entry alone (exact rule set by Q5).
-`UpdateStopLossForTriggeredStopLossOrder` already follows this rule; leave it. Pure seam → OrderCheck.
+Pure seam → OrderCheck, including a part-filled leg (filled 100, position 200 → amount 300).
 
 **F3 — the leg-size check.** It runs in batch 2's one-second watchdog tick (`docs/spec-protection-batch2.md` §2).
-It does not fork that tick. Track the live take-profit's `amount` from its echo (exchange truth; a new field).
-- TP resting with `amount > |positionSizeUSD|` for more than 2 s → the PF-R3 action (ruled (a)): edit it down
-  with `LegAmountForEdit()`, yellow log, normal page "TP was <x>, position <y>: resized".
-- TP resting with `amount < |positionSizeUSD|` for more than 2 s → edit it up to the position (PF-R5), gray log,
-  no page. This is the backstop for a missed F1 event.
+It does not fork that tick. Track the live take-profit's `amount` **and** `filled_amount` from its echo (exchange
+truth; new fields). "Open" below means `amount − filled_amount`.
+- TP open part `> |positionSizeUSD|` for more than 2 s → the PF-R3 action (ruled (a)): edit it down with
+  `LegAmountForEdit()`, yellow log, normal page "TP was <x>, position <y>: resized".
+- TP open part `< |positionSizeUSD|` for more than 2 s → edit it up to the position (PF-R5), gray log, no page.
+  This is the backstop for a missed F1 event.
 - TP resting while the position is flat for more than 2 s → the PF-R4 action. Default (a): cancel it, red log,
   urgent page "TP resting with no position: cancelled".
 - Once per episode, as batch 2's watchdog does. Pure seam (TP amount, position, seconds) → OrderCheck.
@@ -186,7 +201,8 @@ holds about 720,000 USD or more), so items 1–4 accept the build now and item 5
 1. Gate passes (`tools/checks/verify-gate.ps1`); the nine `frmMainPageV2.vb` censuses re-run (occurrence counts).
 2. OrderCheck fixtures: `LegAmountForEdit()` (position, flat, placed-size override); the F1 resize target over a
    sequence of synthetic partial-fill echoes (10 → 200 → 500 filled: TP 10 → 200 → 500; remainder cancelled at
-   200: TP 200); the F3 decision (oversize, undersize, flat, equal, within grace); the audit's `partial` scenario:
+   200: TP 200; a TP part-filled 100 with position 200 → no edit; then position 150 → amount 250); the F3
+   decision on the open part (oversize, undersize, flat, equal, within grace); the audit's `partial` scenario:
    500 entry, 10 filled, remainder cancelled → no TP above 10 survives. Each new fixture must fail against today's
    code, proven by a mutation run.
 3. Testnet harness run, `first_hit`, 20 USD (two contracts), the fix in force:

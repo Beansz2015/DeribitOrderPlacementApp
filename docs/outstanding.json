@@ -1,79 +1,79 @@
 {
-  "schema": 1,
-  "updated_utc": "2026-10-12T16:45Z",
-  "updated_by": "seat coordinator, Opus 5.5",
-  "away": {
-    "from": "2026-10-14",
-    "to": "2026-11-25"
-  },
-  "waiting_on_trader": [
-    {
-      "kind": "push",
-      "meaning": "Push master: 5 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the partial-fill experiment's testnet-only switches; the testnet session record; its review with your two partial-fill rulings).",
-      "since": "2026-10-12"
-    },
-    {
-      "kind": "ruling",
-      "tick": true,
-      "id": "N2 LIVE",
-      "meaning": "Decide whether to run risk sizing in Live. ⚠ The adversarial audit's partial-fill finding blocks it: risk sizing produces 80-90 USD entries, and a partial fill can flip the account short with no stop. Hold until the fix ships AND a real partial fill has been seen with it in force (your ruling 2026-10-13).",
-      "doc": "docs/HANDOVER-7.md",
-      "anchor": "§2 item 3",
-      "since": "2026-08-14"
-    },
-    {
-      "kind": "go",
-      "meaning": "AWS London migration. The key choreography removes the window where two executors run at once.",
-      "doc": "docs/production-cutover-checklist.md",
-      "since": "2026-08-02"
-    }
-  ],
-  "in_progress": [],
-  "dated": [
-    {
-      "what": "After your return: try a real partial fill on testnet from a second sub-account (works only if the testnet spread is wider than one tick), with the partial-fill fix in force. Gate before any Amount above 10 USD in Live",
-      "date": "2026-11-25",
-      "approx": true,
-      "doc": "docs/spec-partial-fill-fix.md",
-      "anchor": "§5 item 5"
-    }
-  ],
-  "next_up": [
-    {
-      "what": "Partial fills, phase 2 implementer: keep the take-profit equal to the position (down at a partial fill, back up as fills arrive), size every take-profit and stop edit from the position, and a once-a-second check that fixes a wrong-size take-profit or cancels one resting while flat. First_hit stays. Accept by fixtures plus an injected wrong-size TP on testnet. Blocks risk sizing in Live.",
-      "doc": "docs/spec-partial-fill-fix.md",
-      "anchor": "§4",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "Protection: when the exchange refuses a stop edit, the app still moves its own record of the stop and raises no alert (seen on testnet: 58 s of refused stop moves, no page). Spec and fix",
-      "doc": "docs/review-testnet-2026-10-12.md",
-      "anchor": "§2, row TN-F3",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "Later protection items: position-level loss cap, quote-silence watchdog, stand-down cancels the entry, bounded freshness window; emergency reduce-before-cancel (one testnet observation now; confirm once under first_hit)",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "Remaining audit rows: trailing trigger offset, close during a socket gap, tick rounding direction, payload reader share mode, small log and feedback items",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "Hygiene: serialise all socket sends behind one lock (many threads send today; the watchdog added one more)",
-      "doc": "docs/review-protection-batch2.md",
-      "anchor": "§4 item 1",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "Hygiene: the 'Triggered SL placed' log line goes missing after a market entry (a flag is not reset in that branch)",
-      "doc": "docs/review-testnet-2026-10-12.md",
-      "anchor": "§2, row TN-F4",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "Remaining hygiene rows need runtime observation or a spec of their own; not clearable by a seat alone",
-      "model": "Opus 5.5, medium"
-    }
-  ]
+    "schema":  1,
+    "updated_utc":  "2026-10-12T17:05Z",
+    "updated_by":  "seat coordinator, Opus 5.5",
+    "away":  {
+                 "from":  "2026-10-14",
+                 "to":  "2026-11-25"
+             },
+    "waiting_on_trader":  [
+                              {
+                                  "kind":  "push",
+                                  "meaning":  "Push master: 6 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the partial-fill experiment\u0027s testnet-only switches; the testnet session record; its review with your two partial-fill rulings; the spec amendment for part-filled orders with this pane update).",
+                                  "since":  "2026-10-12"
+                              },
+                              {
+                                  "kind":  "ruling",
+                                  "tick":  true,
+                                  "id":  "N2 LIVE",
+                                  "meaning":  "Decide whether to run risk sizing in Live. ⚠ The adversarial audit\u0027s partial-fill finding blocks it: risk sizing produces 80-90 USD entries, and a partial fill can flip the account short with no stop. Hold until the fix ships AND a real partial fill has been seen with it in force (your ruling 2026-10-13).",
+                                  "doc":  "docs/HANDOVER-7.md",
+                                  "anchor":  "§2 item 3",
+                                  "since":  "2026-08-14"
+                              },
+                              {
+                                  "kind":  "go",
+                                  "meaning":  "AWS London migration. The key choreography removes the window where two executors run at once.",
+                                  "doc":  "docs/production-cutover-checklist.md",
+                                  "since":  "2026-08-02"
+                              }
+                          ],
+    "in_progress":  [
+                        {
+                            "what":  "Partial fills, phase 2 implementer: keep the take-profit\u0027s open part equal to the position; size every take-profit and stop edit from the position; the once-a-second leg-size check",
+                            "where":  "agent pf-phase2",
+                            "started_utc":  "2026-10-12T17:05Z"
+                        }
+                    ],
+    "dated":  [
+                  {
+                      "what":  "After your return: try a real partial fill on testnet from a second sub-account (works only if the testnet spread is wider than one tick), with the partial-fill fix in force. Gate before any Amount above 10 USD in Live",
+                      "date":  "2026-11-25",
+                      "approx":  true,
+                      "doc":  "docs/spec-partial-fill-fix.md",
+                      "anchor":  "§5 item 5"
+                  }
+              ],
+    "next_up":  [
+                    {
+                        "what":  "Protection: when the exchange refuses a stop edit, the app still moves its own record of the stop and raises no alert (seen on testnet: 58 s of refused stop moves, no page). Spec and fix",
+                        "doc":  "docs/review-testnet-2026-10-12.md",
+                        "anchor":  "§2, row TN-F3",
+                        "model":  "Opus 5.5, high"
+                    },
+                    {
+                        "what":  "Later protection items: position-level loss cap, quote-silence watchdog, stand-down cancels the entry, bounded freshness window; emergency reduce-before-cancel (one testnet observation now; confirm once under first_hit)",
+                        "model":  "Opus 5.5, high"
+                    },
+                    {
+                        "what":  "Remaining audit rows: trailing trigger offset, close during a socket gap, tick rounding direction, payload reader share mode, small log and feedback items",
+                        "model":  "Opus 5.5, high"
+                    },
+                    {
+                        "what":  "Hygiene: serialise all socket sends behind one lock (many threads send today; the watchdog added one more)",
+                        "doc":  "docs/review-protection-batch2.md",
+                        "anchor":  "§4 item 1",
+                        "model":  "Opus 5.5, high"
+                    },
+                    {
+                        "what":  "Hygiene: the \u0027Triggered SL placed\u0027 log line goes missing after a market entry (a flag is not reset in that branch)",
+                        "doc":  "docs/review-testnet-2026-10-12.md",
+                        "anchor":  "§2, row TN-F4",
+                        "model":  "Opus 5.5, high"
+                    },
+                    {
+                        "what":  "Remaining hygiene rows need runtime observation or a spec of their own; not clearable by a seat alone",
+                        "model":  "Opus 5.5, medium"
+                    }
+                ]
 }
