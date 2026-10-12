@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 10 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling; the pane update starting the restart-pin seat; the restart-pin code that keeps the M.SL cap pinned across an app restart; its review; this pane update starting the testnet session).",
+      "meaning": "Push master: 2 commits ahead of origin (the pane update starting the testnet session; this push-count correction).",
       "since": "2026-10-12"
     },
     {
