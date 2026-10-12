@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T15:45Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-12T16:02Z",
+  "updated_by": "seat testnet-session, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 2 commits ahead of origin (the pane update starting the testnet session; this push-count correction).",
+      "meaning": "Push master: 3 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the X-2 testnet-only switches).",
       "since": "2026-10-12"
     },
     {
@@ -34,7 +34,8 @@
       "where": "agent testnet-session",
       "started_utc": "2026-10-12T15:45Z"
     }
-  ],  "dated": [],
+  ],
+  "dated": [],
   "next_up": [
     {
       "what": "One testnet session: batch-2 runtime acceptance (the seat may cancel the SL and toggle cancel-on-disconnect by testnet API; must end with it OFF), the M.SL pin and its restart re-pin, plus the partial-fill experiment X-2. All code for it is reviewed. Rebuild x64 first.",

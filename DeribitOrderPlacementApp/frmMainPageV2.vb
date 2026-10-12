@@ -1416,6 +1416,7 @@ Public Class frmMainPageV2
     Private Async Function SendWebSocketMessageAsync(message As String) As Task(Of Boolean)
         Try
             Dim bytes = Encoding.UTF8.GetBytes(message)
+            X2Testnet.Outbound(message) ' TEMPORARY X-2 raw echo (testnet + flag file only)
 
             ' Attempt to send the message
             Await webSocketClient.SendAsync(New ArraySegment(Of Byte)(bytes), WebSocketMessageType.Text, True, cancellationTokenSource.Token)
@@ -1763,6 +1764,7 @@ Public Class frmMainPageV2
 
                 Dim response = sb.ToString()
                 sb.Clear()
+                X2Testnet.Inbound(response) ' TEMPORARY X-2 raw echo (testnet + flag file only)
 
                 ' Call the function to handle heartbeat requests from server
                 HandleHeartbeat(response)
@@ -4556,6 +4558,17 @@ Public Class frmMainPageV2
                     Return
             End Select
 
+            ' TEMPORARY X-2 (testnet + flag file only): a taker entry, priced at the far touch, so a size
+            ' above the resting level fills in part. BestPrice is moved so the app's placement seeds
+            ' (placedPrice, legAnchorPrice, the log line) match the price actually sent.
+            Dim x2Taker As Boolean = (Not MarketOrderType) AndAlso X2Testnet.TakerEntryOn
+            If x2Taker Then
+                BestPrice = If(ordermethod = "private/buy", BestAskPrice, BestBidPrice)
+                AppendColoredText(txtLogs, $"X2 testnet switch: taker entry at {BestPrice} (post_only false)", Color.Orange)
+            End If
+            Dim x2FillCondition As String = If(X2Testnet.IncrementalOn, "incremental", "first_hit")
+            If x2FillCondition <> "first_hit" Then AppendColoredText(txtLogs, "X2 testnet switch: trigger_fill_condition incremental", Color.Orange)
+
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
             DeleteR1AnchorFile() ' SB3-fix/E1 (b): the persisted R1 pin goes with it
@@ -4569,7 +4582,7 @@ Public Class frmMainPageV2
         New JProperty("label", If(MarketOrderType, "EntryMarketOrder", "EntryLimitOrder")),
         New JProperty("time_in_force", "good_til_cancelled"),
         New JProperty("linked_order_type", "one_triggers_one_cancels_other"),
-        New JProperty("trigger_fill_condition", "first_hit"),
+        New JProperty("trigger_fill_condition", x2FillCondition), ' "first_hit" unless the X-2 testnet switch is on
         New JProperty("reject_post_only", False),
         New JProperty("otoco_config", New JArray(
             New JObject(
@@ -4610,7 +4623,7 @@ Public Class frmMainPageV2
             ' Add price property only for limit orders
             If Not MarketOrderType Then
                 params.Add("price", BestPrice)
-                params.Add("post_only", True) ' Post-only is valid only for limit orders
+                params.Add("post_only", Not x2Taker) ' Post-only is valid only for limit orders (False only under the X-2 testnet switch)
             End If
 
             ' Decouple v2: unique id per placement + registry entry (snapshots for rejection
