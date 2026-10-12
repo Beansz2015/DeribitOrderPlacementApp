@@ -1416,7 +1416,6 @@ Public Class frmMainPageV2
     Private Async Function SendWebSocketMessageAsync(message As String) As Task(Of Boolean)
         Try
             Dim bytes = Encoding.UTF8.GetBytes(message)
-            X2Testnet.Outbound(message) ' TEMPORARY X-2 raw echo (testnet + flag file only)
 
             ' Attempt to send the message
             Await webSocketClient.SendAsync(New ArraySegment(Of Byte)(bytes), WebSocketMessageType.Text, True, cancellationTokenSource.Token)
@@ -1764,7 +1763,6 @@ Public Class frmMainPageV2
 
                 Dim response = sb.ToString()
                 sb.Clear()
-                X2Testnet.Inbound(response) ' TEMPORARY X-2 raw echo (testnet + flag file only)
 
                 ' Call the function to handle heartbeat requests from server
                 HandleHeartbeat(response)
@@ -3426,10 +3424,10 @@ Public Class frmMainPageV2
                     ' case that lost the close). New position (0 -> !=0) drops any stale close capture.
                     Dim positionJustClosed As Boolean = False
                     ' Partial fills F1: did this echo move the position, and did it grow it (an edit UP is
-                    ' sent only on a fresh, larger size - see TpResizeTargetFor)? Did it carry a TP?
+                    ' sent only on a fresh, larger size - see TpResizeTargetFor)? Did a new live TP appear?
                     Dim positionChanged As Boolean = False
                     Dim positionGrew As Boolean = False
-                    Dim tpEchoSeen As Boolean = False
+                    Dim tpEchoSeen As Boolean = False ' a new live TP id appeared in this echo
                     Dim posTokens = orderData.SelectToken("positions")?.ToObject(Of List(Of JObject))()
                     If posTokens IsNot Nothing Then
                         For Each p In posTokens
@@ -3500,7 +3498,12 @@ Public Class frmMainPageV2
                             ' Protection batch 2 item 2: every order message keeps the watchdog's map current,
                             ' whatever the gates below decide (cancelPending included - the map mirrors the exchange).
                             NoteLiveOrder(order)
-                            If label = "TakeLimitProfit" Then tpEchoSeen = True ' partial fills F1
+                            ' Partial fills F1: a NEW live TP id is an event too (its echo can follow the position's).
+                            ' A later echo of the same TP (an edit by hand on the Deribit UI) is F3's, with its page.
+                            If label = "TakeLimitProfit" AndAlso orderState = "open" AndAlso orderId <> f1LastTpId Then
+                                f1LastTpId = orderId
+                                tpEchoSeen = True
+                            End If
 
                             'Process desc.:
                             'Step 1. Placed order : EntryLimitOrder = Open / TakeLimitProfit + StopLossOrder = Untriggered
@@ -4578,17 +4581,6 @@ Public Class frmMainPageV2
                     Return
             End Select
 
-            ' TEMPORARY X-2 (testnet + flag file only): a taker entry, priced at the far touch, so a size
-            ' above the resting level fills in part. BestPrice is moved so the app's placement seeds
-            ' (placedPrice, legAnchorPrice, the log line) match the price actually sent.
-            Dim x2Taker As Boolean = (Not MarketOrderType) AndAlso X2Testnet.TakerEntryOn
-            If x2Taker Then
-                BestPrice = If(ordermethod = "private/buy", BestAskPrice, BestBidPrice)
-                AppendColoredText(txtLogs, $"X2 testnet switch: taker entry at {BestPrice} (post_only false)", Color.Orange)
-            End If
-            Dim x2FillCondition As String = If(X2Testnet.IncrementalOn, "incremental", "first_hit")
-            If x2FillCondition <> "first_hit" Then AppendColoredText(txtLogs, "X2 testnet switch: trigger_fill_condition incremental", Color.Orange)
-
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
             DeleteR1AnchorFile() ' SB3-fix/E1 (b): the persisted R1 pin goes with it
@@ -4602,7 +4594,7 @@ Public Class frmMainPageV2
         New JProperty("label", If(MarketOrderType, "EntryMarketOrder", "EntryLimitOrder")),
         New JProperty("time_in_force", "good_til_cancelled"),
         New JProperty("linked_order_type", "one_triggers_one_cancels_other"),
-        New JProperty("trigger_fill_condition", x2FillCondition), ' "first_hit" unless the X-2 testnet switch is on
+        New JProperty("trigger_fill_condition", "first_hit"),
         New JProperty("reject_post_only", False),
         New JProperty("otoco_config", New JArray(
             New JObject(
@@ -4643,7 +4635,7 @@ Public Class frmMainPageV2
             ' Add price property only for limit orders
             If Not MarketOrderType Then
                 params.Add("price", BestPrice)
-                params.Add("post_only", Not x2Taker) ' Post-only is valid only for limit orders (False only under the X-2 testnet switch)
+                params.Add("post_only", True) ' Post-only is valid only for limit orders
             End If
 
             ' Decouple v2: unique id per placement + registry entry (snapshots for rejection
@@ -6776,6 +6768,7 @@ Public Class frmMainPageV2
     Private Const TpResizeInFlightTimeoutSeconds As Double = 5.0 ' a lost reply frees the gate
     Private Const TpCommandedPriceSeconds As Double = 3.0         ' an app price edit not yet echoed
 
+    Private f1LastTpId As String = Nothing ' receive thread only: the last live TP id F1 has seen
     Private ReadOnly tpResizeGate As New Object()
     Private tpResizeInFlightSince As DateTime = DateTime.MinValue ' MinValue = none in flight
     Private tpResizeInFlightKind As LegSizeBreach = LegSizeBreach.None ' None = an F1 event edit
