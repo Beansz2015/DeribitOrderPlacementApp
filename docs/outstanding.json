@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 6 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling).",
+      "meaning": "Push master: 7 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling; this pane update starting the restart-pin seat).",
       "since": "2026-10-12"
     },
     {
@@ -28,11 +28,17 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [],
+  "in_progress": [
+    {
+      "what": "Seat: keep the M.SL cap pinned at the dead stop's trigger across an app restart (owner ruling 2026-10-12)",
+      "where": "agent e1-pin-restore",
+      "started_utc": "2026-10-12T15:30Z"
+    }
+  ],
   "dated": [],
   "next_up": [
     {
-      "what": "Seat: keep the M.SL cap pinned at the dead stop's trigger across an app restart (save it to a small state file; re-pin at restore when the same stop limit is resting). Owner ruling 2026-10-12. Before the testnet session",
+      "what": "Review the restart-pin seat's commit when it reports, before the testnet session",
       "doc": "docs/review-sb3-msl-anchor.md",
       "anchor": "§3",
       "model": "Opus 5.5, high"
