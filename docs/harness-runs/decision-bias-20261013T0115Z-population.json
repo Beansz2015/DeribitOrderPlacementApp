@@ -1,0 +1,15 @@
+{
+  "rev": "fd73951113ae502917e2fb2b5a05f606f26664cb",
+  "items": [
+    {
+      "id": "docs/review-pf-phase2.md|PF-SB3 wrong-side TP action@fd73951",
+      "question": "The app's take-profit leg is not reduce-only (a reduce-only TP was observed to make a stop trigger cancel both legs). The new once-a-second leg-size check can find the app's take-profit resting on the SAME side as the position (for example a sell take-profit while the account is short), so if it fills it ADDS to the position instead of closing it; the stop is reduce-only and sized for the old position. The owner already ruled that a take-profit resting while the account is flat is cancelled, then alerted. As built, the wrong-side case raises an urgent page and touches no order. What should the check do?",
+      "options": [
+        { "label": "(a)", "text": "Cancel the wrong-side take-profit, then log red and send an urgent page saying it was cancelled; the same action the owner ruled for a take-profit resting while flat." },
+        { "label": "(b)", "text": "Alarm only, as built: red log, alert and urgent page; no order is touched; the owner cancels it by hand." }
+      ],
+      "recommended": "(a)",
+      "rationale": "A wrong-side take-profit is the same hazard class as one resting while flat: an order that opens exposure with no stop covering it. The owner chose cancel-then-alert for the flat case and has said that loss bounds are not to be widened on grounds of rarity. (b) leaves the order live until the owner reacts to a page, and the owner is away for six weeks. (a) reuses the flat case's cancel path and its page, so it costs little. The case is rare (it needs a position flip or a manual mismatch), which is why the implementer chose alarm-only without a ruling."
+    }
+  ]
+}

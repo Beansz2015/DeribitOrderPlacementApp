@@ -1,7 +1,7 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T17:35Z",
-    "updated_by":  "seat partial-fill phase 2 implementer, Opus 5.5",
+    "updated_utc":  "2026-10-12T19:44Z",
+    "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
                  "to":  "2026-11-25"
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 9 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the partial-fill experiment\u0027s testnet-only switches; the testnet session record; its review with your two partial-fill rulings; the spec amendment for part-filled orders; the partial-fill fix in two code commits; its implementation report with this pane update).",
+                                  "meaning":  "Push master: 10 commits ahead of origin (the testnet-session start and a push-count fix; the X-2 switches; the testnet record and its review; the partial-fill spec amendment; the partial-fill fix (two code commits and its report); its review with your wrong-side TP ruling).",
                                   "since":  "2026-10-12"
                               },
                               {
@@ -29,6 +29,7 @@
                               }
                           ],
     "in_progress":  [
+
                     ],
     "dated":  [
                   {
@@ -41,7 +42,13 @@
               ],
     "next_up":  [
                     {
-                        "what":  "Protection: when the exchange refuses a stop edit, the app still moves its own record of the stop and raises no alert (seen on testnet: 58 s of refused stop moves, no page). Spec and fix",
+                        "what":  "Partial fills follow-up seat: cancel a take-profit resting on the position\u0027s own side, then alert (your ruling 2026-10-13); and prove at runtime, with a temporary testnet-only switch, that a take-profit left resting after a close is cancelled",
+                        "doc":  "docs/review-pf-phase2.md",
+                        "anchor":  "§3",
+                        "model":  "Opus 5.5, high"
+                    },
+                    {
+                        "what":  "Protection: when the exchange refuses a stop edit or a take-profit resize, the app still moves its own record and raises no alert or retries only once (seen on testnet: 58 s of refused stop moves, no page). Spec and fix",
                         "doc":  "docs/review-testnet-2026-10-12.md",
                         "anchor":  "§2, row TN-F3",
                         "model":  "Opus 5.5, high"
@@ -61,7 +68,7 @@
                         "model":  "Opus 5.5, high"
                     },
                     {
-                        "what":  "Hygiene: the \u0027Triggered SL placed\u0027 log line goes missing after a market entry (a flag is not reset in that branch)",
+                        "what":  "Hygiene: the \u0027Triggered SL placed\u0027 log line goes missing after a market entry or a take-profit re-anchor (a flag is not reset)",
                         "doc":  "docs/review-testnet-2026-10-12.md",
                         "anchor":  "§2, row TN-F4",
                         "model":  "Opus 5.5, high"
