@@ -1416,7 +1416,6 @@ Public Class frmMainPageV2
     Private Async Function SendWebSocketMessageAsync(message As String) As Task(Of Boolean)
         Try
             Dim bytes = Encoding.UTF8.GetBytes(message)
-            PfFuTestnet.Outbound(message) ' TEMPORARY PF follow-up raw echo (testnet + flag file only)
 
             ' Attempt to send the message
             Await webSocketClient.SendAsync(New ArraySegment(Of Byte)(bytes), WebSocketMessageType.Text, True, cancellationTokenSource.Token)
@@ -1764,7 +1763,6 @@ Public Class frmMainPageV2
 
                 Dim response = sb.ToString()
                 sb.Clear()
-                PfFuTestnet.Inbound(response) ' TEMPORARY PF follow-up raw echo (testnet + flag file only)
 
                 ' Call the function to handle heartbeat requests from server
                 HandleHeartbeat(response)
@@ -4727,7 +4725,7 @@ Public Class frmMainPageV2
     End Function
 
 
-    Private Async Function CancelOrderAsync(Optional skipSend As Boolean = False) As Task ' skipSend: TEMPORARY PF follow-up
+    Private Async Function CancelOrderAsync() As Task
 
         ' Connection guard (runtime test 4, 2026-07-03): pre-connect the socket fields are Nothing -
         ' an unguarded send NREs into the reconnect machinery. Same early-return as the entry paths;
@@ -4747,11 +4745,7 @@ Public Class frmMainPageV2
         ))
     )
 
-        If skipSend Then ' TEMPORARY PF follow-up switch (testnet + flag file only)
-            AppendColoredText(txtLogs, "PF follow-up testnet switch: close cancel-all NOT sent", Color.Orange)
-        Else
-            Await SendWebSocketMessageAsync(cancelPayload.ToString())
-        End If
+        Await SendWebSocketMessageAsync(cancelPayload.ToString())
 
         ' Reset engine state synchronously (cross-thread fix) so no reposition/SL decision reads a stale price.
         placedPrice = 0D
@@ -6148,7 +6142,7 @@ Public Class frmMainPageV2
         PositionLog = False ' Reset position log flag so it can log next new position
         OrderLog = False ' Reset order log flag so it can log next new order
 
-        Await CancelOrderAsync(skipSend:=PfFuTestnet.SkipCloseCancelAllOn) ' TEMPORARY PF follow-up switch (testnet + flag file only)
+        Await CancelOrderAsync()
 
         'Clearing margin displays (item 15: UiInvoke — display-only)
         UiInvoke(Sub()

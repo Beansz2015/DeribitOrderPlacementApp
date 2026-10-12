@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T20:00Z",
+    "updated_utc":  "2026-10-12T20:20Z",
     "updated_by":  "seat partial-fill follow-up implementer, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 14 commits ahead of origin (the testnet-session start and a push-count fix; the X-2 switches; the testnet record and its review; the partial-fill spec amendment; the partial-fill fix and its report; its review with your wrong-side TP ruling; the pane update starting the follow-up seat; the wrong-side TP cancel; the follow-up's temporary testnet switches; this pane update).",
+                                  "meaning":  "Push master: 15 commits ahead of origin (the testnet-session start and a push-count fix; the X-2 switches; the testnet record and its review; the partial-fill spec amendment; the partial-fill fix and its report; its review with your wrong-side TP ruling; the pane update starting the follow-up seat; the wrong-side TP cancel; the follow-up's temporary testnet switches; a pane update while the run was blocked; the switches' removal with the follow-up report and this pane update).",
                                   "since":  "2026-10-12"
                               },
                               {
@@ -29,11 +29,7 @@
                               }
                           ],
     "in_progress":  [
-                        {
-                            "what":  "Partial fills follow-up seat: the wrong-side take-profit cancel is built and committed. BLOCKED on the testnet run: Claude Code\u0027s auto-mode permission check refused the seat\u0027s testnet order placement. Needs your go (a permission rule, or you place the 10 USD order). Account flat, no orders, cancel-on-disconnect off; the temporary testnet switches are committed, no flag file is set",
-                            "where":  "agent pf-followup",
-                            "started_utc":  "2026-10-12T19:47Z"
-                        }
+
                     ],
     "dated":  [
                   {
@@ -45,6 +41,12 @@
                   }
               ],
     "next_up":  [
+                    {
+                        "what":  "Review the partial-fill follow-up: the wrong-side take-profit cancel, and the runtime proof that a take-profit left resting after a close is cancelled (passed on testnet). Two points for the reviewer: the cancel now goes out before the page; cancelling the take-profit also cancels its linked stop",
+                        "doc":  "docs/impl-report-pf-followup.md",
+                        "anchor":  "§6",
+                        "model":  "Opus 5.5, high"
+                    },
                     {
                         "what":  "Protection: when the exchange refuses a stop edit or a take-profit resize, the app still moves its own record and raises no alert or retries only once (seen on testnet: 58 s of refused stop moves, no page). Spec and fix",
                         "doc":  "docs/review-testnet-2026-10-12.md",
