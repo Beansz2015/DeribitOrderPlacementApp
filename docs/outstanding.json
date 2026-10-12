@@ -1,7 +1,7 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T20:20Z",
-    "updated_by":  "seat partial-fill follow-up implementer, Opus 5.5",
+    "updated_utc":  "2026-10-12T20:18Z",
+    "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
                  "to":  "2026-11-25"
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 15 commits ahead of origin (the testnet-session start and a push-count fix; the X-2 switches; the testnet record and its review; the partial-fill spec amendment; the partial-fill fix and its report; its review with your wrong-side TP ruling; the pane update starting the follow-up seat; the wrong-side TP cancel; the follow-up's temporary testnet switches; a pane update while the run was blocked; the switches' removal with the follow-up report and this pane update).",
+                                  "meaning":  "Push master: 16 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, report and review; the partial-fill follow-up (wrong-side cancel, testnet run, report) and its review).",
                                   "since":  "2026-10-12"
                               },
                               {
