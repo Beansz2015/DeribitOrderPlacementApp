@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T09:06Z",
+  "updated_utc": "2026-10-12T09:16Z",
   "updated_by": "seat coordinator (HANDOVER-8 intake), Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,19 +9,13 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 1 commit ahead of origin (this pane update: the old 4-commit push row closed, the owner pushed through HANDOVER-8).",
+      "meaning": "Push master: 1 commit ahead of origin (the pane update and the COD tick in the cutover checklist).",
       "since": "2026-10-12"
     },
     {
       "kind": "go",
       "meaning": "Launch the implementer seat for position-protection batch 2 (Opus, high). All four rulings are in the spec.",
       "doc": "docs/spec-protection-batch2.md",
-      "since": "2026-10-10"
-    },
-    {
-      "kind": "go",
-      "meaning": "Before any live use: confirm Deribit's 'cancel on disconnect' is OFF on the live account and key (it was ON on testnet and deleted every stop on each disconnect; now off there).",
-      "doc": "docs/production-cutover-checklist.md",
       "since": "2026-10-10"
     },
     {
@@ -40,7 +34,13 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [],
+  "in_progress": [
+    {
+      "what": "Partial-fill fix: coordinator writing the design spec (owner go 2026-10-12)",
+      "where": "local",
+      "started_utc": "2026-10-12T09:16Z"
+    }
+  ],
   "dated": [],
   "next_up": [
     {
