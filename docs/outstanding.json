@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T16:02Z",
+  "updated_utc": "2026-10-12T16:34Z",
   "updated_by": "seat testnet-session, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,8 +9,17 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 3 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the X-2 testnet-only switches).",
+      "meaning": "Push master: 4 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the partial-fill experiment's testnet-only switches; the testnet session record).",
       "since": "2026-10-12"
+    },
+    {
+      "kind": "ruling",
+      "tick": true,
+      "id": "TN-F2",
+      "meaning": "The partial-fill fix's acceptance needs a partial fill on testnet, and testnet cannot make one at up to 5,000 USD: its touch holds about 1,000,000 USD. Decide how phase 2 is accepted: a partial fill made by hand from a second sub-account, or OrderCheck fixtures only.",
+      "doc": "docs/runtime-record-testnet-2026-10-12.md",
+      "anchor": "§6, row TN-F2",
+      "since": "2026-10-13"
     },
     {
       "kind": "ruling",
@@ -28,23 +37,16 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [
-    {
-      "what": "Testnet session: batch-2 runtime acceptance, the M.SL pin and its restart re-pin, and the partial-fill experiment X-2 (harness on TESTNET only; must end flat with cancel-on-disconnect OFF)",
-      "where": "agent testnet-session",
-      "started_utc": "2026-10-12T15:45Z"
-    }
-  ],
+  "in_progress": [],
   "dated": [],
   "next_up": [
     {
-      "what": "One testnet session: batch-2 runtime acceptance (the seat may cancel the SL and toggle cancel-on-disconnect by testnet API; must end with it OFF), the M.SL pin and its restart re-pin, plus the partial-fill experiment X-2. All code for it is reviewed. Rebuild x64 first.",
-      "doc": "docs/review-protection-batch2.md",
-      "anchor": "§5",
+      "what": "Review the testnet session record: batch-2 acceptance all passed, including the M.SL pin and its restart re-pin; the partial-fill experiment found no partial fill is possible on testnet and that incremental leg sizing blocks every edit; two small app findings (a refused edit still moves the chase reference with no alert; a trigger log line goes missing after a market entry)",
+      "doc": "docs/runtime-record-testnet-2026-10-12.md",
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Partial fills, phase 2: the fix (incremental leg sizing if the experiment confirms it; every take-profit and stop edit sized from the position; a check that resizes an oversize take-profit and cancels one resting while flat). Blocks risk sizing in Live.",
+      "what": "Partial fills, phase 2: the fix (every take-profit and stop edit sized from the position; a check that resizes an oversize take-profit and cancels one resting while flat). Incremental leg sizing is likely out: on testnet the exchange refused every edit of the entry and its legs under it. Waits for the record's review and the acceptance ruling. Blocks risk sizing in Live.",
       "doc": "docs/spec-partial-fill-fix.md",
       "anchor": "§4",
       "model": "Opus 5.5, high"
