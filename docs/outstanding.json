@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 16 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, report and review; the partial-fill follow-up (wrong-side cancel, testnet run, report) and its review).",
+                                  "meaning":  "Push master: 17 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, report and review; the partial-fill follow-up (wrong-side cancel, testnet run, report) and its review; a pane fix).",
                                   "since":  "2026-10-12"
                               },
                               {
@@ -41,12 +41,6 @@
                   }
               ],
     "next_up":  [
-                    {
-                        "what":  "Review the partial-fill follow-up: the wrong-side take-profit cancel, and the runtime proof that a take-profit left resting after a close is cancelled (passed on testnet). Two points for the reviewer: the cancel now goes out before the page; cancelling the take-profit also cancels its linked stop",
-                        "doc":  "docs/impl-report-pf-followup.md",
-                        "anchor":  "§6",
-                        "model":  "Opus 5.5, high"
-                    },
                     {
                         "what":  "Protection: when the exchange refuses a stop edit or a take-profit resize, the app still moves its own record and raises no alert or retries only once (seen on testnet: 58 s of refused stop moves, no page). Spec and fix",
                         "doc":  "docs/review-testnet-2026-10-12.md",
