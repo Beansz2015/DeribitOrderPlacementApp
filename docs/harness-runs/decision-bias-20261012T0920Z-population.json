@@ -1,0 +1,28 @@
+{
+  "rev": "96371d438b942782619036f0c80ec33dd9d61f3b",
+  "items": [
+    {
+      "id": "docs/spec-partial-fill-fix.md|PF mechanism@96371d4",
+      "question": "How should the order app stop a partially filled entry from arming full-size exit legs? Today the OTOCO entry uses trigger_fill_condition first_hit, so the first partial fill arms a take-profit and a stop at the FULL order amount. The take-profit is not reduce-only (a reduce-only TP was observed on testnet to make every stop trigger cancel both legs). If the entry remainder is then cancelled and the full-size take-profit fills, the account flips to an opposite position with no stop. Several app edits also resize the take-profit to the Amount box rather than the position.",
+      "options": [
+        { "label": "(a)", "text": "Exchange-side plus app guard: switch the OTOCO to trigger_fill_condition incremental so Deribit sizes both legs to the filled quantity; make every take-profit and stop edit take its amount from the live position size, never the Amount box or the placed size; add a leg-size check that edits an oversize take-profit down to the position and alerts. Gated on a testnet experiment that confirms incremental's behaviour first." },
+        { "label": "(b)", "text": "App-side only: keep first_hit; whenever the position changes while a take-profit rests, edit the take-profit (and stop) amount down to the position size; fix the edits that read the Amount box. No change to the exchange order type." },
+        { "label": "(c)", "text": "Use trigger_fill_condition complete_fill so no legs exist until the entry fills completely; when a partially filled entry is cancelled, the app places its own stop and take-profit for the filled quantity." },
+        { "label": "(d)", "text": "On the first partial fill, cancel the entry remainder at once, then edit both legs down to the filled quantity (keeps first_hit)." }
+      ],
+      "recommended": "(a)",
+      "rationale": "(a) makes the exchange enforce leg size at the moment of each fill, so protection does not depend on the app's socket being up or on winning a race between the fill and an edit; the app guard covers the remaining paths where the app itself resizes a leg, and the check catches anything the exchange semantics miss. (b) leaves a window between the fill and the edit in which a full-size take-profit can fill, and does nothing when the socket is down. (c) leaves a partially filled position with no stop at all until the app reacts, which is worse than today. (d) still has the same race as (b), and it also throws away the rest of an entry the trader wanted. (a) costs one experiment session plus the payload change and the edit fixes; it is the most work but the only option where the exchange, not the app, holds the invariant."
+    },
+    {
+      "id": "docs/spec-partial-fill-fix.md|PF evidence@96371d4",
+      "question": "The handover says a partial fill cannot be produced on testnet (post-only entries of 500 and 2000 USD filled whole) nor at 10 USD (one contract), and says to design without observing one. Should the fix be built without ever observing a partial fill?",
+      "options": [
+        { "label": "(a)", "text": "Run a seat-driven testnet experiment that produces a partial fill on purpose: a temporary testnet-only switch sends the entry as a non-post-only limit priced at the best ask with an amount larger than the size resting there, so it takes that level and rests the remainder. Observe first_hit and incremental side by side with verbatim echoes, then remove the switch. Build the fix on what is observed." },
+        { "label": "(b)", "text": "Design from Deribit's documentation only, build it, and accept it with offline OrderCheck fixtures that replay synthetic partial-fill echoes. No testnet observation." },
+        { "label": "(c)", "text": "Ask the owner to produce a partial fill by hand from a second testnet sub-account (sell a small amount into the app's resting post-only bid) before leaving on 2026-10-14." }
+      ],
+      "recommended": "(a)",
+      "rationale": "The previous attempts used post-only maker entries, whose fill size is set by whoever takes them; a taker limit that is larger than the top ask level fills partially by construction, so the handover's 'cannot be produced' holds only for the maker path. This project's rule is that Deribit behaviour is observed, not taken from summaries: X-1 overturned two assumptions (trigger_offset dropped, reduce-only TP cascade). (b) would build the fix on unverified semantics of incremental, including how the legs present on the socket, which the app's id tracking depends on. (c) gives the same evidence but needs the owner during the two days before a six-week absence and gives less control over sizes. (a) reuses the X-1 procedure and its temporary-switch pattern."
+    }
+  ]
+}

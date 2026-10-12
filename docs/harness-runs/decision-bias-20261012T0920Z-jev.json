@@ -1,0 +1,70 @@
+{
+    "rev":  "96371d438b942782619036f0c80ec33dd9d61f3b",
+    "population":  "docs/harness-runs/decision-bias-20261012T0920Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261012T0920Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x10] resolved=[jev-1.13.0 x10] run_utc=2026-10-12T09:21:21Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  10,
+    "usage_input_tokens":  10870,
+    "wall_time_sec":  3.39,
+    "items":  [
+                  {
+                      "id":  "docs/spec-partial-fill-fix.md|PF mechanism@96371d4",
+                      "verdict":  "no_richer_option",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.73,
+                      "sample_verdicts":  [
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.72,
+                                                       0.73,
+                                                       0.74,
+                                                       0.7,
+                                                       0.76
+                                                   ],
+                      "usage_input_tokens":  5774,
+                      "seat_label":  "no_richer_option"
+                  },
+                  {
+                      "id":  "docs/spec-partial-fill-fix.md|PF evidence@96371d4",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.696,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.69,
+                                                       0.66,
+                                                       0.72,
+                                                       0.66,
+                                                       0.75
+                                                   ],
+                      "usage_input_tokens":  5096,
+                      "seat_label":  "no_richer_option"
+                  }
+              ]
+}

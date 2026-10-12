@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T09:33Z",
-  "updated_by": "seat batch-2 implementer, Opus 5.5",
+  "updated_utc": "2026-10-12T09:38Z",
+  "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 2 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code, not yet reviewed).",
+      "meaning": "Push master: 3 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code, not yet reviewed; the partial-fill spec with your four rulings).",
       "since": "2026-10-12"
     },
     {
@@ -28,13 +28,7 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [
-    {
-      "what": "Partial-fill fix: coordinator writing the design spec (owner go 2026-10-12)",
-      "where": "local",
-      "started_utc": "2026-10-12T09:16Z"
-    }
-  ],
+  "in_progress": [],
   "dated": [],
   "next_up": [
     {
@@ -42,7 +36,15 @@
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Fix partial fills: exit legs must track the filled quantity and the take-profit must never open a position (S0 above 10 USD). Blocks risk sizing in Live. A reduce-only TP is ruled out (it cancels both legs on an SL trigger); a partial fill cannot be observed on testnet or at 10 USD, so design without it.",
+      "what": "Partial fills, phase 1: a seat runs the X-2 testnet experiment (forces a real partial fill with a temporary taker-entry switch; compares Deribit's first_hit and incremental leg sizing). All four rulings are in. Starts after the batch-2 review; can share its testnet session.",
+      "doc": "docs/spec-partial-fill-fix.md",
+      "anchor": "§3",
+      "model": "Opus 5.5, high"
+    },
+    {
+      "what": "Partial fills, phase 2: the fix (incremental leg sizing if the experiment confirms it; every take-profit and stop edit sized from the position; a check that resizes an oversize take-profit and cancels one resting while flat). Blocks risk sizing in Live.",
+      "doc": "docs/spec-partial-fill-fix.md",
+      "anchor": "§4",
       "model": "Opus 5.5, high"
     },
     {
