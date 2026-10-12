@@ -1,0 +1,69 @@
+{
+    "items":  [
+                  {
+                      "rationale":  "(a) keeps the chase acting on the real stop price at the cost of a small change on the stop path; (b) leaves a stop that the app believes moved when it did not.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-refused-edits.md|RE-R1 stop reference on refusal@e184218",
+                      "question":  "When Deribit refuses an edit of the triggered stop limit, the app today still records the stop at the new price it asked for, so its chase can stop re-sending while the real stop sits at the old price. What should the app do on a refused stop edit?",
+                      "options":  [
+                                      {
+                                          "text":  "Reset the chase reference to the stop price from the exchange\u0027s latest echo, so the next tick re-targets from the truth (still under the existing retry backoff).",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "Keep today\u0027s optimistic reference.",
+                                          "label":  "(b)"
+                                      }
+                                  ]
+                  },
+                  {
+                      "rationale":  "The owner is often away from the screen; a stop that cannot move is a protection failure even if the M.SL cap remains. (b) costs nothing but leaves the owner unaware.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-refused-edits.md|RE-R2 stuck stop alert@e184218",
+                      "question":  "A triggered stop limit whose edits keep being refused cannot follow the market; today the app only logs. The M.SL emergency flatten still works independently. Should the app page?",
+                      "options":  [
+                                      {
+                                          "text":  "Urgent page once per episode after 3 consecutive refused edits of the triggered stop, or 10 s with the confirmed stop price behind the chase target.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "Log only, as today.",
+                                          "label":  "(b)"
+                                      }
+                                  ]
+                  },
+                  {
+                      "rationale":  "An oversize, non-reduce-only take-profit can flip the account with no stop; repeated bounded retries close that window. (b) is simpler but leaves it open after one refusal.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-refused-edits.md|RE-R3 TP resize retry@e184218",
+                      "question":  "The take-profit must equal the position; when Deribit refuses the resize edit, the once-a-second check retries only once per episode, so an oversize take-profit can stay oversize. What retry policy?",
+                      "options":  [
+                                      {
+                                          "text":  "Keep retrying on the stop backoff schedule (0.67 s doubling to a 5 s cap) until the take-profit matches; one page per episode.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "One retry per episode, as built.",
+                                          "label":  "(b)"
+                                      }
+                                  ]
+                  },
+                  {
+                      "rationale":  "(a) keeps the entry chase and its logs truthful; the entry is not a protection path, so (b) is lower risk than the stop case but still misleads the owner and the chase.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-refused-edits.md|RE-R4 entry chase reference@e184218",
+                      "question":  "When Deribit refuses an entry-chase edit, the app still records the entry at the new price and logs it as repositioned. What should it do?",
+                      "options":  [
+                                      {
+                                          "text":  "Reset the entry reference to the entry price from its latest echo and log the refusal.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "Keep today\u0027s optimistic reference.",
+                                          "label":  "(b)"
+                                      }
+                                  ]
+                  }
+              ],
+    "rev":  "e1842185d0ed7e3b88352c1a8bdb844c7b38a8bf"
+}

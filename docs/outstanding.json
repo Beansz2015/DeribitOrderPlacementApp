@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T20:29Z",
+    "updated_utc":  "2026-10-12T20:41Z",
     "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 18 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, follow-up, reports and reviews; HANDOVER-9 for the next coordinator seat).",
+                                  "meaning":  "Push master: 19 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, follow-up, reports and reviews; HANDOVER-9; the refused-edits spec with your four rulings).",
                                   "since":  "2026-10-12"
                               },
                               {
@@ -29,11 +29,7 @@
                               }
                           ],
     "in_progress":  [
-                        {
-                            "what":  "Coordinator writing the spec for refused edits: a refused stop edit or take-profit resize must not move the app\u0027s own record, and must alert and be re-checked",
-                            "where":  "local",
-                            "started_utc":  "2026-10-12T20:29Z"
-                        }
+
                     ],
     "dated":  [
                   {
@@ -46,9 +42,9 @@
               ],
     "next_up":  [
                     {
-                        "what":  "Protection: when the exchange refuses a stop edit or a take-profit resize, the app still moves its own record and raises no alert or retries only once (seen on testnet: 58 s of refused stop moves, no page). Spec and fix",
-                        "doc":  "docs/review-testnet-2026-10-12.md",
-                        "anchor":  "§2, row TN-F3",
+                        "what":  "Refused edits implementer: when Deribit refuses a stop, take-profit or entry edit, the app\u0027s own record follows the exchange; a stop that cannot be moved pages; a refused take-profit resize keeps retrying. All four rulings in. Runtime check waits for your return (auto-mode refuses a seat\u0027s testnet orders)",
+                        "doc":  "docs/spec-refused-edits.md",
+                        "anchor":  "§3",
                         "model":  "Opus 5.5, high"
                     },
                     {
