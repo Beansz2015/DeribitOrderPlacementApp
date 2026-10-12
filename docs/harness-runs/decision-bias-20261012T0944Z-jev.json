@@ -1,0 +1,47 @@
+{
+    "rev":  "6d7798d59abd7cffcbb0a06048b15626a188c8d1",
+    "population":  "docs/harness-runs/decision-bias-20261012T0944Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261012T0944Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x5] resolved=[jev-1.13.0 x5] run_utc=2026-10-12T09:44:45Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  5,
+    "usage_input_tokens":  5145,
+    "wall_time_sec":  1.88,
+    "items":  [
+                  {
+                      "id":  "docs/review-protection-batch2.md|SB3 M.SL anchor after an R1 stop limit@6d7798d",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.698,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.71,
+                                                       0.68,
+                                                       0.7,
+                                                       0.68,
+                                                       0.72
+                                                   ],
+                      "usage_input_tokens":  5145,
+                      "seat_label":  "no_richer_option"
+                  }
+              ]
+}

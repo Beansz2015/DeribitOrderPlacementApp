@@ -1,0 +1,15 @@
+{
+  "rev": "6d7798d59abd7cffcbb0a06048b15626a188c8d1",
+  "items": [
+    {
+      "id": "docs/review-protection-batch2.md|SB3 M.SL anchor after an R1 stop limit@6d7798d",
+      "question": "When the exchange rejects a crossed stop leg and the price is not yet past the M.SL distance from that stop's trigger, the app places a replacement reduce-only limit (owner ruling R1). That limit's open echo is adopted like a real stop trigger, so the M.SL loss cap's baseline becomes the limit's price, which the exchange reprices to the top of the book, and then settles at the first chase. The M.SL emergency flatten therefore fires only when the price moves a further M.SL distance beyond the market at that moment, not beyond the dead stop's trigger. Total loss can reach the trigger distance plus up to twice the M.SL distance. Should the app keep this, or anchor the M.SL baseline at the dead stop's trigger for an R1 limit?",
+      "options": [
+        { "label": "(a)", "text": "Keep as built: the R1 limit gets exactly the context a real trigger gets, including the existing rule that the M.SL anchor settles at the top-of-book stop at the first chase. No special case." },
+        { "label": "(b)", "text": "For an R1 limit only, pin the M.SL baseline at the dead stop's trigger price and mark it settled, so the M.SL flatten fires when the price is the M.SL distance past the trigger: the same test R1 itself used to choose between the limit and an immediate flatten." }
+      ],
+      "recommended": "(b)",
+      "rationale": "(b) continues the very test the owner's R1 ruling uses ('past the M.SL distance from the trigger -> flatten'), so the loss bound stays the trigger distance plus one M.SL distance instead of up to two. The R1 case is by definition a crossed stop in a fast market, where a wider bound costs most. (a) is consistent with how a real gap trigger is anchored today and needs no code, but that anchor rule was made for a stop that triggered normally; here the app knows the trigger the position should have been protected at. (b) costs a flag and two assignments in the R1 path plus fixtures, and one more special case in the triggered-stop context."
+    }
+  ]
+}

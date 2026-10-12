@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T09:38Z",
+  "updated_utc": "2026-10-12T09:52Z",
   "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 3 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code, not yet reviewed; the partial-fill spec with your four rulings).",
+      "meaning": "Push master: 4 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings).",
       "since": "2026-10-12"
     },
     {
@@ -28,17 +28,25 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [],
+  "in_progress": [
+    {
+      "what": "Batch-2 follow-up seat: after a rejected stop, pin the M.SL cap at the dead stop's trigger (owner ruling 2026-10-12)",
+      "where": "agent sb3-msl-anchor",
+      "started_utc": "2026-10-12T09:52Z"
+    }
+  ],
   "dated": [],
   "next_up": [
     {
-      "what": "Review position-protection batch 2 (docs/impl-report-protection-batch2.md, four spec-back findings), rebuild x64, then a harness testnet run of its acceptance",
+      "what": "Review the M.SL-anchor follow-up when its seat reports (batch 2 was accepted at code level 2026-10-12)",
+      "doc": "docs/review-protection-batch2.md",
+      "anchor": "§3",
       "model": "Opus 5.5, high"
     },
     {
-      "what": "Partial fills, phase 1: a seat runs the X-2 testnet experiment (forces a real partial fill with a temporary taker-entry switch; compares Deribit's first_hit and incremental leg sizing). All four rulings are in. Starts after the batch-2 review; can share its testnet session.",
-      "doc": "docs/spec-partial-fill-fix.md",
-      "anchor": "§3",
+      "what": "One testnet session: batch-2 runtime acceptance (the seat may cancel the SL and toggle cancel-on-disconnect by testnet API; must end with it OFF), plus the partial-fill experiment X-2. Rebuild x64 first.",
+      "doc": "docs/review-protection-batch2.md",
+      "anchor": "§5",
       "model": "Opus 5.5, high"
     },
     {
@@ -53,6 +61,12 @@
     },
     {
       "what": "Remaining audit rows: trailing trigger offset, close during a socket gap, tick rounding direction, payload reader share mode, small log and feedback items",
+      "model": "Opus 5.5, high"
+    },
+    {
+      "what": "Hygiene: serialise all socket sends behind one lock (many threads send today; the watchdog added one more)",
+      "doc": "docs/review-protection-batch2.md",
+      "anchor": "§4 item 1",
       "model": "Opus 5.5, high"
     },
     {

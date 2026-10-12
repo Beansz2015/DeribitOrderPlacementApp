@@ -125,6 +125,19 @@ already cover the position, or the position is already flat" (the code is not sp
    d. Turn cancel-on-disconnect on, then off, on testnet → the page on connect, then none.
    e. Reduce Sell while a triggered SL is closing → the refusal message, no `11030`.
 
+## §8 — Spec-back folded in (coordinator review, 2026-10-12)
+
+Source: `docs/impl-report-protection-batch2.md` §3; dispositions in `docs/review-protection-batch2.md` §2.
+- **§1, "the price is past the trigger":** not always. The own-side quote can sit inside the spread on the
+  near side of the trigger. The rule stands: the limit is placed, repriced to the top of the book, and chased.
+- **§1, "at the leg's `price`":** a rejected `TrailingStopLoss` has no limit price. Use its `trigger_price`;
+  with neither, place nothing, log red "Place a stop by hand"; the page and the watchdog still fire.
+- **§1, the M.SL cap after an R1 limit — OWNER RULING 2026-10-12:** the R1 limit's M.SL baseline is the
+  **dead stop's trigger**, settled (frozen). It is NOT re-anchored at the top of the book like a real trigger.
+  The flatten fires when the price is the M.SL distance past the trigger. Fix specified in
+  `docs/review-protection-batch2.md` §3.
+- **§4, "change the `Trig.O.` tooltip":** there was none. One is added to the label.
+
 ## §Model and effort (`docs/HANDOVER-6.md` §7b)
 
 - **Model:** Opus. **Effort:** high. Receive path, order path, emergency path.
