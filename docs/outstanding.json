@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T20:18Z",
+    "updated_utc":  "2026-10-12T20:29Z",
     "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 17 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, report and review; the partial-fill follow-up (wrong-side cancel, testnet run, report) and its review; a pane fix).",
+                                  "meaning":  "Push master: 18 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, follow-up, reports and reviews; HANDOVER-9 for the next coordinator seat).",
                                   "since":  "2026-10-12"
                               },
                               {
@@ -29,7 +29,11 @@
                               }
                           ],
     "in_progress":  [
-
+                        {
+                            "what":  "Coordinator writing the spec for refused edits: a refused stop edit or take-profit resize must not move the app\u0027s own record, and must alert and be re-checked",
+                            "where":  "local",
+                            "started_utc":  "2026-10-12T20:29Z"
+                        }
                     ],
     "dated":  [
                   {
