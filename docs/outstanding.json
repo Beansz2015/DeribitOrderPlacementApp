@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T15:21Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-12T15:32Z",
+  "updated_by": "seat e1-pin-restore implementer, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 7 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling; this pane update starting the restart-pin seat).",
+      "meaning": "Push master: 8 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling; the pane update starting the restart-pin seat; the restart-pin code that keeps the M.SL cap pinned across an app restart).",
       "since": "2026-10-12"
     },
     {
@@ -28,13 +28,7 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [
-    {
-      "what": "Seat: keep the M.SL cap pinned at the dead stop's trigger across an app restart (owner ruling 2026-10-12)",
-      "where": "agent e1-pin-restore",
-      "started_utc": "2026-10-12T15:30Z"
-    }
-  ],
+  "in_progress": [],
   "dated": [],
   "next_up": [
     {

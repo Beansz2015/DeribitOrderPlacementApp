@@ -370,6 +370,10 @@ bridge.json
 bridge-state.json
 bridge-dispositions.log
 
+# SB3-fix/E1 (b): the persisted R1 M.SL pin (beside the exe; runtime state, never tracked).
+r1-anchor.json
+r1-anchor.json.tmp
+
 # ws DOWN/OK audit trail (beside the exe; docs/spec-ws-edge-audit.md). Operational output, never
 # tracked. Already covered by the *.log rule above and listed explicitly for the same reason
 # bridge-dispositions.log is: an operator reading this file should not have to infer it.

@@ -1662,6 +1662,51 @@ Module Program
               pinLong.Baseline - 82740D >= 50D AndAlso pinLong.Baseline - 82740.5D < 50D AndAlso
               frmMainPageV2.DecideRejectedStopAction(True, 82740D, 82790D, True, 50D) = flatAct)
 
+        ' SB3-fix/E1 (b) (owner ruling 2026-10-12): the pin survives a restart. At 02260d8 the id-778 restore
+        ' seed always anchored at the resting limit's price - no persisted record, so no re-pin.
+        Dim pinRec As New frmMainPageV2.R1AnchorRecord(82790D, "29350789401", True, New DateTime(2026, 10, 12, 15, 30, 0, DateTimeKind.Utc))
+        Check("E1 restore fixture 1: record names the restored triggered stop's id -> re-pin at the dead trigger 82790",
+              frmMainPageV2.RestoredR1Pin(pinRec, "29350789401") = 82790D,
+              $"got {frmMainPageV2.RestoredR1Pin(pinRec, "29350789401")}")
+        Check("E1 restore fixture 2: record names a different id (a later stop) -> no re-pin (stale)",
+              frmMainPageV2.RestoredR1Pin(pinRec, "29350789999") = 0D)
+        Check("E1 restore fixture 3: no record -> no re-pin",
+              frmMainPageV2.RestoredR1Pin(Nothing, "29350789401") = 0D)
+        Check("E1 restore fixture 4: a record with anchor 0 -> no re-pin, even on a matching id",
+              frmMainPageV2.RestoredR1Pin(New frmMainPageV2.R1AnchorRecord(0D, "29350789401", True, DateTime.UtcNow), "29350789401") = 0D)
+        Check("E1 restore fixture 5: the restored order carries no id -> no re-pin",
+              frmMainPageV2.RestoredR1Pin(pinRec, Nothing) = 0D AndAlso frmMainPageV2.RestoredR1Pin(pinRec, "") = 0D)
+        ' The record's round trip, and the parse is culture-proof (a day-first, comma-decimal culture must not
+        ' re-render the utc or the anchor - the 8956baa culture bug, fixture 1 above).
+        Dim e1SavedCulture = CultureInfo.CurrentCulture
+        Dim rtShort As frmMainPageV2.R1AnchorRecord
+        Try
+            CultureInfo.CurrentCulture = New CultureInfo("de-DE")
+            rtShort = frmMainPageV2.ParseR1AnchorRecord(frmMainPageV2.SerializeR1AnchorRecord(
+                          New frmMainPageV2.R1AnchorRecord(82790.5D, "29350789402", False, New DateTime(2026, 10, 12, 15, 30, 7, DateTimeKind.Utc))))
+        Finally
+            CultureInfo.CurrentCulture = e1SavedCulture
+        End Try
+        Dim rtLong = frmMainPageV2.ParseR1AnchorRecord(frmMainPageV2.SerializeR1AnchorRecord(pinRec))
+        Check("E1 record fixture 1: long record round-trips (anchor, order id, side, utc)",
+              rtLong IsNot Nothing AndAlso rtLong.Anchor = 82790D AndAlso rtLong.OrderId = "29350789401" AndAlso rtLong.PositionIsLong AndAlso
+              rtLong.Utc = pinRec.Utc AndAlso rtLong.Utc.Kind = DateTimeKind.Utc,
+              If(rtLong Is Nothing, "got Nothing", $"got {rtLong.Anchor} {rtLong.OrderId} long={rtLong.PositionIsLong} {rtLong.Utc:o}"))
+        Check("E1 record fixture 2: short record with a half-dollar anchor round-trips under de-DE",
+              rtShort IsNot Nothing AndAlso rtShort.Anchor = 82790.5D AndAlso rtShort.OrderId = "29350789402" AndAlso Not rtShort.PositionIsLong AndAlso
+              rtShort.Utc = New DateTime(2026, 10, 12, 15, 30, 7, DateTimeKind.Utc),
+              If(rtShort Is Nothing, "got Nothing", $"got {rtShort.Anchor} {rtShort.OrderId} long={rtShort.PositionIsLong} {rtShort.Utc:o}"))
+        Check("E1 record fixture 3: a parsed record feeds the restore decision -> re-pin at 82790",
+              frmMainPageV2.RestoredR1Pin(rtLong, "29350789401") = 82790D)
+        Check("E1 record fixture 4: malformed / empty / no-anchor / no-id / bad-side text -> Nothing (no re-pin)",
+              frmMainPageV2.ParseR1AnchorRecord("{not json") Is Nothing AndAlso
+              frmMainPageV2.ParseR1AnchorRecord("") Is Nothing AndAlso
+              frmMainPageV2.ParseR1AnchorRecord("{""order_id"":""X"",""side"":""long""}") Is Nothing AndAlso
+              frmMainPageV2.ParseR1AnchorRecord("{""anchor"":82790,""side"":""long""}") Is Nothing AndAlso
+              frmMainPageV2.ParseR1AnchorRecord("{""anchor"":82790,""order_id"":""X"",""side"":""up""}") Is Nothing)
+        Check("E1 record fixture 5: a bad utc does not void the record (the utc is for the reader only)",
+              frmMainPageV2.RestoredR1Pin(frmMainPageV2.ParseR1AnchorRecord("{""anchor"":82790,""order_id"":""X"",""side"":""long"",""utc"":""junk""}"), "X") = 82790D)
+
         ' Item 2 - the live no-stop watchdog. Before: no check after the restore; experiments (a) and (f)
         ' each left a live position with no stop and the app said nothing.
         Check("watchdog fixture 1: long, no stop, 5.0 s -> no page (inside the grace)",

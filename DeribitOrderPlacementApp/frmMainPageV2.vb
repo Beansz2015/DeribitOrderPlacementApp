@@ -3609,6 +3609,11 @@ Public Class frmMainPageV2
                                                                   emergencyBaselineSettled = flip.Settled
                                                                   If r1Anchor > 0D Then
                                                                       AppendColoredText(txtLogs, $"Stop limit adopted at ${price.Value:F2}; M.SL anchor pinned at the dead stop's trigger ${r1Anchor:F2}", Color.Orange)
+                                                                      ' SB3-fix/E1 (b): persist the pin so a restart re-pins it (id-778 restore seed).
+                                                                      ' A sell limit closes a long. Never throws; a failure logs yellow.
+                                                                      WriteR1AnchorFile(r1Anchor, orderId, order.SelectToken("direction")?.ToString() = "sell")
+                                                                  Else
+                                                                      DeleteR1AnchorFile() ' SB3-fix/E1 (b): a real trigger - no pin, so none may be restored
                                                                   End If
                                                                   txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
                                                               End If
@@ -3622,6 +3627,7 @@ Public Class frmMainPageV2
                                                               placedStopLossPrice = price.Value
                                                               emergencyBaseline = price.Value
                                                               emergencyBaselineSettled = True
+                                                              DeleteR1AnchorFile() ' SB3-fix/SB3 + E1 (b): the owner's manual cap wins - a restart must not re-pin over it
                                                               txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
                                                               AppendColoredText(txtLogs, $"Manual SL edit: ${price.Value:F2}", Color.Cyan)
                                                           End If
@@ -4552,6 +4558,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            DeleteR1AnchorFile() ' SB3-fix/E1 (b): the persisted R1 pin goes with it
             ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Construct the JSON payload for the reduce-only order
@@ -5003,6 +5010,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            DeleteR1AnchorFile() ' SB3-fix/E1 (b): the persisted R1 pin goes with it
             ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Send all three updates with rate limiting. main = primary (post_only OK); TP/SL are pre-fill
@@ -5425,6 +5433,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = newTrigSLprice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            DeleteR1AnchorFile() ' SB3-fix/E1 (b): the persisted R1 pin goes with it
             ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Update main trailing order
@@ -5603,6 +5612,7 @@ Public Class frmMainPageV2
 
             StopLossTriggerOriginal = stoplossTriggerPrice ' Save the original SL trigger price
             emergencyBaseline = 0 ' new SL placement is pre-trigger - clear any pinned baseline
+            DeleteR1AnchorFile() ' SB3-fix/E1 (b): the persisted R1 pin goes with it
             ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Construct the JSON payload for the reduce-only order
@@ -6782,6 +6792,7 @@ Public Class frmMainPageV2
             rejectedStopPending = False
             r1MslAnchor = 0D ' SB3: a pin never outlives its bracket
         End SyncLock
+        DeleteR1AnchorFile() ' SB3-fix/E1 (b): nor does its persisted copy (outside the gate - no nested locks)
     End Sub
 
     ' SB3: no R1 limit will echo (the id-40 send was refused, never sent, or the SL context was reset).
@@ -6789,6 +6800,7 @@ Public Class frmMainPageV2
         SyncLock rejectedStopGate
             r1MslAnchor = 0D
         End SyncLock
+        DeleteR1AnchorFile() ' SB3-fix/E1 (b): the persisted pin ends with the context (outside the gate)
     End Sub
 
     ' SB3: UI thread, at the StopLossOrder trigger-flip adoption. Returns the pending anchor (0 = none)
@@ -6799,6 +6811,111 @@ Public Class frmMainPageV2
             r1MslAnchor = 0D
             Return anchor
         End SyncLock
+    End Function
+
+    ' --- SB3-fix/E1 (b) (owner ruling 2026-10-12): the R1 pin survives an app restart ---
+    '
+    ' r1-anchor.json beside the exe holds an ADOPTED pin: written when the R1 limit's open echo pins the
+    ' baseline, deleted wherever emergencyBaseline stops holding that pin (every context reset, a fresh
+    ' SL placement, a real trigger flip, the owner's manual edit). The id-778 restore seed re-pins only
+    ' when the file names the order id of the triggered StopLossOrder it restores, so a stale file can
+    ' never pin a different stop. bridge-state.json's pattern (SignalBridge): temp + move, failures
+    ' logged yellow and never thrown.
+    Friend NotInheritable Class R1AnchorRecord
+        Public ReadOnly Anchor As Decimal
+        Public ReadOnly OrderId As String
+        Public ReadOnly PositionIsLong As Boolean
+        Public ReadOnly Utc As DateTime
+        Public Sub New(anchor As Decimal, orderId As String, positionIsLong As Boolean, utc As DateTime)
+            Me.Anchor = anchor
+            Me.OrderId = orderId
+            Me.PositionIsLong = positionIsLong
+            Me.Utc = utc
+        End Sub
+    End Class
+
+    Friend Shared Function SerializeR1AnchorRecord(record As R1AnchorRecord) As String
+        Dim jo As New JObject From {
+            {"anchor", record.Anchor},
+            {"order_id", If(record.OrderId, "")},
+            {"side", If(record.PositionIsLong, "long", "short")},
+            {"utc", record.Utc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", Globalization.CultureInfo.InvariantCulture)}
+        }
+        Return jo.ToString()
+    End Function
+
+    ' Nothing = not a usable record (malformed, no anchor, no order id, unknown side). The utc is for the
+    ' reader only; a bad one does not void the record. DateParseHandling.None: the utc stays a string, never
+    ' a culture-rendered Date token (the 8956baa culture bug, OrderCheck fixture 1).
+    Friend Shared Function ParseR1AnchorRecord(text As String) As R1AnchorRecord
+        Try
+            Dim jo = Newtonsoft.Json.JsonConvert.DeserializeObject(Of JObject)(text,
+                         New Newtonsoft.Json.JsonSerializerSettings With {.DateParseHandling = Newtonsoft.Json.DateParseHandling.None})
+            If jo Is Nothing Then Return Nothing
+            Dim anchor As Decimal = If(jo.SelectToken("anchor")?.ToObject(Of Decimal?)(), 0D)
+            Dim orderId As String = jo.SelectToken("order_id")?.ToString()
+            Dim side As String = jo.SelectToken("side")?.ToString()
+            If anchor <= 0D OrElse String.IsNullOrEmpty(orderId) OrElse (side <> "long" AndAlso side <> "short") Then Return Nothing
+            Dim utc As DateTime = DateTime.MinValue
+            DateTime.TryParseExact(jo.SelectToken("utc")?.ToString(), "yyyy-MM-ddTHH:mm:ssZ", Globalization.CultureInfo.InvariantCulture,
+                                   Globalization.DateTimeStyles.AdjustToUniversal Or Globalization.DateTimeStyles.AssumeUniversal, utc)
+            Return New R1AnchorRecord(anchor, orderId, side = "long", utc)
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    ' The restore decision: the anchor to re-pin at, or 0 = no re-pin (the file is stale and goes).
+    ' Re-pin only when the record names the restored triggered StopLossOrder's own id (ordinal).
+    Friend Shared Function RestoredR1Pin(record As R1AnchorRecord, restoredOrderId As String) As Decimal
+        If record Is Nothing OrElse record.Anchor <= 0D Then Return 0D
+        If String.IsNullOrEmpty(restoredOrderId) OrElse Not String.Equals(record.OrderId, restoredOrderId, StringComparison.Ordinal) Then Return 0D
+        Return record.Anchor
+    End Function
+
+    Private ReadOnly r1AnchorFileGate As New Object()
+
+    Private Shared ReadOnly Property R1AnchorFilePath As String
+        Get
+            Return Path.Combine(AppContext.BaseDirectory, "r1-anchor.json")
+        End Get
+    End Property
+
+    ' UI thread, inside the echo handler's Me.Invoke: small, and never throws.
+    Private Sub WriteR1AnchorFile(anchor As Decimal, orderId As String, positionIsLong As Boolean)
+        Try
+            SyncLock r1AnchorFileGate
+                Dim tmp As String = R1AnchorFilePath & ".tmp"
+                File.WriteAllText(tmp, SerializeR1AnchorRecord(New R1AnchorRecord(anchor, orderId, positionIsLong, DateTime.UtcNow)))
+                File.Move(tmp, R1AnchorFilePath, overwrite:=True)
+            End SyncLock
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"r1-anchor.json write failed: {ex.Message} - the M.SL pin will not survive a restart", Color.Yellow)
+        End Try
+    End Sub
+
+    ' Any thread. No-op when the file is absent (File.Delete does not throw for a missing file).
+    Private Sub DeleteR1AnchorFile()
+        Try
+            SyncLock r1AnchorFileGate
+                File.Delete(R1AnchorFilePath)
+            End SyncLock
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"r1-anchor.json delete failed: {ex.Message}", Color.Yellow)
+        End Try
+    End Sub
+
+    ' Receive thread (id-778 restore seed). Nothing = no file or not a usable record.
+    Private Function LoadR1AnchorRecord() As R1AnchorRecord
+        Try
+            SyncLock r1AnchorFileGate
+                If Not File.Exists(R1AnchorFilePath) Then Return Nothing
+                Return ParseR1AnchorRecord(File.ReadAllText(R1AnchorFilePath))
+            End SyncLock
+        Catch ex As Exception
+            AppendColoredText(txtLogs, $"r1-anchor.json load failed: {ex.Message} - no M.SL re-pin", Color.Yellow)
+            Return Nothing
+        End Try
     End Function
 
     ' --- Item 3: cancel-on-disconnect check at connect ---
@@ -6896,6 +7013,8 @@ Public Class frmMainPageV2
             ' Protection batch 1 item 3: hand the list to the NO STOP check BEFORE the empty-list Return -
             ' an empty list with a position open is the very case it exists for.
             If result IsNot Nothing Then NoteRestoreOrders(result)
+            ' SB3-fix/E1 (b): no open orders at all -> no resting R1 limit, so a persisted pin is stale.
+            If result IsNot Nothing AndAlso result.Count = 0 Then DeleteR1AnchorFile()
             If result Is Nothing OrElse result.Count = 0 Then Return ' nothing to restore, no announce (flat restart - or a position with no orders, which the check above alarms on)
 
             ' First pass: is a working (unfilled) entry still open? CurrentTPOrderId/CurrentSLOrderId are
@@ -6922,6 +7041,7 @@ Public Class frmMainPageV2
             If workingEntryFound Then UiInvoke(Sub() SetTradeMode(entryIsLong))
 
             Dim entryDesc As String = "none", tpDesc As String = "none", slDesc As String = "none"
+            Dim triggeredSlRestored As Boolean = False ' SB3-fix/E1 (b): no resting triggered stop -> the R1 pin file is stale
 
             For Each o In result
                 Dim label = o.SelectToken("label")?.ToString()
@@ -6986,13 +7106,28 @@ Public Class frmMainPageV2
                                 seeded = True
                             End If
                             If StopLossTriggerOriginal = 0D Then StopLossTriggerOriginal = If(triggerPrice, 0D)
+                            triggeredSlRestored = True
                             ' Item 1: restored into an already-triggered SL - the emergency baseline is the actual SL price.
                             ' Hybrid fix: the restored SL is the live top-of-book stop, so it IS the settled loss-cap
                             ' anchor - freeze it (settled = True) so the first post-restore chase doesn't override it.
+                            ' SB3-fix/E1 (b) (owner ruling 2026-10-12): an R1 stop limit is the exception. When
+                            ' r1-anchor.json names THIS order id, the anchor is the dead stop's trigger, settled - not
+                            ' the resting price. A Deribit edit keeps the id, so a chased limit still matches. The re-pin
+                            ' sits INSIDE the existing 0-guard: the snapshot never overwrites a live in-process baseline.
+                            ' After a restart the baseline is 0, so the re-pin applies; on a reconnect without a restart
+                            ' the in-memory pin already holds (the file can only exist while it does). No match -> the
+                            ' file is stale and goes.
+                            Dim r1Pin As Decimal = RestoredR1Pin(LoadR1AnchorRecord(), id)
                             If emergencyBaseline = 0D Then
-                                emergencyBaseline = If(price, 0D)
+                                If r1Pin > 0D Then
+                                    emergencyBaseline = r1Pin
+                                    AppendColoredText(txtLogs, $"M.SL anchor re-pinned at the dead stop's trigger ${r1Pin:F2} (restored)", Color.Orange)
+                                Else
+                                    emergencyBaseline = If(price, 0D)
+                                End If
                                 emergencyBaselineSettled = True
                             End If
+                            If r1Pin = 0D Then DeleteR1AnchorFile()
                             UiInvoke(Sub()
                                          If triggerPrice.HasValue Then txtPlacedTrigStopPrice.Text = triggerPrice.Value.ToString("F2")
                                          If seeded AndAlso price.HasValue Then txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
@@ -7006,6 +7141,8 @@ Public Class frmMainPageV2
 
                 End Select
             Next
+
+            If Not triggeredSlRestored Then DeleteR1AnchorFile() ' SB3-fix/E1 (b): no resting R1 limit to re-pin
 
             If entryDesc <> "none" OrElse tpDesc <> "none" OrElse slDesc <> "none" Then
                 AppendColoredText(txtLogs, $"Restored order context: entry={entryDesc}, TP={tpDesc}, SL={slDesc}", Color.Cyan)
