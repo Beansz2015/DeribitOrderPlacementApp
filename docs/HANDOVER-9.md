@@ -68,9 +68,11 @@ recommend a path where the M.SL flatten can fire beyond one M.SL past the intend
 4. AWS London migration (`docs/production-cutover-checklist.md` §9); re-check cancel-on-disconnect on the AWS key.
 
 **Coordinator side:**
-1. **The `TN-F3` protection spec** (a testnet finding): when Deribit refuses a stop edit, the app still moves its own
-   record of the stop and raises no alert; the same class covers a refused TP resize (one F3 retry per episode,
-   `PF-SB4`). Being written next by the outgoing seat — check the pane and `docs/` for `spec-refused-edit*`.
+1. **Refused edits — launch the implementer seat** (Opus 5.5, high): `docs/spec-refused-edits.md`, written
+   2026-10-13 from `TN-F3` (a testnet finding: a refused stop edit still moves the app's own record, with no alert)
+   and `PF-SB4` (a refused TP resize retries once). **All four owner rulings `RE-R1`–`RE-R4` are in.** Fixtures and
+   code review can complete during the absence; its runtime check (§4 item 3) waits for the owner. Its §2 keeps the
+   M.SL anchor latch untouched on purpose — do not "fix" it.
 2. Later protection items: position-level loss cap, quote-silence watchdog, stand-down cancels the entry, bounded
    freshness window; emergency reduce-before-cancel (one observation, under `incremental` only — confirm under
    `first_hit`, `TN-F6`).

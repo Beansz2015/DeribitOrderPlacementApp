@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 19 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, follow-up, reports and reviews; HANDOVER-9; the refused-edits spec with your four rulings).",
+                                  "meaning":  "Push master: 20 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, follow-up, reports and reviews; HANDOVER-9 and its update; the refused-edits spec with your four rulings).",
                                   "since":  "2026-10-12"
                               },
                               {
