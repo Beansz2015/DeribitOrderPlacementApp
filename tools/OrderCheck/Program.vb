@@ -1642,6 +1642,26 @@ Module Program
         Check("R1 fixture 9: no trigger on the leg (0) -> stop limit, never a flatten measured from 0",
               frmMainPageV2.DecideRejectedStopAction(False, 82840D, 0D, True, 50D) = limitAct)
 
+        ' Batch 2 SB3 (owner ruling 2026-10-12): an R1 limit's M.SL baseline is the dead stop's trigger, settled.
+        ' At 389a87a the flip adopted the echo's price, unsettled, so the first chase latched the top of book.
+        Dim pinLong = frmMainPageV2.FlipEmergencyBaseline(82785D, 82790D)
+        Check("SB3 fixture 1 (experiment (a) prices): R1 anchor 82790 pending, long limit echoes at 82785 -> baseline 82790, SETTLED",
+              pinLong.Baseline = 82790D AndAlso pinLong.Settled, $"got {pinLong.Baseline} settled={pinLong.Settled}")
+        Dim pinShort = frmMainPageV2.FlipEmergencyBaseline(82795D, 82790D)
+        Check("SB3 fixture 2: R1 anchor 82790 pending, short limit echoes at 82795 -> baseline 82790, SETTLED",
+              pinShort.Baseline = 82790D AndAlso pinShort.Settled, $"got {pinShort.Baseline} settled={pinShort.Settled}")
+        Dim realFlip = frmMainPageV2.FlipEmergencyBaseline(82785D, 0D)
+        Check("SB3 fixture 3: no R1 anchor (a real trigger) -> the echo's price, unsettled (hybrid latch re-armed)",
+              realFlip.Baseline = 82785D AndAlso Not realFlip.Settled, $"got {realFlip.Baseline} settled={realFlip.Settled}")
+        Dim noTrig = frmMainPageV2.FlipEmergencyBaseline(82785D, -1D)
+        Check("SB3 fixture 4: an anchor <= 0 (a leg with no trigger) pins nothing -> the echo's price, unsettled",
+              noTrig.Baseline = 82785D AndAlso Not noTrig.Settled, $"got {noTrig.Baseline} settled={noTrig.Settled}")
+        ' The pinned flatten point is the R1 decision's own: from the pinned trigger, the M.SL test fires exactly
+        ' where DecideRejectedStopAction would have flattened (long, trigger 82790, M.SL 50 -> ask 82740).
+        Check("SB3 fixture 5: pinned at 82790, M.SL 50 -> the cap is at 82740, the R1 flatten point",
+              pinLong.Baseline - 82740D >= 50D AndAlso pinLong.Baseline - 82740.5D < 50D AndAlso
+              frmMainPageV2.DecideRejectedStopAction(True, 82740D, 82790D, True, 50D) = flatAct)
+
         ' Item 2 - the live no-stop watchdog. Before: no check after the restore; experiments (a) and (f)
         ' each left a live position with no stop and the app said nothing.
         Check("watchdog fixture 1: long, no stop, 5.0 s -> no page (inside the grace)",

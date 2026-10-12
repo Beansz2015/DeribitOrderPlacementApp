@@ -2009,6 +2009,7 @@ Public Class frmMainPageV2
             ' Protection batch 2 item 1: the rejected-stop replacement limit (id 40) was refused - the
             ' position is still without a stop. Ahead of the skips, like the id-1 hook above.
             If messageId.HasValue AndAlso messageId.Value = ReplacementStopRequestId Then
+                ClearR1MslAnchor() ' SB3: no limit exists, so nothing may consume the pin
                 Dim stopText As String = $"Stop limit REJECTED ({errorField.ToString(Newtonsoft.Json.Formatting.None)}) — position has NO STOP"
                 AppendColoredText(txtLogs, stopText, Color.Red)
                 Alert("no_stop")
@@ -3596,11 +3597,19 @@ Public Class frmMainPageV2
                                                               ' The one-time overwrite is safe: no chase is running yet at the flip.
                                                               If price.HasValue Then
                                                                   placedStopLossPrice = price.Value
-                                                                  emergencyBaseline = price.Value
                                                                   ' Hybrid fix: the flip price is the SL's live/trailed limit, which may sit BELOW
                                                                   ' top-of-book. Re-arm the latch so the FIRST post-trigger chase reposition captures
                                                                   ' the actual top-of-book SL as the frozen loss-cap anchor (owner #67).
-                                                                  emergencyBaselineSettled = False
+                                                                  ' Batch 2 SB3 (owner ruling 2026-10-12): an R1 replacement limit is the exception -
+                                                                  ' its anchor is the DEAD stop's trigger, settled at once, so the chase never moves it.
+                                                                  ' The anchor is consumed only here, with a price; a null-price echo leaves it pending.
+                                                                  Dim r1Anchor As Decimal = TakeR1MslAnchor()
+                                                                  Dim flip = FlipEmergencyBaseline(price.Value, r1Anchor)
+                                                                  emergencyBaseline = flip.Baseline
+                                                                  emergencyBaselineSettled = flip.Settled
+                                                                  If r1Anchor > 0D Then
+                                                                      AppendColoredText(txtLogs, $"Stop limit adopted at ${price.Value:F2}; M.SL anchor pinned at the dead stop's trigger ${r1Anchor:F2}", Color.Orange)
+                                                                  End If
                                                                   txtPlacedStopLossPrice.Text = price.Value.ToString("F2")
                                                               End If
                                                           ElseIf price.HasValue AndAlso price.Value <> placedStopLossPrice _
@@ -4750,6 +4759,7 @@ Public Class frmMainPageV2
         emergencyBaseline = 0
         emergencyBaselineSettled = False   ' hybrid fix: clear the loss-cap latch with the triggered-SL context
         ResetCommandedSLPrices() ' reconcile: nuclear cancel - triggered-SL context is gone
+        ClearR1MslAnchor() ' SB3: the R1 limit is cancelled with everything else
 
         'PositionEmpty = True
         PositionLog = False ' Reset position log flag so it can log next new position
@@ -4871,6 +4881,7 @@ Public Class frmMainPageV2
                 emergencyBaseline = 0
                 emergencyBaselineSettled = False   ' hybrid fix: clear the loss-cap latch with the triggered-SL context
                 ResetCommandedSLPrices() ' reconcile: market reduce - triggered-SL context is gone
+                ClearR1MslAnchor() ' SB3: triggered-SL context is gone - no pin may outlive it
             End If
 
             ' Construct the JSON payload for the reduce-only order
@@ -6585,6 +6596,16 @@ Public Class frmMainPageV2
         Return If(movement >= mslThreshold, RejectedStopAction.Flatten, RejectedStopAction.PlaceStopLimit)
     End Function
 
+    ' Batch 2 SB3 (owner ruling 2026-10-12): the M.SL baseline adopted at a StopLossOrder trigger flip.
+    ' A pending R1 anchor (the dead stop's trigger) pins it and settles it, so the flatten fires at the
+    ' M.SL distance past that trigger - the same test R1 used to pick the limit. Otherwise the echo's price,
+    ' unsettled, and the first chase reposition latches the top of book (hybrid fix, owner #67). An anchor
+    ' of 0 (a leg with no trigger) pins nothing.
+    Friend Shared Function FlipEmergencyBaseline(echoPrice As Decimal, r1Anchor As Decimal) As (Baseline As Decimal, Settled As Boolean)
+        If r1Anchor > 0D Then Return (r1Anchor, True)
+        Return (echoPrice, False)
+    End Function
+
     ' A sell stop protects a long, a buy stop a short. Anything else (flat, or a flipped account) -> no action.
     Friend Shared Function RejectedLegProtects(legIsSell As Boolean, positionSize As Decimal) As Boolean
         Return (legIsSell AndAlso positionSize > 0D) OrElse ((Not legIsSell) AndAlso positionSize < 0D)
@@ -6607,6 +6628,9 @@ Public Class frmMainPageV2
     Private rejectedStopPrice As Decimal
     Private rejectedStopReason As String
     Private rejectedStopSeenUtc As DateTime
+    ' SB3: the dead stop's trigger, set just before the R1 limit is sent and consumed by that limit's
+    ' open echo (TakeR1MslAnchor). 0 = none pending. Under rejectedStopGate.
+    Private r1MslAnchor As Decimal = 0D
 
     ' Receive thread, from the order loop. Alarm at once; the action waits for the position.
     Private Sub NoteRejectedOrder(order As JToken, orderState As String, label As String, orderId As String)
@@ -6705,7 +6729,13 @@ Public Class frmMainPageV2
             AppendColoredText(txtLogs, "Rejected stop: the leg carries no price - no stop limit placed. Place a stop by hand.", Color.Red)
             Return
         End If
+        ' SB3: record the pin BEFORE the send, so the limit's open echo cannot beat it. A trigger of 0
+        ' records nothing (no pin; the echo's price is adopted as before).
+        SyncLock rejectedStopGate
+            r1MslAnchor = If(trigger > 0D, trigger, 0D)
+        End SyncLock
         Dim placed As Boolean = Await SendReplacementStopLimitAsync(isLong, Math.Abs(size), limitPrice)
+        If Not placed Then ClearR1MslAnchor() ' nothing was sent - no limit, no echo to consume it
         Dim doneText As String = If(placed,
             $"Stop REJECTED — stop limit placed at {limitPrice:F2} ({If(isLong, "sell", "buy")} {Math.Abs(size).ToString(Globalization.CultureInfo.InvariantCulture)}, reduce-only, post-only)",
             "Stop REJECTED — the stop limit could not be sent: position has NO STOP")
@@ -6750,8 +6780,26 @@ Public Class frmMainPageV2
     Private Sub DropRejectedStopContext()
         SyncLock rejectedStopGate
             rejectedStopPending = False
+            r1MslAnchor = 0D ' SB3: a pin never outlives its bracket
         End SyncLock
     End Sub
+
+    ' SB3: no R1 limit will echo (the id-40 send was refused, never sent, or the SL context was reset).
+    Private Sub ClearR1MslAnchor()
+        SyncLock rejectedStopGate
+            r1MslAnchor = 0D
+        End SyncLock
+    End Sub
+
+    ' SB3: UI thread, at the StopLossOrder trigger-flip adoption. Returns the pending anchor (0 = none)
+    ' and consumes it, so it pins exactly one flip.
+    Private Function TakeR1MslAnchor() As Decimal
+        SyncLock rejectedStopGate
+            Dim anchor As Decimal = r1MslAnchor
+            r1MslAnchor = 0D
+            Return anchor
+        End SyncLock
+    End Function
 
     ' --- Item 3: cancel-on-disconnect check at connect ---
     '

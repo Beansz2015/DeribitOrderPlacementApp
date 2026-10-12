@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T09:52Z",
-  "updated_by": "seat coordinator, Opus 5.5",
+  "updated_utc": "2026-10-12T09:58Z",
+  "updated_by": "seat sb3-msl-anchor (implementer), Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 4 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings).",
+      "meaning": "Push master: 5 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger).",
       "since": "2026-10-12"
     },
     {
@@ -28,19 +28,12 @@
       "since": "2026-08-02"
     }
   ],
-  "in_progress": [
-    {
-      "what": "Batch-2 follow-up seat: after a rejected stop, pin the M.SL cap at the dead stop's trigger (owner ruling 2026-10-12)",
-      "where": "agent sb3-msl-anchor",
-      "started_utc": "2026-10-12T09:52Z"
-    }
-  ],
+  "in_progress": [],
   "dated": [],
   "next_up": [
     {
-      "what": "Review the M.SL-anchor follow-up when its seat reports (batch 2 was accepted at code level 2026-10-12)",
-      "doc": "docs/review-protection-batch2.md",
-      "anchor": "§3",
+      "what": "Review the M.SL-anchor fix (committed 2026-10-12, gate passed; report docs/impl-report-sb3-msl-anchor.md). One open question in it: an app restart loses the pin, so the cap falls back to the resting limit's price",
+      "doc": "docs/impl-report-sb3-msl-anchor.md",
       "model": "Opus 5.5, high"
     },
     {
