@@ -1,7 +1,7 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T17:05Z",
-    "updated_by":  "seat coordinator, Opus 5.5",
+    "updated_utc":  "2026-10-12T17:35Z",
+    "updated_by":  "seat partial-fill phase 2 implementer, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
                  "to":  "2026-11-25"
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 6 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the partial-fill experiment\u0027s testnet-only switches; the testnet session record; its review with your two partial-fill rulings; the spec amendment for part-filled orders with this pane update).",
+                                  "meaning":  "Push master: 9 commits ahead of origin (the pane update starting the testnet session; a push-count correction; the partial-fill experiment\u0027s testnet-only switches; the testnet session record; its review with your two partial-fill rulings; the spec amendment for part-filled orders; the partial-fill fix in two code commits; its implementation report with this pane update).",
                                   "since":  "2026-10-12"
                               },
                               {
@@ -29,11 +29,6 @@
                               }
                           ],
     "in_progress":  [
-                        {
-                            "what":  "Partial fills, phase 2 implementer: keep the take-profit\u0027s open part equal to the position; size every take-profit and stop edit from the position; the once-a-second leg-size check",
-                            "where":  "agent pf-phase2",
-                            "started_utc":  "2026-10-12T17:05Z"
-                        }
                     ],
     "dated":  [
                   {

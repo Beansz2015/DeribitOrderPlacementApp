@@ -1,0 +1,45 @@
+{
+  "rev": "5c850a57f24f2641bd49a5ec728896a4b639feba",
+  "items": [
+    {
+      "id": "docs/impl-report-pf-phase2.md|PF-SB3 wrong-side TP action@5c850a5",
+      "question": "The once-a-second leg-size check finds a resting take-profit on the SAME side as the open position (a sell TP while short), so if it fills it ADDS to the position. The owner's rulings cover only a TP larger than the position (edit it down) and a TP resting while flat (cancel it). What should the check do here?",
+      "options": [
+        {
+          "label": "(a)",
+          "text": "Alarm only: red log, alert sound, urgent page; touch no order"
+        },
+        {
+          "label": "(b)",
+          "text": "Cancel the wrong-side TP, then alarm"
+        },
+        {
+          "label": "(c)",
+          "text": "Nothing: leave the case outside the check"
+        }
+      ],
+      "recommended": "(a)",
+      "rationale": "No owner ruling covers this case, and the project rule is that anything that changes live order behaviour needs the owner's ruling before it ships; a cancel is such a change, an alarm is not. The state is rare (it needs an order placed or edited by hand), and the owner can act on the page. (c) leaves a position-increasing order silent. (b) is the stronger protection but goes to the owner as a ruling."
+    },
+    {
+      "id": "docs/impl-report-pf-phase2.md|PF-SB2 PF-R4 acceptance route@5c850a5",
+      "question": "Acceptance asked for a testnet flatten with the take-profit resting, to show the new check cancel the TP and page. On testnet the app's existing close path (a cancel-all sent 2 ms after the position goes flat) removes the TP first, so the new cancel can never be seen that way. How should the 'cancel a TP resting with no position' backstop be accepted?",
+      "options": [
+        {
+          "label": "(a)",
+          "text": "Accept it on the unit fixtures (decision, texts) plus code reading of the cancel send; record that the runtime path is unreachable while the close cancel-all works"
+        },
+        {
+          "label": "(b)",
+          "text": "Add a temporary testnet-only switch that skips the close cancel-all, run the flatten again, observe the check cancel and page, then remove the switch"
+        },
+        {
+          "label": "(c)",
+          "text": "Ask the owner, after the return, to make the state by hand on testnet"
+        }
+      ],
+      "recommended": "(a)",
+      "rationale": "The backstop only matters when the close cancel-all fails; its decision is fixture-pinned and its send is a plain private/cancel by order id like existing paths. (b) adds a temporary switch on the close path, the riskiest path in the app, for one observation, and needs its own removal and review. (c) needs a TakeLimitProfit-labelled order the owner cannot make from the exchange UI. The coordinator can still order (b)."
+    }
+  ]
+}

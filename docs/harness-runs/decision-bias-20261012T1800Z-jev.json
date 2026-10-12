@@ -1,0 +1,70 @@
+{
+    "rev":  "5c850a57f24f2641bd49a5ec728896a4b639feba",
+    "population":  "docs/harness-runs/decision-bias-20261012T1800Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261012T1800Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x10] resolved=[jev-1.13.0 x10] run_utc=2026-10-12T17:30:54Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  10,
+    "usage_input_tokens":  8618,
+    "wall_time_sec":  3.49,
+    "items":  [
+                  {
+                      "id":  "docs/impl-report-pf-phase2.md|PF-SB3 wrong-side TP action@5c850a5",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.89,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.89,
+                                                       0.91,
+                                                       0.87,
+                                                       0.89,
+                                                       0.89
+                                                   ],
+                      "usage_input_tokens":  4153,
+                      "seat_label":  "richer_option_wrong"
+                  },
+                  {
+                      "id":  "docs/impl-report-pf-phase2.md|PF-SB2 PF-R4 acceptance route@5c850a5",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.576,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.57,
+                                                       0.6,
+                                                       0.54,
+                                                       0.59,
+                                                       0.58
+                                                   ],
+                      "usage_input_tokens":  4465,
+                      "seat_label":  "richer_option_wrong"
+                  }
+              ]
+}
