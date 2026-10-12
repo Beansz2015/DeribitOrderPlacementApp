@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated_utc": "2026-10-12T15:32Z",
-  "updated_by": "seat e1-pin-restore implementer, Opus 5.5",
+  "updated_utc": "2026-10-12T15:37Z",
+  "updated_by": "seat coordinator, Opus 5.5",
   "away": {
     "from": "2026-10-14",
     "to": "2026-11-25"
@@ -9,7 +9,7 @@
   "waiting_on_trader": [
     {
       "kind": "push",
-      "meaning": "Push master: 8 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling; the pane update starting the restart-pin seat; the restart-pin code that keeps the M.SL cap pinned across an app restart).",
+      "meaning": "Push master: 9 commits ahead of origin (the pane update with the COD tick; position-protection batch 2 code; the partial-fill spec with your four rulings; the batch-2 review with your two rulings; the fix that pins the M.SL cap at the dead stop's trigger; its review with your restart ruling; the pane update starting the restart-pin seat; the restart-pin code that keeps the M.SL cap pinned across an app restart; its review).",
       "since": "2026-10-12"
     },
     {
@@ -32,13 +32,7 @@
   "dated": [],
   "next_up": [
     {
-      "what": "Review the restart-pin seat's commit when it reports, before the testnet session",
-      "doc": "docs/review-sb3-msl-anchor.md",
-      "anchor": "§3",
-      "model": "Opus 5.5, high"
-    },
-    {
-      "what": "One testnet session: batch-2 runtime acceptance (the seat may cancel the SL and toggle cancel-on-disconnect by testnet API; must end with it OFF), plus the partial-fill experiment X-2. Rebuild x64 first.",
+      "what": "One testnet session: batch-2 runtime acceptance (the seat may cancel the SL and toggle cancel-on-disconnect by testnet API; must end with it OFF), the M.SL pin and its restart re-pin, plus the partial-fill experiment X-2. All code for it is reviewed. Rebuild x64 first.",
       "doc": "docs/review-protection-batch2.md",
       "anchor": "§5",
       "model": "Opus 5.5, high"
