@@ -1645,6 +1645,7 @@ Public Class frmMainPageV2
         positionRestoreAnnounced = False ' fresh connection: the id-777 seed may announce again
         ResetRestoreStopCheck()          ' protection batch 1 item 3: one NO STOP check per connection
         ResetLiveOrderMap()              ' protection batch 2 item 2: the watchdog waits for this connection's id-778 snapshot
+        ResetEditSends()                 ' refused edits RE-4: replies to the old socket never arrive
 
         ' Connect with timeout
         Using connectTimeout As New CancellationTokenSource(TimeSpan.FromSeconds(30))
@@ -1792,6 +1793,8 @@ Public Class frmMainPageV2
                 HandlePlacementResponse(response)
                 ' Audit2 F2: surface JSON-RPC errors no dedicated handler owns (silent order rejections)
                 HandleUnhandledJsonRpcError(response)
+                ' Refused edits RE-1/RE-2/RE-4: after the two error loggers, so their lines print first
+                HandleRefusedEditResponse(response)
             Catch ex As WebSocketException
                 AppendColoredText(txtLogs, $"WebSocket exception: {ex.Message}", Color.Red)
                 reconnectNeeded = True
@@ -2041,9 +2044,9 @@ Public Class frmMainPageV2
             ' so the edit is rejected "already_closed". This is benign (the fill already closed the leg,
             ' usually at a better price than the chase target), so downgrade it from a red API ERROR to a quiet
             ' gray note - still logged for visibility, just not alarming. Any OTHER edit error stays loud below.
+            ' Refused edits: the test is the shared seam IsBenignEditRace, so HandleRefusedEditResponse agrees.
             If messageId.HasValue AndAlso messageId.Value >= 223344 AndAlso messageId.Value <= 223350 _
-               AndAlso errorMessage IsNot Nothing _
-               AndAlso errorMessage.IndexOf("already_closed", StringComparison.OrdinalIgnoreCase) >= 0 Then
+               AndAlso IsBenignEditRace(errorMessage) Then
                 AppendColoredText(txtLogs, $"Order edit skipped (id {messageId.Value}): already filled/closed - benign chase race", Color.Gray)
                 Return
             End If
@@ -2670,6 +2673,9 @@ Public Class frmMainPageV2
                                         ' Runaway fix: advance engine state SYNCHRONOUSLY before the (non-blocking)
                                         ' display update, so the next tick's "chaseTarget > placedPrice" reads the
                                         ' new price even if the textbox write is delayed/fails.
+                                        ' Refused edits RE-4: a refusal of THIS entry edit (id 223344) sets placedPrice back to
+                                        ' the entry's echoed price (HandleRefusedEditResponse) - here, in the short mirror and
+                                        ' in the trailing-entry chase's entry-only arm.
                                         If placedPrice > 0 Then
                                             AppendColoredText(txtLogs, $"Order repositioned: ${placedPrice:F2} → ${chaseTarget:F2}", Color.Yellow)
                                         End If
@@ -2933,6 +2939,8 @@ Public Class frmMainPageV2
                                     ' against a fixed anchor and fires at anchor +/- M.SL (advancing it every tick made it track
                                     ' the book, disabling the cap: owner #53/#55/#56; anchoring on the pre-settle flip price fired
                                     ' it too early: owner #67).
+                                    ' Refused edits RE-1 (docs/spec-refused-edits.md): this advance is still optimistic, but a
+                                    ' refusal reply now sets it back to the stop's confirmed price (HandleRefusedEditResponse).
                                     placedStopLossPrice = newStopPrice
                                     ' Hybrid fix (spec-back-emergency-baseline-hybrid.md, Option 2): capture the actual top-of-book
                                     ' SL as the loss-cap anchor at the FIRST reposition after the trigger flip, then freeze. The flip
@@ -3675,6 +3683,7 @@ Public Class frmMainPageV2
                                                           ' the same accepted class as N1b's coupling. No new synchronisation.
                                                           If price.HasValue AndAlso IsRecentlyCommandedSLPrice(price.Value) Then
                                                               slUpdateFailures = 0   ' confirmed success clears the backoff
+                                                              NoteTriggeredStopConfirmed() ' refused edits RE-2: the stop moved - count and 10-s clock restart
                                                           End If
                                                       End If
 
@@ -5183,7 +5192,11 @@ Public Class frmMainPageV2
                 {"params", params}
             }
 
-            Await SendWebSocketMessageAsync(updatePayload.ToString())
+            ' Refused edits RE-4: a 223344 send keeps its order id BEFORE the send (the reply can land first),
+            ' so HandleRefusedEditResponse can tell a refused entry edit from a refused TP edit.
+            Dim editSeq As Long = 0
+            If Not triggerPrice.HasValue Then editSeq = NoteEditSend(orderId, orderType = "main")
+            If Not Await SendWebSocketMessageAsync(updatePayload.ToString()) AndAlso editSeq > 0 Then ForgetEditSend(editSeq)
 
         Catch ex As Exception
             AppendColoredText(txtLogs, $"Error in SendRateLimitedUpdate ({orderType}): {ex.Message}", Color.Red)
@@ -6478,6 +6491,347 @@ Public Class frmMainPageV2
         MarkNoStopEpisodePaged() ' batch 2 item 2: this page IS the episode's page - the live watchdog stays quiet
     End Sub
 
+    ' ===== Refused edits (docs/spec-refused-edits.md; owner rulings RE-R1 to RE-R4, 2026-10-13) =====
+    '
+    ' Deribit can refuse an edit; the order then stays where it was. The chases advance their own reference
+    ' at the send whatever the reply (TN-F3), so the next tick measured from a price the order never reached.
+    ' Here the REPLY decides: a refused edit puts the reference back to the order's price in batch 2's
+    ' live-order map (each order's latest echo - exchange truth). The optimistic advance at the send stays
+    ' (runaway-fix invariant); this only corrects it when the exchange says no.
+    ' HandleRefusedEditResponse runs in the receive loop AFTER HandleRateLimitError and
+    ' HandleUnhandledJsonRpcError, so their lines print first and their behaviour (the 10028 limiter cut, the
+    ' red API ERROR line, the N1b backoff coupling) is unchanged. A 10028 is NOT coupled into the backoff here.
+    ' Do-not-touch (spec section 2): the M.SL anchor latch at the first post-trigger reposition, the SB3 pin
+    ' and its restart re-pin, the emergency send order.
+
+    Friend Enum EditReplyKind
+        Accepted    ' no error
+        BenignRace  ' already_closed: the order filled or closed first (HandleUnhandledJsonRpcError's gray Return)
+        RateLimited ' 10028: HandleRateLimitError owns the log and the limiter cut; still a refused edit here
+        Refused     ' any other error: the order did not move
+    End Enum
+
+    ' The benign chase race: the edit reached the exchange after the order filled or closed. Shared with
+    ' HandleUnhandledJsonRpcError's gray downgrade, so the two can never disagree on what is benign.
+    Friend Shared Function IsBenignEditRace(errorMessage As String) As Boolean
+        Return errorMessage IsNot Nothing AndAlso
+               errorMessage.IndexOf("already_closed", StringComparison.OrdinalIgnoreCase) >= 0
+    End Function
+
+    Friend Shared Function ClassifyEditReply(hasError As Boolean, errorCode As Integer?, errorMessage As String) As EditReplyKind
+        If Not hasError Then Return EditReplyKind.Accepted
+        If errorCode.HasValue AndAlso errorCode.Value = 10028 Then Return EditReplyKind.RateLimited
+        If IsBenignEditRace(errorMessage) Then Return EditReplyKind.BenignRace
+        Return EditReplyKind.Refused
+    End Function
+
+    Friend Shared Function EditWasRefused(kind As EditReplyKind) As Boolean
+        Return kind = EditReplyKind.Refused OrElse kind = EditReplyKind.RateLimited
+    End Function
+
+    ' RE-1 and RE-4: the chase reference after an edit reply. A refused edit (10028 included) takes the
+    ' order's confirmed price. An accepted edit and a benign race keep the reference. So do an unknown
+    ' confirmed price (0: the order is not in the live-order map) and a torn-down reference (0: a close or a
+    ' cancel zeroed it - a late reply must never bring it back).
+    Friend Shared Function ReferenceAfterEditReply(reference As Decimal, confirmedPrice As Decimal, kind As EditReplyKind) As Decimal
+        If reference > 0D AndAlso EditWasRefused(kind) AndAlso confirmedPrice > 0D Then Return confirmedPrice
+        Return reference
+    End Function
+
+    Friend Shared Function SlEditRefusedText(code As String, confirmedPrice As Decimal) As String
+        If confirmedPrice <= 0D Then Return $"SL edit REFUSED ({code}) — the stop is not in the live-order map; chase reference unchanged"
+        Return $"SL edit REFUSED ({code}) — stop still at ${confirmedPrice.ToString("F2", CultureInfo.InvariantCulture)}; chase resumes from there"
+    End Function
+
+    Friend Shared Function EntryEditRefusedText(code As String, echoedPrice As Decimal) As String
+        If echoedPrice <= 0D Then Return $"Entry edit REFUSED ({code}) — the entry is not in the live-order map; reference unchanged"
+        Return $"Entry edit REFUSED ({code}) — order still at ${echoedPrice.ToString("F2", CultureInfo.InvariantCulture)}"
+    End Function
+
+    ' RE-4: request id 223344 is shared - the entry edit, the bracket chase's pre-fill TP template edit (sent
+    ' right after the entry's) and the post-fill TP re-anchor. A refusal names only the request id, so each
+    ' 223344 send keeps its order id here (SendRateLimitedUpdate, before the send) and each reply takes one
+    ' back. A success reply names its order (result.order.order_id) and takes that send; an error takes the
+    ' OLDEST outstanding send. One case can mis-match: a TP error that overtakes the entry's success reply in
+    ' the bracket path. It is bounded - the reset is to the entry's own echoed price, so at worst one duplicate
+    ' edit to the same target and one log line that names the wrong leg. A send older than
+    ' EditSendStaleSeconds has lost its reply and is dropped; the list clears at connect.
+    Friend Const EditSendStaleSeconds As Double = 10.0
+
+    Friend Structure EditSend
+        Public Seq As Long
+        Public OrderId As String
+        Public IsEntry As Boolean
+        Public SentUtc As DateTime
+    End Structure
+
+    ' Removes and returns the send this reply answers. Found = False when nothing matches: the list is
+    ' empty, or a success reply names an order whose send was already dropped.
+    Friend Shared Function TakeEditSend(sends As List(Of EditSend), replyOrderId As String, nowUtc As DateTime) As (Found As Boolean, Send As EditSend)
+        If sends Is Nothing Then Return (False, Nothing)
+        sends.RemoveAll(Function(s) (nowUtc - s.SentUtc).TotalSeconds > EditSendStaleSeconds)
+        If sends.Count = 0 Then Return (False, Nothing)
+        Dim i As Integer = 0
+        If Not String.IsNullOrEmpty(replyOrderId) Then
+            i = sends.FindIndex(Function(s) s.OrderId = replyOrderId)
+            If i < 0 Then Return (False, Nothing)
+        End If
+        Dim taken As EditSend = sends(i)
+        sends.RemoveAt(i)
+        Return (True, taken)
+    End Function
+
+    ' RE-4: a refused ENTRY edit resets placedPrice - only for the entry that is still working, and never
+    ' while its reference is torn down (0) or a cancel is pending.
+    Friend Shared Function EntryRefusalResets(found As Boolean, send As EditSend, currentEntryId As String,
+                                              kind As EditReplyKind, cancelPending As Boolean) As Boolean
+        Return found AndAlso send.IsEntry AndAlso EditWasRefused(kind) AndAlso Not cancelPending AndAlso
+               Not String.IsNullOrEmpty(send.OrderId) AndAlso send.OrderId = currentEntryId
+    End Function
+
+    Private ReadOnly editSendGate As New Object()
+    Private ReadOnly sharedIdEditSends As New List(Of EditSend)
+    Private editSendSeq As Long = 0
+
+    Private Function NoteEditSend(orderId As String, isEntry As Boolean) As Long
+        SyncLock editSendGate
+            editSendSeq += 1
+            sharedIdEditSends.Add(New EditSend With {.Seq = editSendSeq, .OrderId = orderId, .IsEntry = isEntry, .SentUtc = DateTime.UtcNow})
+            Return editSendSeq
+        End SyncLock
+    End Function
+
+    ' The send failed: no reply will come for it.
+    Private Sub ForgetEditSend(seq As Long)
+        SyncLock editSendGate
+            sharedIdEditSends.RemoveAll(Function(s) s.Seq = seq)
+        End SyncLock
+    End Sub
+
+    ' Connect: replies to the old socket never arrive.
+    Private Sub ResetEditSends()
+        SyncLock editSendGate
+            sharedIdEditSends.Clear()
+        End SyncLock
+    End Sub
+
+    ' One order's price from its latest echo; 0 when unknown (not in the live-order map).
+    Private Function LiveOrderPrice(orderId As String) As Decimal
+        If String.IsNullOrEmpty(orderId) Then Return 0D
+        SyncLock liveOrderGate
+            Dim o As JToken = Nothing
+            If liveOrders.TryGetValue(orderId, o) Then Return If(o.SelectToken("price")?.ToObject(Of Decimal?)(), 0D)
+        End SyncLock
+        Return 0D
+    End Function
+
+    ' RE-2 (RE-R2): a triggered stop the app cannot move pages once. The episode is one triggered stop (its
+    ' order id while SLTriggered). Refused edits of it (request id 223350, 10028 included, benign races
+    ' excluded) count up. A confirmed edit (the commanded-price echo - search "confirmed success clears the
+    ' backoff") resets the count and the 10-s clock, not the paged flag: one page per stop. The 10-s test runs
+    ' in batch 2's one-second watchdog tick, not a fork.
+    Friend Const StuckStopRefusalLimit As Integer = 3
+    Friend Const StuckStopSeconds As Double = 10.0
+
+    Friend Shared Function StuckStopPages(refusals As Integer, secondsBehind As Double, alreadyPaged As Boolean) As Boolean
+        Return Not alreadyPaged AndAlso (refusals >= StuckStopRefusalLimit OrElse secondsBehind > StuckStopSeconds)
+    End Function
+
+    ' The chase's own test (SL-chase v2), applied to the CONFIRMED price: True when the chase target - one
+    ' tick inside the opposite side - is more aggressive than where the stop really rests. An unknown price
+    ' or quote is never "behind" (a missing stop is the no-stop watchdog's).
+    Friend Shared Function StopTrailsChaseTarget(positionIsLong As Boolean, confirmedPrice As Decimal,
+                                                 bestBid As Decimal, bestAsk As Decimal) As Boolean
+        If confirmedPrice <= 0D Then Return False
+        If positionIsLong Then Return bestBid > 0D AndAlso bestBid + ChaseTickUSD < confirmedPrice
+        Return bestAsk > 0D AndAlso bestAsk - ChaseTickUSD > confirmedPrice
+    End Function
+
+    ' The M.SL flatten price: the hoisted check in the quote handler fires when the ask falls to anchor - M.SL
+    ' (long) or the bid rises to anchor + M.SL (short).
+    Friend Shared Function MslCapPrice(positionIsLong As Boolean, anchor As Decimal, mslThreshold As Decimal) As Decimal
+        Return If(positionIsLong, anchor - mslThreshold, anchor + mslThreshold)
+    End Function
+
+    ' The same gates the hoisted check uses: the M.SL box ticked, a threshold above 0, a known anchor, not
+    ' already fired.
+    Friend Shared Function MslCapArmed(mslChecked As Boolean, mslThreshold As Decimal, anchor As Decimal, fired As Boolean) As Boolean
+        Return mslChecked AndAlso mslThreshold > 0D AndAlso anchor > 0D AndAlso Not fired
+    End Function
+
+    Friend Shared Function StuckStopPageText(refusals As Integer, lastCode As String, stopPrice As Decimal,
+                                             market As Decimal, mslCap As Decimal, mslArmed As Boolean) As String
+        Dim ic As CultureInfo = CultureInfo.InvariantCulture
+        Dim tail As String = If(mslArmed, $"M.SL cap at ${mslCap.ToString("F2", ic)} still armed", "M.SL cap NOT armed")
+        Return $"Stop cannot be moved: {refusals} edits refused ({If(lastCode, "none")}) — stop at ${stopPrice.ToString("F2", ic)}, market ${market.ToString("F2", ic)}. {tail}"
+    End Function
+
+    ' RE-2 as a pure state machine, so OrderCheck can drive whole sequences. A different stop id (Nothing =
+    ' no triggered stop) starts a new episode; a new state has Refusals 0, no clock, not paged.
+    Friend Structure StuckStopState
+        Public StopId As String
+        Public Refusals As Integer
+        Public LastCode As String
+        Public BehindSinceUtc As DateTime ' MinValue = not behind
+        Public Paged As Boolean
+    End Structure
+
+    Friend Shared Function StuckStopForStop(s As StuckStopState, stopId As String) As StuckStopState
+        If String.Equals(stopId, s.StopId, StringComparison.Ordinal) Then Return s
+        Return New StuckStopState With {.StopId = stopId, .BehindSinceUtc = DateTime.MinValue}
+    End Function
+
+    Private Shared Function SecondsSince(sinceUtc As DateTime, nowUtc As DateTime) As Double
+        Return If(sinceUtc = DateTime.MinValue, 0.0, (nowUtc - sinceUtc).TotalSeconds)
+    End Function
+
+    ' A refused edit of the triggered stop (request id 223350): count it; page now or not.
+    Friend Shared Function StuckStopOnRefusal(s As StuckStopState, stopId As String, code As String,
+                                              nowUtc As DateTime) As (State As StuckStopState, Page As Boolean)
+        s = StuckStopForStop(s, stopId)
+        s.Refusals += 1
+        s.LastCode = code
+        Dim page As Boolean = StuckStopPages(s.Refusals, SecondsSince(s.BehindSinceUtc, nowUtc), s.Paged)
+        If page Then s.Paged = True
+        Return (s, page)
+    End Function
+
+    ' A confirmed edit: the stop moved, so the count and the 10-s clock restart. The paged flag stays.
+    Friend Shared Function StuckStopOnConfirmed(s As StuckStopState) As StuckStopState
+        s.Refusals = 0
+        s.BehindSinceUtc = DateTime.MinValue
+        Return s
+    End Function
+
+    ' One watchdog tick: run or stop the 10-s clock; page now or not.
+    Friend Shared Function StuckStopOnTick(s As StuckStopState, stopId As String, behindNow As Boolean,
+                                           nowUtc As DateTime) As (State As StuckStopState, Page As Boolean)
+        s = StuckStopForStop(s, stopId)
+        If Not behindNow Then
+            s.BehindSinceUtc = DateTime.MinValue
+        ElseIf s.BehindSinceUtc = DateTime.MinValue Then
+            s.BehindSinceUtc = nowUtc
+        End If
+        Dim page As Boolean = StuckStopPages(s.Refusals, SecondsSince(s.BehindSinceUtc, nowUtc), s.Paged)
+        If page Then s.Paged = True
+        Return (s, page)
+    End Function
+
+    Private ReadOnly stuckStopGate As New Object()
+    Private stuckStop As New StuckStopState With {.BehindSinceUtc = DateTime.MinValue}
+
+    ' Receive thread: a refused edit of the triggered stop (request id 223350).
+    Private Sub NoteTriggeredStopRefused(code As String, confirmedPrice As Decimal)
+        Dim stopId As String = PositionSLOrderId
+        If Not SLTriggered OrElse String.IsNullOrEmpty(stopId) Then Return
+        Dim text As String = Nothing
+        SyncLock stuckStopGate
+            Dim r = StuckStopOnRefusal(stuckStop, stopId, code, DateTime.UtcNow)
+            stuckStop = r.State
+            If r.Page Then text = BuildStuckStopPage(stuckStop.Refusals, code, confirmedPrice)
+        End SyncLock
+        If text IsNot Nothing Then PageStuckStop(text)
+    End Sub
+
+    ' UI thread, at the confirmed-success site.
+    Private Sub NoteTriggeredStopConfirmed()
+        SyncLock stuckStopGate
+            stuckStop = StuckStopOnConfirmed(stuckStop)
+        End SyncLock
+    End Sub
+
+    ' Batch 2's one-second watchdog tick: the 10-s test. No triggered stop ends the episode. A dropped socket
+    ' or an unseeded map is "not behind" (the clock restarts); the episode, and its paged flag, stay - the
+    ' same stop after a reconnect does not page twice.
+    Private Sub EvaluateStuckStop()
+        Dim stopId As String = PositionSLOrderId
+        If Not SLTriggered OrElse String.IsNullOrEmpty(stopId) Then
+            SyncLock stuckStopGate
+                stuckStop = StuckStopForStop(stuckStop, Nothing)
+            End SyncLock
+            Return
+        End If
+        Dim seeded As Boolean
+        SyncLock liveOrderGate
+            seeded = liveOrdersSeeded
+        End SyncLock
+        Dim confirmed As Decimal = LiveOrderPrice(stopId)
+        Dim behindNow As Boolean = IsWebSocketConnected AndAlso seeded AndAlso
+                                   StopTrailsChaseTarget(ManagedSideIsLong(), confirmed, BestBidPrice, BestAskPrice)
+        Dim text As String = Nothing
+        SyncLock stuckStopGate
+            Dim r = StuckStopOnTick(stuckStop, stopId, behindNow, DateTime.UtcNow)
+            stuckStop = r.State
+            If r.Page Then text = BuildStuckStopPage(stuckStop.Refusals, stuckStop.LastCode, confirmed)
+        End SyncLock
+        If text IsNot Nothing Then PageStuckStop(text)
+    End Sub
+
+    ' Engine fields only. The anchor is the one the hoisted M.SL check measures from.
+    Private Function BuildStuckStopPage(refusals As Integer, code As String, confirmedPrice As Decimal) As String
+        Dim isLong As Boolean = ManagedSideIsLong()
+        Dim anchor As Decimal = If(emergencyBaseline > 0D, emergencyBaseline, StopLossTriggerOriginal)
+        Return StuckStopPageText(refusals, code, confirmedPrice, If(isLong, BestBidPrice, BestAskPrice),
+                                 MslCapPrice(isLong, anchor, marketStopThreshold),
+                                 MslCapArmed(marketStopLossChecked, marketStopThreshold, anchor, emergencyFired))
+    End Function
+
+    Private Sub PageStuckStop(text As String)
+        AppendColoredText(txtLogs, text, Color.Red)
+        RemoteNotifier.Post("OrderApp", text, priority:="urgent", tags:="rotating_light")
+    End Sub
+
+    ' RE-1, RE-2 and RE-4: the replies to the stop edits (223346, 223348, 223350) and the shared 223344.
+    ' Receive thread; engine fields and self-marshalling output only. Never throws.
+    Private Sub HandleRefusedEditResponse(response As String)
+        Try
+            If response.IndexOf("2233", StringComparison.Ordinal) < 0 OrElse
+               response.IndexOf("""id""", StringComparison.Ordinal) < 0 Then Return
+            Dim json = JObject.Parse(response)
+            Dim messageId = json.SelectToken("id")?.ToObject(Of Integer?)()
+            If Not messageId.HasValue Then Return
+            Dim id As Integer = messageId.Value
+            If id <> 223344 AndAlso id <> 223346 AndAlso id <> 223348 AndAlso id <> 223350 Then Return
+
+            Dim errorField = json.SelectToken("error")
+            Dim errorCode = errorField?.SelectToken("code")?.ToObject(Of Integer?)()
+            Dim errorMessage = errorField?.SelectToken("message")?.ToString()
+            Dim kind As EditReplyKind = ClassifyEditReply(errorField IsNot Nothing, errorCode, errorMessage)
+            Dim code As String = If(errorCode.HasValue, errorCode.Value.ToString(CultureInfo.InvariantCulture), If(errorMessage, "?"))
+
+            If id = 223344 Then
+                ' Every 223344 reply takes its send back, whatever it says - the list must stay in step.
+                Dim taken As (Found As Boolean, Send As EditSend)
+                SyncLock editSendGate
+                    taken = TakeEditSend(sharedIdEditSends,
+                                         If(errorField Is Nothing, json.SelectToken("result.order.order_id")?.ToString(), Nothing),
+                                         DateTime.UtcNow)
+                End SyncLock
+                If Not EntryRefusalResets(taken.Found, taken.Send, CurrentOpenOrderId, kind, IsCancelPending()) Then Return
+                Dim echoed As Decimal = LiveOrderPrice(taken.Send.OrderId)
+                Dim before As Decimal = placedPrice
+                Dim after As Decimal = ReferenceAfterEditReply(before, echoed, kind)
+                placedPrice = after
+                If after <> before Then UiInvoke(Sub() txtPlacedPrice.Text = after.ToString("F2"))
+                AppendColoredText(txtLogs, EntryEditRefusedText(code, echoed), Color.Yellow)
+                Return
+            End If
+
+            ' The stop edits. RE-1: the reference follows the stop the chase tracks.
+            If Not EditWasRefused(kind) OrElse IsCancelPending() Then Return
+            Dim stopId As String = If(String.IsNullOrEmpty(PositionSLOrderId), CurrentSLOrderId, PositionSLOrderId)
+            Dim confirmed As Decimal = LiveOrderPrice(stopId)
+            Dim slBefore As Decimal = placedStopLossPrice
+            Dim slAfter As Decimal = ReferenceAfterEditReply(slBefore, confirmed, kind)
+            placedStopLossPrice = slAfter
+            If slAfter <> slBefore Then UiInvoke(Sub() txtPlacedStopLossPrice.Text = slAfter.ToString("F2"))
+            AppendColoredText(txtLogs, SlEditRefusedText(code, confirmed), Color.Yellow)
+            If id = 223350 Then NoteTriggeredStopRefused(code, confirmed) ' RE-2
+        Catch
+            ' Parse noise: ignore, like the other handlers.
+        End Try
+    End Sub
+
     ' ===== Protection batch 2 (docs/spec-protection-batch2.md) =====
 
     ' --- Item 2: the live no-stop watchdog (owner ruling R2 2026-10-10: alarm only) ---
@@ -6606,6 +6960,7 @@ Public Class frmMainPageV2
                 EvaluateNoStopWatchdog()
                 Await TryActOnRejectedStopAsync()
                 Await EvaluateLegSizeCheckAsync() ' partial fills F3: the leg-size check shares this tick
+                EvaluateStuckStop() ' refused edits RE-2: the 10-s stuck-stop test shares this tick
             Catch ex As Exception
                 AppendColoredText(txtLogs, $"Error in the protection watchdog: {ex.Message}", Color.Red)
             End Try
@@ -6915,12 +7270,14 @@ Public Class frmMainPageV2
                 checkText = tpResizeInFlightText
             End SyncLock
             If errorField IsNot Nothing Then
+                ' Refused edits RE-3: a refusal (not a gone TP) re-arms F3 on the SL-edit backoff's schedule.
+                Dim pageRefusal As Boolean = (Not gone) AndAlso NoteTpResizeRefused(kind)
                 If gone Then
                     AppendColoredText(txtLogs, $"TP resize skipped: the TP is gone ({errorText})", Color.Gray)
                 ElseIf kind = LegSizeBreach.Oversize Then
                     Dim refusedText As String = $"TP resize REFUSED ({errorText}) — {If(checkText, "the TP is still above the position")}"
                     AppendColoredText(txtLogs, refusedText, Color.Yellow)
-                    RemoteNotifier.Post("OrderApp", refusedText)
+                    If pageRefusal Then RemoteNotifier.Post("OrderApp", refusedText) ' once per episode
                 Else
                     AppendColoredText(txtLogs, $"TP resize refused ({errorText}) — the leg-size check retries", Color.Yellow)
                 End If
@@ -6957,6 +7314,55 @@ Public Class frmMainPageV2
     Private legBreachTpId As String = Nothing
     Private legBreachSinceUtc As DateTime = DateTime.MinValue
     Private legBreachActed As Boolean = False
+    ' Refused edits RE-3 (RE-R3): the episode's refused id-42 resizes. Under liveOrderGate, like the above.
+    Private legResizeRefusals As Integer = 0
+    Private legResizeRetryAtUtc As DateTime = DateTime.MinValue ' MinValue = no retry due
+    Private legResizeRefusalPaged As Boolean = False
+
+    ' RE-3: after a refused id-42 resize the episode's action re-arms on the SL-edit backoff's schedule -
+    ' 0.67 s, doubling, capped at 5 s - read at the watchdog's one-second tick (so the first steps land on the
+    ' next tick). The backoff's stamp is one throttle interval early by design (the SL gate adds it back), so
+    ' the retry time adds it back. The resize still goes through RequestTpResizeAsync: never two id-42 in flight.
+    Friend Shared Function TpResizeRetryAfterRefusal(refusals As Integer, failedAt As DateTime) As (Refusals As Integer, RetryAt As DateTime)
+        Dim b = NextSlBackoff(refusals, failedAt)
+        Return (b.Failures, b.Stamp.AddMilliseconds(MinStopLossUpdateInterval))
+    End Function
+
+    ' A size breach that has acted and has a retry due acts again. The cancel breaches (id 43) never re-arm.
+    Friend Shared Function LegSizeCheckRearms(breach As LegSizeBreach, alreadyActed As Boolean,
+                                              retryAt As DateTime, nowUtc As DateTime) As Boolean
+        Return (breach = LegSizeBreach.Oversize OrElse breach = LegSizeBreach.Undersize) AndAlso
+               alreadyActed AndAlso retryAt <> DateTime.MinValue AndAlso nowUtc >= retryAt
+    End Function
+
+    ' One page per episode: the "resized" page on the first oversize action, the "TP resize REFUSED" page on
+    ' the first refused oversize resize. A retry, and a later refusal, log only.
+    Friend Shared Function LegSizeActionPages(action As LegSizeBreach, isRetry As Boolean) As Boolean
+        Return action = LegSizeBreach.Oversize AndAlso Not isRetry
+    End Function
+
+    Friend Shared Function TpResizeRefusalPages(kind As LegSizeBreach, alreadyPaged As Boolean) As Boolean
+        Return kind = LegSizeBreach.Oversize AndAlso Not alreadyPaged
+    End Function
+
+    ' Receive thread, on a refused id-42 reply. Returns True when this refusal pages.
+    Private Function NoteTpResizeRefused(kind As LegSizeBreach) As Boolean
+        SyncLock liveOrderGate
+            Dim r = TpResizeRetryAfterRefusal(legResizeRefusals, DateTime.UtcNow)
+            legResizeRefusals = r.Refusals
+            legResizeRetryAtUtc = r.RetryAt
+            If Not TpResizeRefusalPages(kind, legResizeRefusalPaged) Then Return False
+            legResizeRefusalPaged = True
+            Return True
+        End SyncLock
+    End Function
+
+    ' Under liveOrderGate: a new episode, or the end of one.
+    Private Sub ResetLegResizeRetry()
+        legResizeRefusals = 0
+        legResizeRetryAtUtc = DateTime.MinValue
+        legResizeRefusalPaged = False
+    End Sub
 
     Private Async Function EvaluateLegSizeCheckAsync() As Task
         ' A lost reply must not hold the resize gate for ever.
@@ -6968,6 +7374,7 @@ Public Class frmMainPageV2
         If stale Then ReleaseTpResize()
 
         Dim action As LegSizeBreach = LegSizeBreach.None
+        Dim isRetry As Boolean = False
         Dim tp As LiveTpView
         Dim size As Decimal
         SyncLock liveOrderGate
@@ -6981,6 +7388,7 @@ Public Class frmMainPageV2
                                              LegSizeBreachFor(tp.Amount, tp.Filled, TpClosesPosition(tp.Direction, size), size))
             If breach = LegSizeBreach.None Then
                 legBreachKind = LegSizeBreach.None ' the episode ends
+                ResetLegResizeRetry()
                 Return
             End If
             Dim nowUtc As DateTime = DateTime.UtcNow
@@ -6989,9 +7397,16 @@ Public Class frmMainPageV2
                 legBreachTpId = tp.Id
                 legBreachSinceUtc = nowUtc
                 legBreachActed = False
+                ResetLegResizeRetry()
+            End If
+            ' RE-3: a refused resize's retry is due - the episode acts again.
+            If LegSizeCheckRearms(breach, legBreachActed, legResizeRetryAtUtc, nowUtc) Then
+                legBreachActed = False
+                isRetry = True
             End If
             If LegSizeCheckFires(breach, (nowUtc - legBreachSinceUtc).TotalSeconds, legBreachActed) Then
                 legBreachActed = True
+                legResizeRetryAtUtc = DateTime.MinValue ' only a refusal of THIS action schedules the next
                 action = breach
             End If
         End SyncLock
@@ -7009,8 +7424,8 @@ Public Class frmMainPageV2
         Select Case action
             Case LegSizeBreach.Oversize
                 Dim text As String = LegSizeResizedText(tpOpen, size)
-                AppendColoredText(txtLogs, text, Color.Yellow)
-                RemoteNotifier.Post("OrderApp", text)
+                AppendColoredText(txtLogs, If(isRetry, $"{text} (retry after a refused resize)", text), Color.Yellow)
+                If LegSizeActionPages(action, isRetry) Then RemoteNotifier.Post("OrderApp", text) ' RE-3: once per episode
                 Await RequestTpResizeAsync(False, LegSizeBreach.Oversize, $"TP {tpOpen:0.##} still above position {Math.Abs(size):0.##}")
             Case LegSizeBreach.Undersize
                 AppendColoredText(txtLogs, $"TP open part {tpOpen:0.##} below position {Math.Abs(size):0.##}: resizing up", Color.Gray)

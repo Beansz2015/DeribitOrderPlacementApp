@@ -1934,6 +1934,156 @@ Module Program
               frmMainPageV2.LegSizeCheckFires(wrongSide, 2.01, False) AndAlso
               Not frmMainPageV2.LegSizeCheckFires(wrongSide, 60.0, True))
 
+        ' ==== Refused edits (docs/spec-refused-edits.md section 4 item 2; owner rulings RE-R1 to RE-R4) ====
+        Dim reRK = Function(hasError As Boolean, code As Integer?, msg As String) frmMainPageV2.ClassifyEditReply(hasError, code, msg)
+        Check("RE fixture 1: reply kinds - no error Accepted; 10028 RateLimited; already_closed BenignRace; 11044 not_open_order and 11050 Refused",
+              reRK(False, Nothing, Nothing) = frmMainPageV2.EditReplyKind.Accepted AndAlso
+              reRK(True, 10028, "too_many_requests") = frmMainPageV2.EditReplyKind.RateLimited AndAlso
+              reRK(True, 11044, "already_closed") = frmMainPageV2.EditReplyKind.BenignRace AndAlso
+              reRK(True, 11044, "not_open_order") = frmMainPageV2.EditReplyKind.Refused AndAlso
+              reRK(True, 11050, "edit_not_allowed") = frmMainPageV2.EditReplyKind.Refused AndAlso
+              Not frmMainPageV2.IsBenignEditRace(Nothing))
+        ' RE-1: a LONG's triggered sell stop. The chase sent 64800 (optimistic reference); the exchange refused,
+        ' and the stop's latest echo still says 64850.
+        Check("RE-1 fixture 2: a refused SL edit resets the chase reference to the stop's confirmed price",
+              frmMainPageV2.ReferenceAfterEditReply(64800D, 64850D, frmMainPageV2.EditReplyKind.Refused) = 64850D,
+              $"got {frmMainPageV2.ReferenceAfterEditReply(64800D, 64850D, frmMainPageV2.EditReplyKind.Refused)}")
+        Check("RE-1 fixture 3: a 10028 rate-limit refusal resets it too",
+              frmMainPageV2.ReferenceAfterEditReply(64800D, 64850D, frmMainPageV2.EditReplyKind.RateLimited) = 64850D)
+        Check("RE-1 fixture 4: a benign already_closed race, an accepted edit, an unknown stop (0) and a torn-down reference (0) leave it",
+              frmMainPageV2.ReferenceAfterEditReply(64800D, 64850D, reRK(True, 11044, "already_closed")) = 64800D AndAlso
+              frmMainPageV2.ReferenceAfterEditReply(64800D, 64850D, frmMainPageV2.EditReplyKind.Accepted) = 64800D AndAlso
+              frmMainPageV2.ReferenceAfterEditReply(64800D, 0D, frmMainPageV2.EditReplyKind.Refused) = 64800D AndAlso
+              frmMainPageV2.ReferenceAfterEditReply(0D, 64850D, frmMainPageV2.EditReplyKind.Refused) = 0D)
+        Check("RE-1 fixture 5: the yellow log text",
+              frmMainPageV2.SlEditRefusedText("11050", 64850D) = "SL edit REFUSED (11050) — stop still at $64850.00; chase resumes from there",
+              $"got '{frmMainPageV2.SlEditRefusedText("11050", 64850D)}'")
+
+        ' RE-2: the stuck-stop page.
+        Dim reT0 As New DateTime(2026, 10, 13, 12, 0, 0, DateTimeKind.Utc)
+        Dim reSs As New frmMainPageV2.StuckStopState With {.BehindSinceUtc = DateTime.MinValue}
+        Dim reR1 = frmMainPageV2.StuckStopOnRefusal(reSs, "SL-1", "11050", reT0)
+        Dim reR2 = frmMainPageV2.StuckStopOnRefusal(reR1.State, "SL-1", "11050", reT0.AddSeconds(0.7))
+        Dim reR3 = frmMainPageV2.StuckStopOnRefusal(reR2.State, "SL-1", "10028", reT0.AddSeconds(2.0))
+        Dim reR4 = frmMainPageV2.StuckStopOnRefusal(reR3.State, "SL-1", "11050", reT0.AddSeconds(4.7))
+        Check("RE-2 fixture 6: 2 refusals - no page; the 3rd pages; a 4th in the same episode does not",
+              Not reR1.Page AndAlso Not reR2.Page AndAlso reR3.Page AndAlso Not reR4.Page AndAlso
+              reR3.State.Refusals = 3 AndAlso reR3.State.LastCode = "10028")
+        Dim reC1 = frmMainPageV2.StuckStopOnRefusal(reSs, "SL-1", "11050", reT0)
+        Dim reC2 = frmMainPageV2.StuckStopOnRefusal(reC1.State, "SL-1", "11050", reT0.AddSeconds(1))
+        Dim reCc = frmMainPageV2.StuckStopOnConfirmed(reC2.State)
+        Dim reC3 = frmMainPageV2.StuckStopOnRefusal(reCc, "SL-1", "11050", reT0.AddSeconds(2))
+        Dim reC4 = frmMainPageV2.StuckStopOnRefusal(reC3.State, "SL-1", "11050", reT0.AddSeconds(3))
+        Dim reC5 = frmMainPageV2.StuckStopOnRefusal(reC4.State, "SL-1", "11050", reT0.AddSeconds(4))
+        Check("RE-2 fixture 7: a confirmed echo resets the count - refused, refused, CONFIRMED, refused, refused: no page; a 3rd in a row pages",
+              Not reC1.Page AndAlso Not reC2.Page AndAlso reCc.Refusals = 0 AndAlso Not reC3.Page AndAlso Not reC4.Page AndAlso reC5.Page)
+        Dim reK1 = frmMainPageV2.StuckStopOnTick(reSs, "SL-1", True, reT0)
+        Dim reK2 = frmMainPageV2.StuckStopOnTick(reK1.State, "SL-1", True, reT0.AddSeconds(10))
+        Dim reK3 = frmMainPageV2.StuckStopOnTick(reK2.State, "SL-1", True, reT0.AddSeconds(11))
+        Dim reK4 = frmMainPageV2.StuckStopOnTick(reK3.State, "SL-1", True, reT0.AddSeconds(30))
+        Check("RE-2 fixture 8: behind the chase target with no refusal - 10 s no page; past 10 s pages; once per episode",
+              Not reK1.Page AndAlso Not reK2.Page AndAlso reK3.Page AndAlso Not reK4.Page)
+        Dim reB1 = frmMainPageV2.StuckStopOnTick(reSs, "SL-1", True, reT0)
+        Dim reB2 = frmMainPageV2.StuckStopOnTick(reB1.State, "SL-1", False, reT0.AddSeconds(6))
+        Dim reB3 = frmMainPageV2.StuckStopOnTick(reB2.State, "SL-1", True, reT0.AddSeconds(7))
+        Dim reB4 = frmMainPageV2.StuckStopOnTick(reB3.State, "SL-1", True, reT0.AddSeconds(15))
+        Dim reBc = frmMainPageV2.StuckStopOnConfirmed(frmMainPageV2.StuckStopOnTick(reSs, "SL-1", True, reT0).State)
+        Dim reB5 = frmMainPageV2.StuckStopOnTick(reBc, "SL-1", True, reT0.AddSeconds(12))
+        Check("RE-2 fixture 9: the 10-s clock restarts when the stop catches up, and on a confirmed echo",
+              Not reB2.Page AndAlso Not reB3.Page AndAlso Not reB4.Page AndAlso Not reB5.Page)
+        Dim reN1 = frmMainPageV2.StuckStopOnTick(reR3.State, "SL-2", False, reT0.AddSeconds(5))
+        Dim reN2 = frmMainPageV2.StuckStopOnRefusal(reN1.State, "SL-2", "11050", reT0.AddSeconds(6))
+        Dim reN3 = frmMainPageV2.StuckStopOnRefusal(reN2.State, "SL-2", "11050", reT0.AddSeconds(7))
+        Dim reN4 = frmMainPageV2.StuckStopOnRefusal(reN3.State, "SL-2", "11050", reT0.AddSeconds(8))
+        Check("RE-2 fixture 10: a new triggered stop id is a new episode - count from 0, may page again",
+              reN1.State.Refusals = 0 AndAlso Not reN1.State.Paged AndAlso Not reN3.Page AndAlso reN4.Page)
+        Check("RE-2 fixture 11: 'behind' is the chase's own one-tick test on the CONFIRMED price",
+              frmMainPageV2.StopTrailsChaseTarget(True, 64850D, 64840D, 64840.5D) AndAlso
+              Not frmMainPageV2.StopTrailsChaseTarget(True, 64850D, 64849.5D, 64850D) AndAlso
+              frmMainPageV2.StopTrailsChaseTarget(False, 64800D, 64809.5D, 64810D) AndAlso
+              Not frmMainPageV2.StopTrailsChaseTarget(False, 64800D, 64800D, 64800.5D) AndAlso
+              Not frmMainPageV2.StopTrailsChaseTarget(True, 0D, 64840D, 64840.5D))
+        Dim rePageArmed As String = frmMainPageV2.StuckStopPageText(3, "11050", 64850D, 64840D,
+                                      frmMainPageV2.MslCapPrice(True, 64850D, 30D), frmMainPageV2.MslCapArmed(True, 30D, 64850D, False))
+        Check("RE-2 fixture 12: the page text (spec section 3); M.SL cap long = anchor - M.SL, short = anchor + M.SL",
+              rePageArmed = "Stop cannot be moved: 3 edits refused (11050) — stop at $64850.00, market $64840.00. M.SL cap at $64820.00 still armed" AndAlso
+              frmMainPageV2.MslCapPrice(False, 64800D, 30D) = 64830D,
+              $"got '{rePageArmed}'")
+        Check("RE-2 fixture 13: an M.SL that is unticked, 0, anchorless or already fired is not called armed",
+              Not frmMainPageV2.MslCapArmed(False, 30D, 64850D, False) AndAlso
+              Not frmMainPageV2.MslCapArmed(True, 0D, 64850D, False) AndAlso
+              Not frmMainPageV2.MslCapArmed(True, 30D, 0D, False) AndAlso
+              Not frmMainPageV2.MslCapArmed(True, 30D, 64850D, True) AndAlso
+              frmMainPageV2.StuckStopPageText(0, Nothing, 64850D, 64840D, 64820D, False).EndsWith("(none) — stop at $64850.00, market $64840.00. M.SL cap NOT armed"))
+
+        ' RE-3: the TP resize retry schedule - the SL-edit backoff's 0.67 s, doubling, 5 s cap.
+        Dim reQ1 = frmMainPageV2.TpResizeRetryAfterRefusal(0, reT0)
+        Dim reQ2 = frmMainPageV2.TpResizeRetryAfterRefusal(reQ1.Refusals, reT0)
+        Dim reQ3 = frmMainPageV2.TpResizeRetryAfterRefusal(reQ2.Refusals, reT0)
+        Dim reQ4 = frmMainPageV2.TpResizeRetryAfterRefusal(reQ3.Refusals, reT0)
+        Dim reQ9 = frmMainPageV2.TpResizeRetryAfterRefusal(8, reT0)
+        Check("RE-3 fixture 14: retry delays 666 ms, 1332 ms, 2664 ms, then the 5 s cap",
+              (reQ1.RetryAt - reT0).TotalMilliseconds = 666 AndAlso (reQ2.RetryAt - reT0).TotalMilliseconds = 1332 AndAlso
+              (reQ3.RetryAt - reT0).TotalMilliseconds = 2664 AndAlso (reQ4.RetryAt - reT0).TotalMilliseconds = 5000 AndAlso
+              (reQ9.RetryAt - reT0).TotalMilliseconds = 5000 AndAlso reQ4.Refusals = 4,
+              $"got {(reQ1.RetryAt - reT0).TotalMilliseconds}/{(reQ2.RetryAt - reT0).TotalMilliseconds}/{(reQ3.RetryAt - reT0).TotalMilliseconds}/{(reQ4.RetryAt - reT0).TotalMilliseconds}")
+        ' One F3 episode: it acted at 2 s; the resize was refused at 2.1 s -> retry due at 2.766 s.
+        Dim reOv As frmMainPageV2.LegSizeBreach = frmMainPageV2.LegSizeBreach.Oversize
+        Dim reDue As DateTime = frmMainPageV2.TpResizeRetryAfterRefusal(0, reT0.AddSeconds(2.1)).RetryAt
+        Dim reEarlyRearm As Boolean = frmMainPageV2.LegSizeCheckRearms(reOv, True, reDue, reT0.AddSeconds(2.5))
+        Dim reDueRearm As Boolean = frmMainPageV2.LegSizeCheckRearms(reOv, True, reDue, reT0.AddSeconds(3))
+        Check("RE-3 fixture 15: after a refused resize the leg-size check acts again once the retry is due (it did not, as built)",
+              Not reEarlyRearm AndAlso reDueRearm AndAlso
+              frmMainPageV2.LegSizeCheckFires(reOv, 3.0, Not reDueRearm) AndAlso
+              frmMainPageV2.LegSizeCheckRearms(frmMainPageV2.LegSizeBreach.Undersize, True, reDue, reT0.AddSeconds(3)))
+        Check("RE-3 fixture 16: no retry due, not yet acted, or a cancel breach (id 43) - no re-arm",
+              Not frmMainPageV2.LegSizeCheckRearms(reOv, True, DateTime.MinValue, reT0.AddSeconds(60)) AndAlso
+              Not frmMainPageV2.LegSizeCheckRearms(reOv, False, reDue, reT0.AddSeconds(60)) AndAlso
+              Not frmMainPageV2.LegSizeCheckRearms(frmMainPageV2.LegSizeBreach.RestingFlat, True, reDue, reT0.AddSeconds(60)) AndAlso
+              Not frmMainPageV2.LegSizeCheckRearms(frmMainPageV2.LegSizeBreach.WrongSide, True, reDue, reT0.AddSeconds(60)))
+        Check("RE-3 fixture 17: one page per episode - the first oversize action and the first refusal page; retries and later refusals do not",
+              frmMainPageV2.LegSizeActionPages(reOv, False) AndAlso Not frmMainPageV2.LegSizeActionPages(reOv, True) AndAlso
+              Not frmMainPageV2.LegSizeActionPages(frmMainPageV2.LegSizeBreach.Undersize, False) AndAlso
+              frmMainPageV2.TpResizeRefusalPages(reOv, False) AndAlso Not frmMainPageV2.TpResizeRefusalPages(reOv, True) AndAlso
+              Not frmMainPageV2.TpResizeRefusalPages(frmMainPageV2.LegSizeBreach.Undersize, False))
+
+        ' RE-4: the entry chase reference. TN-F3's numbers: the chase sent 82760.50; the exchange kept 82757.00.
+        Dim reSends As New List(Of frmMainPageV2.EditSend)
+        Dim reMkSend = Function(seq As Long, oid As String, isEntry As Boolean, reAt As DateTime) New frmMainPageV2.EditSend With {.Seq = seq, .OrderId = oid, .IsEntry = isEntry, .SentUtc = reAt}
+        reSends.Add(reMkSend(1, "ENTRY-1", True, reT0)) : reSends.Add(reMkSend(2, "TP-1", False, reT0))
+        Dim reE1 = frmMainPageV2.TakeEditSend(reSends, Nothing, reT0.AddSeconds(0.1))
+        Check("RE-4 fixture 18: bracket chase - an error reply takes the OLDEST send (the entry); a refused entry edit resets placedPrice to the echo",
+              reE1.Found AndAlso reE1.Send.IsEntry AndAlso reE1.Send.OrderId = "ENTRY-1" AndAlso reSends.Count = 1 AndAlso
+              frmMainPageV2.EntryRefusalResets(reE1.Found, reE1.Send, "ENTRY-1", frmMainPageV2.EditReplyKind.Refused, False) AndAlso
+              frmMainPageV2.ReferenceAfterEditReply(82760.5D, 82757D, frmMainPageV2.EditReplyKind.Refused) = 82757D)
+        reSends.Clear() : reSends.Add(reMkSend(1, "ENTRY-1", True, reT0)) : reSends.Add(reMkSend(2, "TP-1", False, reT0))
+        Dim reS1 = frmMainPageV2.TakeEditSend(reSends, "ENTRY-1", reT0.AddSeconds(0.1)) ' the entry's success names its order
+        Dim reS2 = frmMainPageV2.TakeEditSend(reSends, Nothing, reT0.AddSeconds(0.1))   ' then an error: the TP's
+        Check("RE-4 fixture 19: the entry succeeded and the TP template was refused - no entry reset (the shared id 223344)",
+              reS1.Found AndAlso reS1.Send.IsEntry AndAlso reS2.Found AndAlso Not reS2.Send.IsEntry AndAlso
+              Not frmMainPageV2.EntryRefusalResets(reS2.Found, reS2.Send, "ENTRY-1", frmMainPageV2.EditReplyKind.Refused, False))
+        reSends.Clear() : reSends.Add(reMkSend(1, "ENTRY-1", True, reT0)) : reSends.Add(reMkSend(2, "TP-1", False, reT0))
+        Dim reU1 = frmMainPageV2.TakeEditSend(reSends, "TP-1", reT0.AddSeconds(0.1))    ' the TP's success lands first
+        Dim reU2 = frmMainPageV2.TakeEditSend(reSends, Nothing, reT0.AddSeconds(0.1))   ' then the entry's error
+        Check("RE-4 fixture 20: a success reply takes ITS send, out of order - the later error is still the entry's",
+              reU1.Found AndAlso reU1.Send.OrderId = "TP-1" AndAlso reU2.Found AndAlso reU2.Send.OrderId = "ENTRY-1")
+        reSends.Clear() : reSends.Add(reMkSend(1, "ENTRY-0", True, reT0))
+        Dim reG1 = frmMainPageV2.TakeEditSend(reSends, "TP-9", reT0.AddSeconds(1))
+        Dim reG2 = frmMainPageV2.TakeEditSend(reSends, Nothing, reT0.AddSeconds(11))
+        Check("RE-4 fixture 21: a success naming no kept send takes nothing; a send older than 10 s has lost its reply",
+              Not reG1.Found AndAlso Not reG2.Found AndAlso reSends.Count = 0)
+        Dim reEntrySend = reMkSend(1, "ENTRY-1", True, reT0)
+        Check("RE-4 fixture 22: no reset for a benign race, an accepted edit, a pending cancel, an older entry, or nothing found",
+              Not frmMainPageV2.EntryRefusalResets(True, reEntrySend, "ENTRY-1", reRK(True, 11044, "already_closed"), False) AndAlso
+              Not frmMainPageV2.EntryRefusalResets(True, reEntrySend, "ENTRY-1", frmMainPageV2.EditReplyKind.Accepted, False) AndAlso
+              Not frmMainPageV2.EntryRefusalResets(True, reEntrySend, "ENTRY-1", frmMainPageV2.EditReplyKind.Refused, True) AndAlso
+              Not frmMainPageV2.EntryRefusalResets(True, reEntrySend, "ENTRY-2", frmMainPageV2.EditReplyKind.Refused, False) AndAlso
+              Not frmMainPageV2.EntryRefusalResets(False, reEntrySend, "ENTRY-1", frmMainPageV2.EditReplyKind.Refused, False) AndAlso
+              frmMainPageV2.EntryRefusalResets(True, reEntrySend, "ENTRY-1", frmMainPageV2.EditReplyKind.RateLimited, False))
+        Check("RE-4 fixture 23: the yellow log text",
+              frmMainPageV2.EntryEditRefusedText("11050", 82757D) = "Entry edit REFUSED (11050) — order still at $82757.00",
+              $"got '{frmMainPageV2.EntryEditRefusedText("11050", 82757D)}'")
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

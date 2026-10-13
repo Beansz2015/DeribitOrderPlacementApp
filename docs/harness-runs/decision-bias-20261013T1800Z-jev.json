@@ -1,0 +1,70 @@
+{
+    "rev":  "033b8e09ed5b63bd2b93f91d8c18f245821a10cf",
+    "population":  "docs/harness-runs/decision-bias-20261013T1800Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261013T1800Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x10] resolved=[jev-1.13.0 x10] run_utc=2026-10-13T17:29:23Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  10,
+    "usage_input_tokens":  9773,
+    "wall_time_sec":  3.06,
+    "items":  [
+                  {
+                      "id":  "docs/impl-report-refused-edits.md|RE-2 page episode scope@033b8e0",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.776,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.79,
+                                                       0.77,
+                                                       0.77,
+                                                       0.8,
+                                                       0.75
+                                                   ],
+                      "usage_input_tokens":  4641,
+                      "seat_label":  "richer_option_wrong"
+                  },
+                  {
+                      "id":  "docs/impl-report-refused-edits.md|RE-4 shared-id correlation@033b8e0",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.73,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.73,
+                                                       0.74,
+                                                       0.7,
+                                                       0.73,
+                                                       0.75
+                                                   ],
+                      "usage_input_tokens":  5132,
+                      "seat_label":  "richer_option_wrong"
+                  }
+              ]
+}

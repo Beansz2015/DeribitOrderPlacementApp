@@ -1,0 +1,25 @@
+{
+  "rev": "033b8e09ed5b63bd2b93f91d8c18f245821a10cf",
+  "items": [
+    {
+      "id": "docs/impl-report-refused-edits.md|RE-2 page episode scope@033b8e0",
+      "question": "A trading app chases a triggered stop-loss limit order to the top of the book. The owner ruled: send one urgent page per episode when 3 consecutive edits of the triggered stop are refused by the exchange, or when the stop's confirmed price has trailed the chase target for more than 10 s; a confirmed edit resets the count. What is one 'episode' for the once-per-episode rule?",
+      "options": [
+        { "label": "(a)", "text": "The life of one triggered stop order (its order id while the stop is triggered). A confirmed edit resets the refusal count and the 10-s clock, but not the paged flag: a stop that gets stuck, unsticks, and gets stuck again pages only the first time." },
+        { "label": "(b)", "text": "One stuck run. A confirmed edit ends the episode and clears the paged flag too, so the same stop can page again after it unsticks and gets stuck again." }
+      ],
+      "recommended": "(a)",
+      "rationale": "The first page already tells the owner to look at the position, and the M.SL market-stop cap stays armed independently. Under a refusal storm that alternates with occasional confirmations (for example rate-limit 10028 bursts), (b) can page every few seconds for the same stop, which trains the owner to ignore the urgent channel. (b) adds alerting value only when the owner missed the first page, and then a second page about the same stop adds little. The existing no-stop watchdog uses breach-scoped episodes, but its breach (no stop at all) cannot flap the way edit replies can."
+    },
+    {
+      "id": "docs/impl-report-refused-edits.md|RE-4 shared-id correlation@033b8e0",
+      "question": "Order edits are sent over one WebSocket with JSON-RPC request id 223344 shared by three senders: the entry-order chase, the pre-fill take-profit template edit in the bracket chase (sent right after the entry edit), and the post-fill take-profit re-anchor. A refusal reply carries only the request id and an error, not the order id. The ruled spec says: on a refused ENTRY edit reset the entry chase reference; decide by the order id in the request, kept with the send. How should the reply be matched to the send?",
+      "options": [
+        { "label": "(a)", "text": "Keep a FIFO of in-flight 223344 sends (order id, entry or not). A success reply removes the send whose order id it names; an error reply removes the oldest outstanding send. Entries older than 10 s are purged; the list clears at connect. Relies on the exchange answering an error no earlier than the replies to requests sent before it." },
+        { "label": "(b)", "text": "Give the entry edit its own new request id so every reply is unambiguous, and update the id's dependants: the benign already_closed race range 223344-223350, the request-name table, the N1b backoff exclusion list, and comments." }
+      ],
+      "recommended": "(a)",
+      "rationale": "(a) is what the ruled spec text prescribes (the id stays shared; the order id is kept with the send) and needs no change to the wire ids or to the benign-race and backoff code that key on the id range. Its one misattribution case (a take-profit error overtaking the entry's success reply in the two-edit bracket path) is bounded: placedPrice is reset to the entry's own echoed price, which at worst costs one duplicate edit to the same target, and the log names the wrong leg once. (b) removes that case but changes wire ids and the benign-race range against the spec's text without an owner ruling, and the owner is away."
+    }
+  ]
+}
