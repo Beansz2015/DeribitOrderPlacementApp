@@ -1,7 +1,7 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-13T17:44Z",
-    "updated_by":  "seat re-implementer, Opus 5.5",
+    "updated_utc":  "2026-10-13T17:53Z",
+    "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
                  "to":  "2026-11-25"
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 6 commits ahead of origin (your ruling on risk sizing in Live; pane updates for the refused-edits seat, the spread survey and the batch-3 spec; the batch-3 spec with your five rulings; the refused-edits code and fixtures; its report).",
+                                  "meaning":  "Push master: 7 commits ahead of origin (your ruling on risk sizing in Live; the batch-3 spec with your five rulings; the refused-edits code and report; pane updates including the paused spread survey).",
                                   "since":  "2026-10-14"
                               },
                               {
@@ -27,15 +27,18 @@
                               }
                           ],
     "in_progress":  [
-                        {
-                            "what":  "Testnet spread survey (read-only, public ticker, no key): is the spread ever wider than one tick, so a real partial fill could be made by hand after your return?",
-                            "where":  "agent spread-survey",
-                            "started_utc":  "2026-10-13T17:27Z"
-                        }
+
                     ],
     "dated":  [
                   {
                       "what":  "After your return: try a real partial fill on testnet from a second sub-account (works only if the testnet spread is wider than one tick), with the partial-fill fix in force. When it passes, the fix has shipped: turn on risk sizing in Live, and Amount above 10 USD is free",
+                      "date":  "2026-11-25",
+                      "approx":  true,
+                      "doc":  "docs/spec-partial-fill-fix.md",
+                      "anchor":  "§5 item 5"
+                  },
+                  {
+                      "what":  "Resume the testnet spread survey (paused 2026-10-14 at your request; partial samples kept in %LOCALAPPDATA%\\DeribitOrderApp\\spread-survey-partial-20261014\\). Its answer decides whether a real partial fill can be made by hand on testnet",
                       "date":  "2026-11-25",
                       "approx":  true,
                       "doc":  "docs/spec-partial-fill-fix.md",
