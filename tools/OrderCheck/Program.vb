@@ -2084,6 +2084,114 @@ Module Program
               frmMainPageV2.EntryEditRefusedText("11050", 82757D) = "Entry edit REFUSED (11050) — order still at $82757.00",
               $"got '{frmMainPageV2.EntryEditRefusedText("11050", 82757D)}'")
 
+        ' ==== Protection batch 3 (docs/spec-protection-batch3.md section 5 item 2; owner rulings B3-R1 to B3-R4) ====
+        ' B3-R1 (a): the position loss cap, a backstop. A LONG with its stop trigger at 64500 and M.SL 500.
+        Dim b3Cap = Function(size As Decimal, quote As Decimal, trig As Decimal, mslOn As Boolean, msl As Decimal, armed As Boolean) _
+            frmMainPageV2.PositionCapFires(size, quote, trig, mslOn, msl, armed)
+        Check("B3-R1 fixture 1: a LONG, stop untriggered or gone - the ask one M.SL past the trigger flattens; half a dollar short does not",
+              b3Cap(100D, 64000D, 64500D, True, 500D, False) AndAlso Not b3Cap(100D, 64000.5D, 64500D, True, 500D, False))
+        Check("B3-R1 fixture 2: a SHORT mirrors it on the bid",
+              b3Cap(-100D, 65000D, 64500D, True, 500D, False) AndAlso Not b3Cap(-100D, 64999.5D, 64500D, True, 500D, False))
+        Check("B3-R1 fixture 3: it NEVER fires while the triggered-stop M.SL path is armed (the hybrid #67 anchor and the SB3 pin stay in charge)",
+              Not b3Cap(100D, 63000D, 64500D, True, 500D, True) AndAlso Not b3Cap(-100D, 66000D, 64500D, True, 500D, True))
+        Check("B3-R1/B3-R2 fixture 4: no cap with M.SL unticked or 0, no trigger known, no quote, or flat",
+              Not b3Cap(100D, 63000D, 64500D, False, 500D, False) AndAlso Not b3Cap(100D, 63000D, 64500D, True, 0D, False) AndAlso
+              Not b3Cap(100D, 63000D, 0D, True, 500D, False) AndAlso Not b3Cap(100D, 0D, 64500D, True, 500D, False) AndAlso
+              Not b3Cap(0D, 63000D, 64500D, True, 500D, False))
+        Dim b3Armed = Function(conn As Boolean, pend As Boolean, trig As Boolean, slKnown As Boolean, ref As Decimal) _
+            frmMainPageV2.TriggeredMslPathArmed(conn, pend, trig, slKnown, ref)
+        Check("B3-R1 fixture 5: the triggered path is armed exactly on the hoisted M.SL check's gate",
+              b3Armed(True, False, True, True, 64400D) AndAlso Not b3Armed(False, False, True, True, 64400D) AndAlso
+              Not b3Armed(True, True, True, True, 64400D) AndAlso Not b3Armed(True, False, False, True, 64400D) AndAlso
+              Not b3Armed(True, False, True, False, 64400D) AndAlso Not b3Armed(True, False, True, True, 0D))
+        Check("B3-R1 fixture 6: the urgent page text",
+              frmMainPageV2.PositionCapText(64000D, 64500D) = "POSITION CAP — price $64000.00 is M.SL past the stop trigger $64500.00: flattening",
+              $"got '{frmMainPageV2.PositionCapText(64000D, 64500D)}'")
+        Dim b3Nf = Function(size As Decimal, trig As Decimal, mslOn As Boolean, msl As Decimal, armed As Boolean) _
+            frmMainPageV2.PositionCapNoticeFor(size, trig, mslOn, msl, armed)
+        Check("B3-R1/B3-R2 fixture 7: the no-cap notices - M.SL off (unticked or 0) wins; no trigger only while the triggered path is not armed",
+              b3Nf(100D, 64500D, False, 500D, False) = frmMainPageV2.PositionCapNotice.MslOff AndAlso
+              b3Nf(100D, 0D, True, 0D, False) = frmMainPageV2.PositionCapNotice.MslOff AndAlso
+              b3Nf(100D, 0D, True, 500D, False) = frmMainPageV2.PositionCapNotice.NoTrigger AndAlso
+              b3Nf(100D, 0D, True, 500D, True) = frmMainPageV2.PositionCapNotice.None AndAlso
+              b3Nf(100D, 64500D, True, 500D, False) = frmMainPageV2.PositionCapNotice.None AndAlso
+              b3Nf(0D, 0D, False, 0D, False) = frmMainPageV2.PositionCapNotice.None)
+        Check("B3-R1/B3-R2 fixture 8: once per position; M.SL off at once; no trigger only after the 5-s grace",
+              frmMainPageV2.PositionCapNoticePages(frmMainPageV2.PositionCapNotice.MslOff, 0R, False) AndAlso
+              Not frmMainPageV2.PositionCapNoticePages(frmMainPageV2.PositionCapNotice.MslOff, 60R, True) AndAlso
+              Not frmMainPageV2.PositionCapNoticePages(frmMainPageV2.PositionCapNotice.NoTrigger, 5R, False) AndAlso
+              frmMainPageV2.PositionCapNoticePages(frmMainPageV2.PositionCapNotice.NoTrigger, 5.1R, False) AndAlso
+              Not frmMainPageV2.PositionCapNoticePages(frmMainPageV2.PositionCapNotice.NoTrigger, 60R, True) AndAlso
+              Not frmMainPageV2.PositionCapNoticePages(frmMainPageV2.PositionCapNotice.None, 60R, False))
+        Check("B3-R1/B3-R2 fixture 9: the notice texts",
+              frmMainPageV2.PositionCapNoticeText(frmMainPageV2.PositionCapNotice.MslOff) = "M.SL is off — no loss cap" AndAlso
+              frmMainPageV2.PositionCapNoticeText(frmMainPageV2.PositionCapNotice.NoTrigger) = "position has no stop trigger — no loss cap")
+
+        ' B3-R3 (a): the dead feed.
+        Check("B3-R3 fixture 10: 3 s of silence probes; an unanswered probe stalls at 2 s",
+              frmMainPageV2.FeedCheck(2.9R, False, 0R) = frmMainPageV2.FeedAction.None AndAlso
+              frmMainPageV2.FeedCheck(3.0R, False, 0R) = frmMainPageV2.FeedAction.Probe AndAlso
+              frmMainPageV2.FeedCheck(4.9R, True, 1.9R) = frmMainPageV2.FeedAction.None AndAlso
+              frmMainPageV2.FeedCheck(5.0R, True, 2.0R) = frmMainPageV2.FeedAction.Stall)
+        Check("B3-R3 fixture 11: a probe is outstanding until any frame lands after it",
+              Not frmMainPageV2.FeedProbeOutstanding(0L, 100L) AndAlso
+              frmMainPageV2.FeedProbeOutstanding(200L, 100L) AndAlso
+              Not frmMainPageV2.FeedProbeOutstanding(200L, 201L))
+        Dim b3Fw = Function(conn As Boolean, recon As Boolean, closing As Boolean, size As Decimal, entry As Boolean) _
+            frmMainPageV2.FeedWatchActive(conn, recon, closing, size, entry)
+        Check("B3-R3 fixture 12: watched only with a position or a working entry, on an open socket nobody is replacing",
+              b3Fw(True, False, False, 100D, False) AndAlso b3Fw(True, False, False, 0D, True) AndAlso
+              Not b3Fw(True, False, False, 0D, False) AndAlso Not b3Fw(False, False, False, 100D, False) AndAlso
+              Not b3Fw(True, True, False, 100D, False) AndAlso Not b3Fw(True, False, True, 100D, False))
+        Check("B3-R3 fixture 13: the urgent page text",
+              frmMainPageV2.FeedStallText(5.4R, -250D, True) = "Feed STALLED — no data for 5 s (position SHORT 250 USD, working entry)" AndAlso
+              frmMainPageV2.FeedStallText(6R, 0D, True) = "Feed STALLED — no data for 6 s (position flat, working entry)",
+              $"got '{frmMainPageV2.FeedStallText(5.4R, -250D, True)}'")
+
+        ' B3-R4 (a): a stand-down cancels the bridge's working entry, never a manual one; the abort cap holds.
+        Check("B3-R4 fixture 14: the bridge-entry handle - the bridge ack's order id must BE the working entry",
+              frmMainPageV2.IsBridgeEntry("ENTRY-7", "ENTRY-7") AndAlso Not frmMainPageV2.IsBridgeEntry("ENTRY-8", "ENTRY-7") AndAlso
+              Not frmMainPageV2.IsBridgeEntry("ENTRY-8", Nothing) AndAlso Not frmMainPageV2.IsBridgeEntry(Nothing, "ENTRY-7") AndAlso
+              Not frmMainPageV2.IsBridgeEntry(Nothing, Nothing))
+        Check("B3-R4 fixture 15: a stand-down cancels a working BRIDGE entry; not a manual one, not during a pending cancel, not without a reason",
+              frmMainPageV2.StandDownCancelsEntry("stale payload", True, False) AndAlso
+              Not frmMainPageV2.StandDownCancelsEntry("stale payload", False, False) AndAlso
+              Not frmMainPageV2.StandDownCancelsEntry("stale payload", True, True) AndAlso
+              Not frmMainPageV2.StandDownCancelsEntry(Nothing, True, False))
+        Check("B3-R4 fixture 16: the payload stand-downs, in gate order - stale, then SKIPPED, then engine ARM off",
+              SignalBridge.PayloadStandDownReason(False, "SKIPPED", False) = "stale payload" AndAlso
+              SignalBridge.PayloadStandDownReason(True, "SKIPPED", False) = "SKIPPED payload" AndAlso
+              SignalBridge.PayloadStandDownReason(True, "OK", False) = "engine ARM off" AndAlso
+              SignalBridge.PayloadStandDownReason(True, "OK", True) Is Nothing)
+        Check("B3-R4 fixture 17: with no bridge entry working, the ATR rule is today's (fresh OK refreshes, 0 keeps, else 0)",
+              SignalBridge.AtrAfterPayload(72.12D, True, "OK", True, 70D, False) = 70D AndAlso
+              SignalBridge.AtrAfterPayload(72.12D, True, "OK", True, 0D, False) = 72.12D AndAlso
+              SignalBridge.AtrAfterPayload(72.12D, True, "SKIPPED", True, 70D, False) = 0D AndAlso
+              SignalBridge.AtrAfterPayload(72.12D, False, "OK", True, 70D, False) = 0D AndAlso
+              SignalBridge.AtrAfterPayload(72.12D, True, "OK", False, 90D, False) = 90D)
+        ' The audit run (C-18): 72.12 -> 70 -> 90 -> 70 while a bridge entry worked. An ARM-off payload widened it.
+        Check("B3-R4 fixture 18: with a bridge entry working, a stand-down payload or stale tick never moves the abort cap's ATR",
+              SignalBridge.AtrAfterPayload(72.12D, True, "OK", False, 90D, True) = 72.12D AndAlso
+              SignalBridge.AtrAfterPayload(72.12D, True, "SKIPPED", True, 0D, True) = 72.12D AndAlso
+              SignalBridge.AtrAfterPayload(72.12D, False, Nothing, True, 0D, True) = 72.12D AndAlso
+              SignalBridge.AtrAfterPayload(72.12D, True, "OK", True, 70D, True) = 70D)
+        Check("B3-R4 fixture 19: the page text",
+              frmMainPageV2.StandDownCancelText("SKIPPED payload") = "Stand-down (SKIPPED payload): working entry cancelled")
+
+        ' RE-SB5 (section 4b; RE-R4 applied to 223347): the trailing entry's main edit is matched like 223344.
+        Check("RE-SB5 fixture 20: the kept edit ids are 223344 and the trailing main edit 223347 - not the stop edits",
+              frmMainPageV2.KeepsEditSend(223344) AndAlso frmMainPageV2.KeepsEditSend(223347) AndAlso
+              frmMainPageV2.TrailingMainEditId = 223347 AndAlso
+              Not frmMainPageV2.KeepsEditSend(223346) AndAlso Not frmMainPageV2.KeepsEditSend(223348) AndAlso
+              Not frmMainPageV2.KeepsEditSend(223350))
+        ' The trailing chase sent 82760 (optimistic placedPrice); Deribit refused 223347; the entry still rests at 82757.
+        Dim b3Sends As New List(Of frmMainPageV2.EditSend) From {reMkSend(1, "ENTRY-T", True, reT0)}
+        Dim b3Took = frmMainPageV2.TakeEditSend(b3Sends, Nothing, reT0.AddSeconds(0.2))
+        Dim b3Resets As Boolean = frmMainPageV2.KeepsEditSend(223347) AndAlso
+            frmMainPageV2.EntryRefusalResets(b3Took.Found, b3Took.Send, "ENTRY-T", frmMainPageV2.EditReplyKind.Refused, False)
+        Check("RE-SB5 fixture 21: a refused 223347 resets placedPrice to the entry's echoed price",
+              b3Resets AndAlso frmMainPageV2.ReferenceAfterEditReply(82760D, 82757D, frmMainPageV2.EditReplyKind.Refused) = 82757D)
+
         ' ---- summary ----
         Dim total As Integer = _passed + _failed
         If _failed = 0 Then

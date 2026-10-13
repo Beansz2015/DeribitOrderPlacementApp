@@ -1,0 +1,70 @@
+{
+    "rev":  "74f83998d28380fd457586a253938197f167f042",
+    "population":  "docs/harness-runs/decision-bias-20261013T1824Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261013T1824Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x10] resolved=[jev-1.13.0 x10] run_utc=2026-10-13T18:24:38Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  10,
+    "usage_input_tokens":  11556,
+    "wall_time_sec":  3.28,
+    "items":  [
+                  {
+                      "id":  "docs/impl-report-protection-batch3.md|B3-E1 freshness cap default N@74f8399",
+                      "verdict":  "gives_up_for_economy",
+                      "agreement_rate":  0.8,
+                      "stable":  false,
+                      "mean_top_probability":  0.47,
+                      "sample_verdicts":  [
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.46,
+                                                       0.48,
+                                                       0.47,
+                                                       0.48,
+                                                       0.46
+                                                   ],
+                      "usage_input_tokens":  5986,
+                      "seat_label":  "richer_option_wrong"
+                  },
+                  {
+                      "id":  "docs/impl-report-protection-batch3.md|B3-SB1 bridge-entry handle@74f8399",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.864,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.87,
+                                                       0.86,
+                                                       0.89,
+                                                       0.84,
+                                                       0.86
+                                                   ],
+                      "usage_input_tokens":  5570,
+                      "seat_label":  "richer_option_wrong"
+                  }
+              ]
+}

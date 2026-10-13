@@ -242,6 +242,7 @@ Public Class SignalBridge
             End SyncLock
             If Not changed Then Return
             If Not value Then ForceStop("ARM unchecked")
+            If Not value Then _host.StandDownBridgeEntry("ARM unchecked") ' B3-R4 (a): a BRIDGE entry only, any mode
             _log(If(value, "ARM on (local)", "ARM off (local)"), If(value, Color.DodgerBlue, Color.Gray))
             RaiseEvent StatusChanged()
             _host.PublishExecutorFeedback() ' C1 trigger (c): ARM transition
@@ -516,9 +517,12 @@ Public Class SignalBridge
         ' R2: in mode Off the tick ONLY drops a stale engine ATR, so the guard falls to the Flat ATR.
         ' No stale count, no stand-down, no alert - the owner trading manually is not paged about
         ' the engine.
+        ' B3-R4 (a): a stale tick is a stand-down; it leaves the ATR alone while a bridge entry works.
+        Dim bridgeEntryWorking As Boolean = _host.HasBridgeWorkingEntry
         If _mode = BridgeMode.Off Then
             SyncLock _sync
-                _lastSignalAtr = 0D
+                _lastSignalAtr = AtrAfterPayload(_lastSignalAtr, fresh:=False, signalState:=Nothing, engineArmed:=True,
+                                                 payloadAtr:=0D, bridgeEntryWorking:=bridgeEntryWorking)
             End SyncLock
             Return
         End If
@@ -527,13 +531,16 @@ Public Class SignalBridge
         SyncLock _sync
             _staleChecks += 1
             checkCount = _staleChecks
-            _lastSignalAtr = 0D ' stale => no bridge ATR (slippage guard falls back to the Flat ATR)
+            ' stale => no bridge ATR (slippage guard falls back to the Flat ATR), except under a working bridge entry
+            _lastSignalAtr = AtrAfterPayload(_lastSignalAtr, fresh:=False, signalState:=Nothing, engineArmed:=True,
+                                             payloadAtr:=0D, bridgeEntryWorking:=bridgeEntryWorking)
             If checkCount >= StaleAlertThreshold AndAlso Not _staleAlerted Then
                 _staleAlerted = True
                 alertNow = True
             End If
         End SyncLock
         ForceStop("stale payload (staleness check)") ' stand down; no-op unless Started
+        _host.StandDownBridgeEntry("stale payload") ' B3-R4 (a): cancels a working BRIDGE entry only
         If alertNow Then
             _log($"STAND-DOWN ALERT: no fresh payload after {StaleAlertThreshold} consecutive checks - engine dead or stopped?", Color.Red)
             RaiseEvent StatusChanged()
@@ -554,6 +561,34 @@ Public Class SignalBridge
             _host.PublishExecutorFeedback() ' C1 trigger (c): STOP transition (started -> false)
         End If
     End Sub
+
+    ' Protection batch 3 B3-R3 (a): the host saw the exchange feed stall. Stand down as a stale payload does -
+    ' STOPPED, so no new act until the owner's full START sequence.
+    Friend Sub NotifyFeedStalled()
+        ForceStop("feed stalled (no data from the exchange)")
+    End Sub
+
+    ' ---- Protection batch 3 B3-R4 (a): stand-downs (docs/spec-protection-batch3.md section 3) ----
+
+    ' The payload stand-downs, by the gate chain's own order: stale, then SKIPPED, then engine ARM off.
+    ' Nothing = not a stand-down. (Local ARM unchecked is the fourth; the ARM setter raises it itself.)
+    Friend Shared Function PayloadStandDownReason(fresh As Boolean, signalState As String, engineArmed As Boolean) As String
+        If Not fresh Then Return "stale payload"
+        If signalState = "SKIPPED" Then Return "SKIPPED payload"
+        If Not engineArmed Then Return "engine ARM off"
+        Return Nothing
+    End Function
+
+    ' The engine ATR after a payload or a stale tick - the ATR the host's slippage-abort cap multiplies.
+    ' Today's rule: a fresh OK payload refreshes it (an atr of 0 keeps the old value); anything else zeroes it,
+    ' so the guard falls back to the Flat ATR. B3-R4 (a): while a BRIDGE entry is working, a stand-down
+    ' (stale, SKIPPED, engine ARM off) leaves it as it is - the working entry's abort cap does not move.
+    Friend Shared Function AtrAfterPayload(current As Decimal, fresh As Boolean, signalState As String, engineArmed As Boolean,
+                                           payloadAtr As Decimal, bridgeEntryWorking As Boolean) As Decimal
+        If bridgeEntryWorking AndAlso PayloadStandDownReason(fresh, signalState, engineArmed) IsNot Nothing Then Return current
+        If fresh AndAlso signalState = "OK" Then Return If(payloadAtr > 0D, payloadAtr, current)
+        Return 0D
+    End Function
 
     ' ================================ payload processing ================================
 
@@ -624,6 +659,9 @@ Public Class SignalBridge
 
         ' ---- status snapshot first (informational; updates even when the payload is refused) ----
         Dim fresh As Boolean = (DateTime.UtcNow - p.GeneratedUtc).TotalMinutes <= 2.5R * Math.Max(p.ExecResolutionMin, 1)
+        ' Protection batch 3 B3-R4 (a): read once, before the lock - a plain host field read.
+        Dim bridgeEntryWorking As Boolean = _host.HasBridgeWorkingEntry
+        Dim standDownReason As String = PayloadStandDownReason(fresh, p.SignalState, p.EngineArmed)
         SyncLock _sync
             _engineArmed = p.EngineArmed
             _lastPayloadGeneratedUtc = p.GeneratedUtc
@@ -644,18 +682,13 @@ Public Class SignalBridge
             ' mode Off any more: R2 (docs/spec-frmindicators-retirement.md, owner 2026-10-06) makes
             ' the engine ATR the guard's ATR in every mode, and supersedes the 2026-07-16 ruling that
             ' "bridge Off" meant "back on the app's own 14-period ATR" - that ATR is retired.
-            If fresh AndAlso p.SignalState = "OK" Then
+            ' Fresh but SKIPPED: engine stood down, so do not keep quoting its last ATR (AtrAfterPayload).
+            ' B3-R4 (a): a stand-down payload never resizes the abort cap of a bridge entry that is working.
+            If fresh Then
                 _staleChecks = 0
                 _staleAlerted = False
-                If p.Atr > 0D Then _lastSignalAtr = p.Atr
-            ElseIf fresh Then
-                ' Fresh but SKIPPED: engine stood down, so do not keep quoting its last ATR.
-                _staleChecks = 0
-                _staleAlerted = False
-                _lastSignalAtr = 0D
-            Else
-                _lastSignalAtr = 0D
             End If
+            _lastSignalAtr = AtrAfterPayload(_lastSignalAtr, fresh, p.SignalState, p.EngineArmed, p.Atr, bridgeEntryWorking)
             ' Not in Off: the "Last:" line pairs this summary with _lastDisposition, and Off writes no
             ' disposition - a new summary beside an old payload's disposition would mislabel it.
             If _mode <> BridgeMode.Off Then _lastSignalSummary = $"#{p.SignalId} {p.Verdict} ({p.Confidence}/{p.Direction})"
@@ -674,6 +707,11 @@ Public Class SignalBridge
         ' Engine ARM off in a payload is a disarm event (contract section 6) - a fresh payload
         ' clears the stale counter above but never re-starts.
         If Not p.EngineArmed Then ForceStop("engine ARM off in latest payload")
+
+        ' B3-R4 (a): a stale, SKIPPED or engine-ARM-off payload cancels a working BRIDGE entry (the host's scoped
+        ' cancel). A manual entry is never touched. Before the de-dupe on purpose: a re-read is the same
+        ' stand-down, and the host side is idempotent and single-flight.
+        If standDownReason IsNot Nothing Then _host.StandDownBridgeEntry(standDownReason)
 
         ' Same (instance_id, signal_id) already disposed this session (FSW double-fire, startup re-read):
         ' every consumed payload gets EXACTLY one disposition line - suppress the re-read silently.

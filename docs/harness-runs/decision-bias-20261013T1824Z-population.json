@@ -1,0 +1,30 @@
+{
+  "rev": "74f83998d28380fd457586a253938197f167f042",
+  "items": [
+    {
+      "id": "docs/impl-report-protection-batch3.md|B3-E1 freshness cap default N@74f8399",
+      "question": "The order app judges an engine payload fresh when its age is at most 2.5 x max(exec_resolution_min, 1) minutes, and exec_resolution_min comes from the payload itself, with no upper bound. The owner ruled to cap it: window = 2.5 x min(max(exec_resolution_min, 1), N) minutes, N an app setting, default 1. Before coding, the implementer read the engine: it emits exec_resolution_min = 3 in the ASIA (00-07 UTC) and LONDON (08-12 UTC) sessions and 1 in NY, and writes one payload per execution bar. What should the default of N be?",
+      "options": [
+        { "label": "(a)", "text": "Default N = 3. Every value the engine emits keeps today's window (1 -> 2.5 min, 3 -> 7.5 min). Any larger value is capped at 7.5 min instead of being unbounded (the audit's example: 60 -> 150 min)." },
+        { "label": "(b)", "text": "Keep the ruled default N = 1. Asia and London payloads, written once per 3-minute bar, read as stale for most of each bar, so the bridge stands down for most of those two sessions: in practice the bridge trades NY only." },
+        { "label": "(c)", "text": "A per-session cap in the app that copies the engine's session table (ASIA and LONDON 3, NY 1), so an NY payload claiming 3 is held to 2.5 min. Tighter, but a second copy of the engine's session table that must be kept in step by hand." },
+        { "label": "(d)", "text": "Build nothing now: leave the window as today until the engine side adds a data-age field to the payload (a shared-schema change, deferred)." }
+      ],
+      "recommended": "(a)",
+      "rationale": "(a) changes nothing for any payload the engine legitimately emits and bounds the unbounded case, which is the defect the audit found. (b) silently turns the bridge off for Asia and London; the owner ruled the cap without the fact that the engine emits 3, so it was not a knowing choice. (c) is tighter only against an engine that mislabels its own session; its cost is a hand-kept copy of the engine's session table, and the engine's own 2026-08-11 seam audit found its session seed had drifted from the shipped values once already - a drifted copy would refuse or admit the wrong payloads silently. (d) leaves the defect open for weeks. The implementer did not pick a value: the brief says escalate, so this goes to the owner with (a) recommended."
+    },
+    {
+      "id": "docs/impl-report-protection-batch3.md|B3-SB1 bridge-entry handle@74f8399",
+      "question": "Owner ruling: a stand-down (stale payload, SKIPPED payload, ARM off) cancels a working entry placed BY THE BRIDGE, and a MANUAL working entry is never cancelled. The app has no explicit 'bridge-placed' mark today. Which handle should identify the bridge's working entry?",
+      "options": [
+        { "label": "(a)", "text": "The order id the bridge's placement ack names. Only the automation API (PlaceAutomatedOrder) pre-registers an ack, and only the bridge calls it; a late accept is recorded too. A manual placement can never match. If the ack never arrives, or after an app restart, the entry is unmarked and treated as manual: not cancelled." },
+        { "label": "(b)", "text": "The existing signal tag (pendingSignalId >= 0), staged by the bridge before each act. Already there. But an act that timed out keeps its tag staged, and if its late reply was a rejection, the next MANUAL entry carries that tag and would be cancelled by a stand-down." },
+        { "label": "(c)", "text": "(a) plus a heuristic for the timeout case: an entry whose open echo arrives while a timed-out act's tag is still staged counts as the bridge's. Catches more bridge entries, but can mark a manual entry placed in that window." },
+        { "label": "(d)", "text": "(a) plus persisting the handle in a state file, so a bridge entry restored after an app restart is still cancelled by a later stand-down." },
+        { "label": "(e)", "text": "Escalate and build nothing for the stand-down cancel until the owner returns (6 weeks)." }
+      ],
+      "recommended": "(a)",
+      "rationale": "The hard rule is that a manual entry is never cancelled. (a) cannot misread a manual entry; every residual falls on the safe side (an unmarked bridge entry is left working, as today). (b) breaks the hard rule in a reachable case. (c) breaks it in a narrow window. (d) buys little: the bridge starts in mode Off on every launch, and Off evaluates no payload stand-downs, so a restored entry would only be cancelled if the owner re-enters Live while it still works; it adds a persisted file and its clear sites. (e) leaves the audit's live defect open for six weeks when a safe handle exists in today's data."
+    }
+  ]
+}

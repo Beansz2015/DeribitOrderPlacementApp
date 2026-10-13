@@ -1646,6 +1646,7 @@ Public Class frmMainPageV2
         ResetRestoreStopCheck()          ' protection batch 1 item 3: one NO STOP check per connection
         ResetLiveOrderMap()              ' protection batch 2 item 2: the watchdog waits for this connection's id-778 snapshot
         ResetEditSends()                 ' refused edits RE-4: replies to the old socket never arrive
+        ResetFeedWatch()                 ' protection batch 3 B3-R3: a new socket starts a new silence clock and stall latch
 
         ' Connect with timeout
         Using connectTimeout As New CancellationTokenSource(TimeSpan.FromSeconds(30))
@@ -1742,11 +1743,17 @@ Public Class frmMainPageV2
         ' disconnect is for, and the host log that used to carry it does not persist.
         Dim exitReason As String = "socket no longer open"
 
+        ' Protection batch 3 B3-R3 (a): the dead-feed clock starts with this loop, not at the connect call
+        ' (the auth and subscribe sends run before the loop starts reading).
+        Interlocked.Exchange(lastInboundTicks, DateTime.UtcNow.Ticks)
+
         While webSocketClient.State = WebSocketState.Open
             Try
                 Dim result = Await webSocketClient.ReceiveAsync(
                 New ArraySegment(Of Byte)(buffer),
                 cancellationTokenSource.Token)
+                ' B3-R3 (a): stamp EVERY inbound frame (fragments and close frames included). Engine field, no control.
+                Interlocked.Exchange(lastInboundTicks, DateTime.UtcNow.Ticks)
 
                 If result.MessageType = WebSocketMessageType.Close Then
                     ' Audit2 F6: a server-initiated close is a dead connection - schedule recovery.
@@ -1823,6 +1830,9 @@ Public Class frmMainPageV2
         ' write (trigger e) and latches the emitter disposed BEFORE it closes the socket, so this
         ' cannot overwrite that final snapshot with a DOWN.
         PublishExecutorFeedback()
+
+        ' B3-R3 (a): a stall abort usually lands in the cancelled arm; name the real cause in the audit row.
+        If Volatile.Read(feedStallFired) = 1 Then exitReason = "feed stalled (no data; probe unanswered)"
 
         ' The AUDIT half of that same DOWN edge (docs/spec-ws-edge-audit.md). BESIDE the publish
         ' above, never around it: the publish is E6a as ruled and runtime-accepted, and this changes
@@ -2157,6 +2167,7 @@ Public Class frmMainPageV2
             Case 41 : Return " get_cancel_on_disconnect"
             Case 42 : Return " TP resize"
             Case 43 : Return " TP cancel (no position)"
+            Case 44 : Return " feed probe (public/test)"
             Case 1 : Return " subscribe/reduce order"
             Case 1001 : Return " set_heartbeat"
             Case 223344, 223345, 223346, 223347, 223348, 223349, 223350 : Return " order edit"
@@ -2186,6 +2197,9 @@ Public Class frmMainPageV2
                     $"LATE placement response (id {messageId.Value}, after ack timeout): " &
                     If(lateErr IsNot Nothing, $"REJECTED code {lateErr.SelectToken("code")} - {lateErr.SelectToken("message")}", "accepted"),
                     Color.Orange)
+                ' B3-R4 (a): a late ACCEPT still names the bridge's entry. Identification only - no rollback,
+                ' no state restored, so the log-only rule above holds.
+                If lateErr Is Nothing AndAlso entry.Tcs IsNot Nothing Then NoteBridgeEntry(json.SelectToken("result.order.order_id")?.ToString())
                 Return
             End If
 
@@ -2218,6 +2232,9 @@ Public Class frmMainPageV2
             End If
 
             Dim orderId = json.SelectToken("result.order.order_id")?.ToString()
+            ' B3-R4 (a): only PlaceAutomatedOrder pre-registers a Tcs, and its only caller is the bridge's act
+            ' path - so this ack names a BRIDGE-placed entry. A manual placement (Tcs Nothing) is never marked.
+            If entry.Tcs IsNot Nothing Then NoteBridgeEntry(orderId)
             entry.Tcs?.TrySetResult(New PlacementResult With {.Accepted = True, .OrderId = orderId})
         Catch
             ' Parse noise: ignore, like the other handlers.
@@ -2613,6 +2630,14 @@ Public Class frmMainPageV2
                 If positionSizeUSD <> 0D Then
                     If BestBidPrice > 0D AndAlso (maePrice = 0D OrElse BestBidPrice < maePrice) Then maePrice = BestBidPrice
                     If BestAskPrice > mfePrice Then mfePrice = BestAskPrice
+                End If
+
+                ' Protection batch 3 B3-R1 (a): the position loss cap, checked on every quote so it is not a
+                ' second late. A BACKSTOP: it stands down whenever the triggered-stop M.SL further down is
+                ' armed, so that path's anchor rules (hybrid #67, the SB3 pin) are never pre-empted. Field
+                ' reads and one pure seam when it does not fire.
+                If positionSizeUSD <> 0D Then
+                    If Await TryFirePositionCapAsync() Then Return
                 End If
 
                 ' Cross-thread fix: hot-path decisions read engine fields, NEVER the controls. placedPrice is
@@ -5494,12 +5519,15 @@ Public Class frmMainPageV2
             ResetCommandedSLPrices() ' reconcile: pre-trigger SL context - drop any stale commanded prices
 
             ' Update main trailing order
+            ' RE-SB5 (protection batch 3 section 4b, under RE-R4): one read of the entry id, used by the payload and
+            ' by the kept send, so a refusal of this edit is matched to the order it named.
+            Dim mainOrderId As String = CurrentOpenOrderId
             Dim updateOrderPayload As New JObject From {
             {"jsonrpc", "2.0"},
-            {"id", 223347},
+            {"id", TrailingMainEditId},
             {"method", "private/edit"},
             {"params", New JObject From {
-                {"order_id", CurrentOpenOrderId},
+                {"order_id", mainOrderId},
                 {"price", newPrice},
                 {"amount", amount},
                 {"post_only", True},         ' maker guarantee: keep post_only across the edit (matches placement)
@@ -5507,7 +5535,10 @@ Public Class frmMainPageV2
             }}
         }
 
-            Await SendWebSocketMessageAsync(updateOrderPayload.ToString())
+            ' RE-SB5: keep the send BEFORE it goes (the reply can land first); a failed send is forgotten. The chase's
+            ' optimistic placedPrice advance after this call stays; a refused reply sets it back (HandleRefusedEditResponse).
+            Dim mainEditSeq As Long = NoteEditSend(mainOrderId, True, TrailingMainEditId)
+            If Not Await SendWebSocketMessageAsync(updateOrderPayload.ToString()) Then ForgetEditSend(mainEditSeq)
 
             ' Consume credits for second API call
             rateLimiter.ConsumeCredits()
@@ -6589,22 +6620,39 @@ Public Class frmMainPageV2
                Not String.IsNullOrEmpty(send.OrderId) AndAlso send.OrderId = currentEntryId
     End Function
 
+    ' RE-SB5 (protection batch 3 section 4b; RE-R4 applied to the trailing entry's chase): the two-edit arm's
+    ' main edit, request id 223347, is always the ENTRY. Its sends are kept in their own list, the same way and
+    ' with the same seams as 223344's, so a refused 223347 resets placedPrice to the entry's echoed price too.
+    Friend Const TrailingMainEditId As Integer = 223347
+
+    ' The edit request ids whose sends are kept, so a reply can be matched to the order it named.
+    Friend Shared Function KeepsEditSend(requestId As Integer) As Boolean
+        Return requestId = 223344 OrElse requestId = TrailingMainEditId
+    End Function
+
     Private ReadOnly editSendGate As New Object()
     Private ReadOnly sharedIdEditSends As New List(Of EditSend)
+    Private ReadOnly trailingMainEditSends As New List(Of EditSend) ' RE-SB5: 223347
     Private editSendSeq As Long = 0
 
-    Private Function NoteEditSend(orderId As String, isEntry As Boolean) As Long
+    ' Under editSendGate. 223347 has its own list; everything else kept is 223344's.
+    Private Function EditSendsFor(requestId As Integer) As List(Of EditSend)
+        Return If(requestId = TrailingMainEditId, trailingMainEditSends, sharedIdEditSends)
+    End Function
+
+    Private Function NoteEditSend(orderId As String, isEntry As Boolean, Optional requestId As Integer = 223344) As Long
         SyncLock editSendGate
             editSendSeq += 1
-            sharedIdEditSends.Add(New EditSend With {.Seq = editSendSeq, .OrderId = orderId, .IsEntry = isEntry, .SentUtc = DateTime.UtcNow})
+            EditSendsFor(requestId).Add(New EditSend With {.Seq = editSendSeq, .OrderId = orderId, .IsEntry = isEntry, .SentUtc = DateTime.UtcNow})
             Return editSendSeq
         End SyncLock
     End Function
 
-    ' The send failed: no reply will come for it.
+    ' The send failed: no reply will come for it. Sequence numbers are unique across both lists.
     Private Sub ForgetEditSend(seq As Long)
         SyncLock editSendGate
             sharedIdEditSends.RemoveAll(Function(s) s.Seq = seq)
+            trailingMainEditSends.RemoveAll(Function(s) s.Seq = seq)
         End SyncLock
     End Sub
 
@@ -6612,6 +6660,7 @@ Public Class frmMainPageV2
     Private Sub ResetEditSends()
         SyncLock editSendGate
             sharedIdEditSends.Clear()
+            trailingMainEditSends.Clear()
         End SyncLock
     End Sub
 
@@ -6782,6 +6831,7 @@ Public Class frmMainPageV2
     End Sub
 
     ' RE-1, RE-2 and RE-4: the replies to the stop edits (223346, 223348, 223350) and the shared 223344.
+    ' RE-SB5 (protection batch 3 section 4b): and the trailing entry's main edit, 223347, matched like 223344.
     ' Receive thread; engine fields and self-marshalling output only. Never throws.
     Private Sub HandleRefusedEditResponse(response As String)
         Try
@@ -6791,7 +6841,7 @@ Public Class frmMainPageV2
             Dim messageId = json.SelectToken("id")?.ToObject(Of Integer?)()
             If Not messageId.HasValue Then Return
             Dim id As Integer = messageId.Value
-            If id <> 223344 AndAlso id <> 223346 AndAlso id <> 223348 AndAlso id <> 223350 Then Return
+            If Not (KeepsEditSend(id) OrElse id = 223346 OrElse id = 223348 OrElse id = 223350) Then Return
 
             Dim errorField = json.SelectToken("error")
             Dim errorCode = errorField?.SelectToken("code")?.ToObject(Of Integer?)()
@@ -6799,11 +6849,11 @@ Public Class frmMainPageV2
             Dim kind As EditReplyKind = ClassifyEditReply(errorField IsNot Nothing, errorCode, errorMessage)
             Dim code As String = If(errorCode.HasValue, errorCode.Value.ToString(CultureInfo.InvariantCulture), If(errorMessage, "?"))
 
-            If id = 223344 Then
-                ' Every 223344 reply takes its send back, whatever it says - the list must stay in step.
+            If KeepsEditSend(id) Then
+                ' Every 223344 (and, RE-SB5, 223347) reply takes its send back, whatever it says - the list must stay in step.
                 Dim taken As (Found As Boolean, Send As EditSend)
                 SyncLock editSendGate
-                    taken = TakeEditSend(sharedIdEditSends,
+                    taken = TakeEditSend(EditSendsFor(id),
                                          If(errorField Is Nothing, json.SelectToken("result.order.order_id")?.ToString(), Nothing),
                                          DateTime.UtcNow)
                 End SyncLock
@@ -6961,11 +7011,308 @@ Public Class frmMainPageV2
                 Await TryActOnRejectedStopAsync()
                 Await EvaluateLegSizeCheckAsync() ' partial fills F3: the leg-size check shares this tick
                 EvaluateStuckStop() ' refused edits RE-2: the 10-s stuck-stop test shares this tick
+                Await EvaluatePositionCapAsync() ' protection batch 3 B3-R1/B3-R2: the cap's tick half and its pages
+                EvaluateFeedWatch() ' protection batch 3 B3-R3: the dead-feed probe and stall
             Catch ex As Exception
                 AppendColoredText(txtLogs, $"Error in the protection watchdog: {ex.Message}", Color.Red)
             End Try
         End While
     End Function
+
+    ' ===== Protection batch 3 (docs/spec-protection-batch3.md; owner rulings B3-R1 to B3-R5, 2026-10-14) =====
+    '
+    ' B3-R5 (the bounded freshness window) is NOT built here: the engine emits exec_resolution_min 3 in ASIA and
+    ' LONDON, so the ruled default would refuse those payloads as stale. Escalated as B3-E1
+    ' (docs/impl-report-protection-batch3.md).
+
+    ' --- B3-R1 (a) and B3-R2 (a): the position loss cap, a BACKSTOP ---
+    '
+    ' The M.SL emergency runs only inside the quote handler's triggered-stop branch, so before a trigger, or with
+    ' no stop at all, nothing capped the loss. This cap measures the own-side quote (the ask for a long, the bid
+    ' for a short - the M.SL check's own convention) from the position's stop TRIGGER: StopLossTriggerOriginal,
+    ' which the untriggered-stop echo keeps in sync, so after a manual SL edit it is the edited trigger. One M.SL
+    ' past it, it runs the existing emergency sequence: latch, nuclear cancel, ArmEmergencyClose, reduce-only
+    ' market, batch 1's SENT/CONFIRMED/FAILED messages - the same calls, in the same order, as batch 2's R1 flatten.
+    ' It NEVER acts while the triggered-stop path is armed: there, that path's anchor rules (owner #67, the
+    ' hybrid latch; the SB3 pin and its restart re-pin) stay the only M.SL. It also stands down while a cancel is
+    ' pending (the 2026-07-08 ruling that gates the M.SL during the cancel window) and while disconnected.
+    ' Two call sites: the quote handler (every quote) and batch 2's one-second watchdog tick (a quiet book).
+
+    ' The gate of the hoisted M.SL check in HandleQuoteUpdates, as a value: a live socket, no cancel pending, a
+    ' triggered stop with a known order id, and a chase reference. While True, the triggered path owns the M.SL.
+    Friend Shared Function TriggeredMslPathArmed(connected As Boolean, cancelPending As Boolean, slTriggered As Boolean,
+                                                 positionSlKnown As Boolean, chaseReference As Decimal) As Boolean
+        Return connected AndAlso Not cancelPending AndAlso slTriggered AndAlso positionSlKnown AndAlso chaseReference > 0D
+    End Function
+
+    ' B3-R1 (a): flatten or not. B3-R2 (a): M.SL unticked or 0 -> no cap. No trigger known (0), or no quote -> no cap.
+    Friend Shared Function PositionCapFires(positionSize As Decimal, ownSideQuote As Decimal, trigger As Decimal,
+                                            mslOn As Boolean, mslDistance As Decimal, triggeredPathArmed As Boolean) As Boolean
+        If triggeredPathArmed Then Return False
+        If positionSize = 0D OrElse ownSideQuote <= 0D OrElse trigger <= 0D Then Return False
+        If Not mslOn OrElse mslDistance <= 0D Then Return False
+        If positionSize > 0D Then Return trigger - ownSideQuote >= mslDistance
+        Return ownSideQuote - trigger >= mslDistance
+    End Function
+
+    Friend Shared Function PositionCapText(ownSideQuote As Decimal, trigger As Decimal) As String
+        Return $"POSITION CAP — price ${ownSideQuote.ToString("F2", CultureInfo.InvariantCulture)} is M.SL past the stop trigger ${trigger.ToString("F2", CultureInfo.InvariantCulture)}: flattening"
+    End Function
+
+    ' The two "no loss cap" states, each paged once per position. M.SL off wins: with it off there is no cap at all.
+    ' "No trigger" is not a state while the triggered path is armed (that path has its own anchor).
+    Friend Enum PositionCapNotice
+        None
+        MslOff      ' B3-R2 (a)
+        NoTrigger   ' B3-R1 (a): no stop trigger known
+    End Enum
+
+    Friend Shared Function PositionCapNoticeFor(positionSize As Decimal, trigger As Decimal, mslOn As Boolean,
+                                                mslDistance As Decimal, triggeredPathArmed As Boolean) As PositionCapNotice
+        If positionSize = 0D Then Return PositionCapNotice.None
+        If Not mslOn OrElse mslDistance <= 0D Then Return PositionCapNotice.MslOff
+        If trigger <= 0D AndAlso Not triggeredPathArmed Then Return PositionCapNotice.NoTrigger
+        Return PositionCapNotice.None
+    End Function
+
+    ' Once per position. "No trigger" waits batch 2's no-stop grace: the trigger is unknown for a moment at a
+    ' restart, until the id-778 snapshot seeds it. M.SL off is a setting, so it pages at once.
+    Friend Shared Function PositionCapNoticePages(notice As PositionCapNotice, secondsInNotice As Double, alreadyPaged As Boolean) As Boolean
+        If alreadyPaged OrElse notice = PositionCapNotice.None Then Return False
+        If notice = PositionCapNotice.NoTrigger Then Return secondsInNotice > NoStopGraceSeconds
+        Return True
+    End Function
+
+    Friend Shared Function PositionCapNoticeText(notice As PositionCapNotice) As String
+        Select Case notice
+            Case PositionCapNotice.MslOff : Return "M.SL is off — no loss cap"
+            Case PositionCapNotice.NoTrigger : Return "position has no stop trigger — no loss cap"
+            Case Else : Return ""
+        End Select
+    End Function
+
+    ' One gate for the cap: its latch claim (the quote thread and the watchdog both reach it) and its page state.
+    Private ReadOnly positionCapGate As New Object()
+    Private capNoticeKind As PositionCapNotice = PositionCapNotice.None
+    Private capNoticeSinceUtc As DateTime = DateTime.MinValue
+    Private capMslOffPaged As Boolean = False
+    Private capNoTriggerPaged As Boolean = False
+
+    Private Function TriggeredMslPathArmedNow() As Boolean
+        Return TriggeredMslPathArmed(IsWebSocketConnected, IsCancelPending(), SLTriggered, PositionSLOrderId IsNot Nothing, placedStopLossPrice)
+    End Function
+
+    ' True when the cap fired (the quote handler then skips the rest of its tick). Engine fields only.
+    Private Async Function TryFirePositionCapAsync() As Task(Of Boolean)
+        If Not IsWebSocketConnected OrElse IsCancelPending() Then Return False
+        Dim size As Decimal = positionSizeUSD
+        If size = 0D Then Return False
+        Dim isLong As Boolean = size > 0D
+        Dim quote As Decimal = If(isLong, BestAskPrice, BestBidPrice)
+        Dim trigger As Decimal = StopLossTriggerOriginal
+        If Not PositionCapFires(size, quote, trigger, marketStopLossChecked, marketStopThreshold, TriggeredMslPathArmedNow()) Then Return False
+        ' The single-fire latch, claimed under the gate: one emergency per position, whichever path takes it.
+        SyncLock positionCapGate
+            If emergencyFired Then Return False
+            emergencyFired = True
+        End SyncLock
+        Dim capText As String = PositionCapText(quote, trigger)
+        AppendColoredText(txtLogs, capText, Color.Red)
+        RemoteNotifier.Post("OrderApp", capText, priority:="urgent", tags:="rotating_light")
+        Await CancelOrderAsync()
+        newPricePublic = quote
+        Dim emgSeq As Integer = ArmEmergencyClose() ' armed BEFORE the send (review D1 of batch 1)
+        Dim reduceFailure As String = Await SendReduceMarketOrderAsync()
+        ReportEmergencyCloseSend(If(isLong, "sell", "buy"), reduceFailure, emgSeq)
+        Return True
+    End Function
+
+    ' The watchdog half: the cap on a quiet book, then the two "no loss cap" pages.
+    Private Async Function EvaluatePositionCapAsync() As Task
+        Await TryFirePositionCapAsync()
+        Dim pageText As String = Nothing
+        SyncLock positionCapGate
+            Dim size As Decimal = positionSizeUSD
+            If size = 0D Then
+                ' The position is over: the next one pages afresh.
+                capMslOffPaged = False
+                capNoTriggerPaged = False
+                capNoticeKind = PositionCapNotice.None
+                capNoticeSinceUtc = DateTime.MinValue
+                Return
+            End If
+            If Not IsWebSocketConnected OrElse Not liveOrdersSeeded Then
+                ' Batch 2's rule: the order context is unknown until this connection's snapshot lands.
+                capNoticeKind = PositionCapNotice.None
+                capNoticeSinceUtc = DateTime.MinValue
+                Return
+            End If
+            Dim notice As PositionCapNotice = PositionCapNoticeFor(size, StopLossTriggerOriginal, marketStopLossChecked,
+                                                                   marketStopThreshold, TriggeredMslPathArmedNow())
+            Dim nowUtc As DateTime = DateTime.UtcNow
+            If notice <> capNoticeKind Then
+                capNoticeKind = notice
+                capNoticeSinceUtc = nowUtc
+            End If
+            Dim paged As Boolean = If(notice = PositionCapNotice.MslOff, capMslOffPaged, capNoTriggerPaged)
+            If PositionCapNoticePages(notice, (nowUtc - capNoticeSinceUtc).TotalSeconds, paged) Then
+                If notice = PositionCapNotice.MslOff Then capMslOffPaged = True Else capNoTriggerPaged = True
+                pageText = PositionCapNoticeText(notice)
+            End If
+        End SyncLock
+        If pageText Is Nothing Then Return
+        AppendColoredText(txtLogs, pageText, Color.Orange)
+        RemoteNotifier.Post("OrderApp", pageText, priority:="high")
+    End Function
+
+    ' --- B3-R3 (a): the dead-feed detector ---
+    '
+    ' "Connected" only means the socket's state is Open. The quote channel publishes on change, so quote silence
+    ' is normal in a quiet book and is NOT the signal. Every inbound frame is stamped (the receive loop). While a
+    ' position or a working entry exists: 3 s with no frame -> a public/test probe on its own request id; no
+    ' frame within 2 s of the probe -> a stall: urgent page, the bridge stands down, and the socket is aborted and
+    ' handed to batch 1's reconnect path. Any frame after the probe answers it - the reply is a frame, and any
+    ' other frame proves the feed alive just as well. Deribit's own heartbeat (public/set_heartbeat, 30 s) is
+    ' unchanged: it is a 30-s detector, this is a 5-s one. Cancel-on-disconnect is OFF on every account
+    ' (owner, 2026-10-12), so the forced reconnect deletes no orders.
+    Friend Const FeedSilenceProbeSeconds As Double = 3.0
+    Friend Const FeedProbeReplySeconds As Double = 2.0
+    Friend Const FeedProbeRequestId As Integer = 44
+
+    Friend Enum FeedAction
+        None
+        Probe
+        Stall
+    End Enum
+
+    Friend Shared Function FeedCheck(secondsSinceLastFrame As Double, probeOutstanding As Boolean, secondsSinceProbe As Double) As FeedAction
+        If probeOutstanding Then Return If(secondsSinceProbe >= FeedProbeReplySeconds, FeedAction.Stall, FeedAction.None)
+        If secondsSinceLastFrame >= FeedSilenceProbeSeconds Then Return FeedAction.Probe
+        Return FeedAction.None
+    End Function
+
+    ' A probe is outstanding from its send until any frame lands after it. Ticks: DateTime.UtcNow.Ticks; 0 = none.
+    Friend Shared Function FeedProbeOutstanding(probeSentTicks As Long, lastFrameTicks As Long) As Boolean
+        Return probeSentTicks > 0L AndAlso lastFrameTicks < probeSentTicks
+    End Function
+
+    ' Watched only while there is something to protect, and only on an open socket nobody is replacing.
+    Friend Shared Function FeedWatchActive(connected As Boolean, reconnecting As Boolean, closing As Boolean,
+                                           positionSize As Decimal, hasWorkingEntry As Boolean) As Boolean
+        Return connected AndAlso Not reconnecting AndAlso Not closing AndAlso (positionSize <> 0D OrElse hasWorkingEntry)
+    End Function
+
+    Friend Shared Function FeedStallText(secondsSilent As Double, positionSize As Decimal, hasWorkingEntry As Boolean) As String
+        Dim pos As String = If(positionSize = 0D, "flat",
+                               $"{If(positionSize > 0D, "LONG", "SHORT")} {Math.Abs(positionSize).ToString(CultureInfo.InvariantCulture)} USD")
+        Return $"Feed STALLED — no data for {CInt(Math.Floor(secondsSilent))} s (position {pos}{If(hasWorkingEntry, ", working entry", "")})"
+    End Function
+
+    Private lastInboundTicks As Long = 0L    ' the last inbound frame (receive loop); Interlocked - two threads
+    Private feedProbeSentTicks As Long = 0L  ' the outstanding probe's send time; 0 = none
+    Private feedStallFired As Integer = 0    ' one stall action per connection
+
+    Private Sub ResetFeedWatch()
+        Interlocked.Exchange(lastInboundTicks, DateTime.UtcNow.Ticks)
+        Interlocked.Exchange(feedProbeSentTicks, 0L)
+        Interlocked.Exchange(feedStallFired, 0)
+    End Sub
+
+    ' One watchdog tick. Never awaits a send: a send on a dead socket must not hold up the rest of the tick.
+    Private Sub EvaluateFeedWatch()
+        Dim size As Decimal = positionSizeUSD
+        Dim hasEntry As Boolean = CurrentOpenOrderId IsNot Nothing
+        If Not FeedWatchActive(IsWebSocketConnected, Volatile.Read(isReconnecting) = 1, isClosing, size, hasEntry) Then
+            Interlocked.Exchange(feedProbeSentTicks, 0L)
+            Return
+        End If
+        Dim nowTicks As Long = DateTime.UtcNow.Ticks
+        Dim lastTicks As Long = Interlocked.Read(lastInboundTicks)
+        Dim probeTicks As Long = Interlocked.Read(feedProbeSentTicks)
+        Dim outstanding As Boolean = FeedProbeOutstanding(probeTicks, lastTicks)
+        If probeTicks > 0L AndAlso Not outstanding Then Interlocked.Exchange(feedProbeSentTicks, 0L) ' answered
+        Dim silentS As Double = TimeSpan.FromTicks(nowTicks - lastTicks).TotalSeconds
+        Dim probeS As Double = If(outstanding, TimeSpan.FromTicks(nowTicks - probeTicks).TotalSeconds, 0R)
+        Select Case FeedCheck(silentS, outstanding, probeS)
+            Case FeedAction.Probe
+                ' Stamp BEFORE the send, so a fast reply always lands after it.
+                Interlocked.Exchange(feedProbeSentTicks, nowTicks)
+                Dim probeSend = SendWebSocketMessageAsync($"{{""jsonrpc"":""2.0"",""id"":{FeedProbeRequestId},""method"":""public/test"",""params"":{{}}}}")
+            Case FeedAction.Stall
+                If Interlocked.Exchange(feedStallFired, 1) = 1 Then Return
+                Dim stallText As String = FeedStallText(silentS, size, hasEntry)
+                AppendColoredText(txtLogs, stallText, Color.Red)
+                Alert("connection")
+                RemoteNotifier.Post("OrderApp", stallText, priority:="urgent", tags:="rotating_light")
+                ' The bridge stands down as it does for a stale payload: STOPPED, no new acts.
+                signalBridge?.NotifyFeedStalled()
+                ' Force the reconnect through batch 1's path. Abort never blocks (a close handshake on a dead link
+                ' could), and leaves the socket Aborted, so the reconnect skips the close and disposes it. The
+                ' receive loop's own exit may also call the reconnect: it is single-flight.
+                AppendColoredText(txtLogs, "Feed STALLED: aborting the socket and reconnecting", Color.Orange)
+                Try
+                    webSocketClient?.Abort()
+                Catch
+                    ' Already disposed or closed: the reconnect below replaces it anyway.
+                End Try
+                Dim reconnectTask = Task.Run(Function() HandleWebSocketDisconnect())
+        End Select
+    End Sub
+
+    ' --- B3-R4 (a): a stand-down cancels the BRIDGE's working entry ---
+    '
+    ' A stand-down (a stale payload, a SKIPPED payload, engine ARM off, local ARM unchecked) used to leave a
+    ' working bridge entry chasing. Now it sends the existing scoped entry cancel (request id 31). The handle is
+    ' the order id the bridge's placement ack named (NoteBridgeEntry, from HandlePlacementResponse): only
+    ' PlaceAutomatedOrder pre-registers an ack, and only the bridge calls it. So a MANUAL entry never matches and
+    ' is never cancelled. The residuals fall on the safe side: an ack that never arrives, or a restart, leaves the
+    ' entry unmarked - treated as manual, not cancelled. The abort-cap half lives in SignalBridge
+    ' (AtrAfterPayload): a stand-down never moves the ATR while a bridge entry works.
+    Private bridgeEntryOrderId As String = Nothing
+    Private standDownCancelInFlight As Integer = 0
+
+    Private Sub NoteBridgeEntry(orderId As String)
+        If Not String.IsNullOrEmpty(orderId) Then bridgeEntryOrderId = orderId
+    End Sub
+
+    Friend Shared Function IsBridgeEntry(currentEntryId As String, bridgeEntryId As String) As Boolean
+        Return Not String.IsNullOrEmpty(currentEntryId) AndAlso String.Equals(currentEntryId, bridgeEntryId, StringComparison.Ordinal)
+    End Function
+
+    Friend Shared Function StandDownCancelsEntry(reason As String, bridgeEntryWorking As Boolean, cancelPending As Boolean) As Boolean
+        Return Not String.IsNullOrEmpty(reason) AndAlso bridgeEntryWorking AndAlso Not cancelPending
+    End Function
+
+    Friend Shared Function StandDownCancelText(reason As String) As String
+        Return $"Stand-down ({reason}): working entry cancelled"
+    End Function
+
+    ' Field reads only: callable from the bridge's timer, file-watcher and UI threads.
+    Friend ReadOnly Property HasBridgeWorkingEntry As Boolean
+        Get
+            Return IsBridgeEntry(CurrentOpenOrderId, bridgeEntryOrderId)
+        End Get
+    End Property
+
+    ' Called by the bridge on each stand-down. Fire and forget; single-flight, so two stand-downs in the same
+    ' moment send one cancel.
+    Friend Sub StandDownBridgeEntry(reason As String)
+        If Not StandDownCancelsEntry(reason, HasBridgeWorkingEntry, IsCancelPending()) Then Return
+        If Interlocked.Exchange(standDownCancelInFlight, 1) = 1 Then Return
+        Dim cancelTask = Task.Run(Async Function()
+                                      Try
+                                          If Not StandDownCancelsEntry(reason, HasBridgeWorkingEntry, IsCancelPending()) Then Return
+                                          Await CancelWorkingEntryCoreAsync($"stand-down: {reason}")
+                                          Dim text As String = StandDownCancelText(reason)
+                                          AppendColoredText(txtLogs, text, Color.Orange)
+                                          RemoteNotifier.Post("OrderApp", text)
+                                      Catch ex As Exception
+                                          AppendColoredText(txtLogs, $"Stand-down cancel failed: {ex.Message}", Color.Red)
+                                      Finally
+                                          Interlocked.Exchange(standDownCancelInFlight, 0)
+                                      End Try
+                                  End Function)
+    End Sub
 
     ' ===== Partial fills, Phase 2 (docs/spec-partial-fill-fix.md section 4) =====
     '
