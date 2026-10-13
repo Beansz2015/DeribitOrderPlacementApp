@@ -25,7 +25,7 @@ crossed OTOCO stop and batch 2's `R1` action handles it, runtime-accepted (`docs
 | B3-R2 | **Position loss cap with M.SL unticked or 0** | (a) the cap is off too, and an M.SL-off position pages once ("no loss cap") · (b) a separate cap setting that stays on | (a) | ✅ **RULED 2026-10-14: (a)** |
 | B3-R3 | **Dead feed** (§2): what the app does when the socket stops delivering while a position or a working entry exists | (a) probe with `public/test` after 3 s without any inbound frame; no reply within 2 s → urgent page, the bridge stands down (refuses new acts), and the app forces a reconnect · (b) page only | (a) | ✅ **RULED 2026-10-14: (a)** |
 | B3-R4 | **Stand-down** (§3): a stale payload, a SKIPPED payload or ARM off, while a **bridge-placed** entry is working | (a) cancel that working entry (scoped cancel), and a stand-down payload never resizes its abort cap · (b) freeze it: stop chasing, keep the cap fixed · (c) (a) plus publishing the working entry in the feedback file — needs the engine side, deferred | (a) | ✅ **RULED 2026-10-14: (a)** |
-| B3-R5 | **Freshness window** (§4) | (a) the app caps the payload's window: `2.5 × min(exec_resolution_min, N)` minutes, `N` a setting (default 1, i.e. 2.5 min) · (b) the app's own fixed window, ignoring the payload's field · (c) leave as today | (a) | ✅ **RULED 2026-10-14: (a)** |
+| B3-R5 | **Freshness window** (§4) | (a) the app caps the payload's window: `2.5 × min(exec_resolution_min, N)` minutes, `N` a setting (default 1, i.e. 2.5 min) · (b) the app's own fixed window, ignoring the payload's field · (c) leave as today | (a) | ✅ **RULED 2026-10-14: (a), default amended to N = 3 by `B3-E1`** (see §4) |
 
 Owner rule: anything that changes live order behaviour needs the owner's ruling before it ships. B3-R1, B3-R3, B3-R4 and
 B3-R5 all change live behaviour; B3-R2 decides when a cap exists.
@@ -90,7 +90,7 @@ half (`C-18` (c)) waits for the owner and the engine side.
 `exec_resolution_min` comes **from the payload** (`:626`, `:274`). The payload sets the window it is judged by, with no
 upper bound.
 
-**Change (B3-R5 (a)).** Window = `2.5 × min(max(exec_resolution_min, 1), N)` minutes; `N` a bridge setting, default 1.
+**Change (B3-R5 (a)).** Window = `2.5 × min(max(exec_resolution_min, 1), N)` minutes; `N` a bridge setting, **default 3** (owner ruling 2026-10-14 on escalation `B3-E1`: the engine emits 3 in ASIA and LONDON and 1 in NY, per `docs/impl-report-protection-batch3.md`; a default of 1 would have stood the bridge down for most of ASIA and LONDON). NY keeps 2.5 min, ASIA and LONDON keep 7.5 min, anything above 3 is capped at 7.5 min. Residual, accepted: an NY payload wrongly claiming 3 also gets 7.5 min. Tripwire on the seat's (a): `gives_up_for_economy` 4/5 (unstable), richer option a per-session copy of the engine table; shown to the owner, who chose (a).
 **Before coding:** the implementer reads the engine contract (read-only) for the `exec_resolution_min` values the engine
 actually emits. If any is above 1, **escalate** (an `E` finding scoped `B3-…`): a default of 1 would refuse those
 payloads as stale. The data-age field (`C-7` (a)) is a schema change for the engine side, deferred.
