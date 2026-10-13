@@ -1,7 +1,7 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-13T17:38Z",
-    "updated_by":  "seat coordinator, Opus 5.5",
+    "updated_utc":  "2026-10-13T17:44Z",
+    "updated_by":  "seat re-implementer, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
                  "to":  "2026-11-25"
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 4 commits ahead of origin (your ruling on risk sizing in Live; pane updates for the refused-edits seat, the spread survey and the batch-3 spec; the batch-3 spec with your five rulings).",
+                                  "meaning":  "Push master: 6 commits ahead of origin (your ruling on risk sizing in Live; pane updates for the refused-edits seat, the spread survey and the batch-3 spec; the batch-3 spec with your five rulings; the refused-edits code and fixtures; its report).",
                                   "since":  "2026-10-14"
                               },
                               {
@@ -28,11 +28,6 @@
                           ],
     "in_progress":  [
                         {
-                            "what":  "Refused-edits implementer: the app\u0027s record follows the exchange after a refused stop, take-profit or entry edit; a stop that cannot be moved pages. Code and fixtures only; the testnet check waits for your return",
-                            "where":  "agent re-implementer",
-                            "started_utc":  "2026-10-13T17:22Z"
-                        },
-                        {
                             "what":  "Testnet spread survey (read-only, public ticker, no key): is the spread ever wider than one tick, so a real partial fill could be made by hand after your return?",
                             "where":  "agent spread-survey",
                             "started_utc":  "2026-10-13T17:27Z"
@@ -48,6 +43,12 @@
                   }
               ],
     "next_up":  [
+                    {
+                        "what":  "Coordinator review of the refused-edits code (commit ddb2984): gate passed, 489 of 489 fixtures, five mutation proofs; seven spec-back findings to accept or send to you. The testnet check waits for your return",
+                        "doc":  "docs/impl-report-refused-edits.md",
+                        "anchor":  "§5",
+                        "model":  "Opus 5.5, high"
+                    },
                     {
                         "what":  "Protection batch 3 implementer (after the refused-edits seat): a loss cap on the position when no stop path runs; a dead-feed detector (probe, page, stand the bridge down, reconnect); a stand-down cancels the bridge\u0027s working entry; a capped freshness window. All five rulings in. Runtime check waits for your return",
                         "doc":  "docs/spec-protection-batch3.md",
