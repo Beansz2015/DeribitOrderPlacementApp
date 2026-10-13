@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-13T17:22Z",
+    "updated_utc":  "2026-10-13T17:27Z",
     "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 2 commits ahead of origin (your ruling on risk sizing in Live, with its reminder; this pane update starting the refused-edits seat).",
+                                  "meaning":  "Push master: 3 commits ahead of origin (your ruling on risk sizing in Live; the pane updates starting the refused-edits seat, the spread survey and the batch-3 spec).",
                                   "since":  "2026-10-14"
                               },
                               {
@@ -31,6 +31,16 @@
                             "what":  "Refused-edits implementer: the app\u0027s record follows the exchange after a refused stop, take-profit or entry edit; a stop that cannot be moved pages. Code and fixtures only; the testnet check waits for your return",
                             "where":  "agent re-implementer",
                             "started_utc":  "2026-10-13T17:22Z"
+                        },
+                        {
+                            "what":  "Testnet spread survey (read-only, public ticker, no key): is the spread ever wider than one tick, so a real partial fill could be made by hand after your return?",
+                            "where":  "agent spread-survey",
+                            "started_utc":  "2026-10-13T17:27Z"
+                        },
+                        {
+                            "what":  "Coordinator writing the protection batch 3 spec (loss cap per position, quote-silence watchdog, stand-down cancels the entry, bounded freshness window); rulings to bring to you before you leave",
+                            "where":  "local",
+                            "started_utc":  "2026-10-13T17:27Z"
                         }
                     ],
     "dated":  [
