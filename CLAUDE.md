@@ -87,8 +87,9 @@ meaning. Both tools read the key in place from the engine's gitignored `typesafe
   amended and the ruling folds back into it.
 - **Say what you did not verify.** Separate it from what you did.
 - Run the gate (`tools/checks/verify-gate.ps1`) and the nine `frmMainPageV2.vb` censuses before
-  claiming a pass. The censuses are **occurrence** counts — 71 across 67 lines at `fd73951`
-  (`placedOrderSizeUsd` 19). A count-mode grep returns 67 and reads as four missing.
+  claiming a pass. The censuses are **occurrence** counts — 73 across 69 lines at `ddb2984`
+  (`emergencyFired` 13, `NextSlBackoff` 3, `placedOrderSizeUsd` 19). A count-mode grep returns 69 and reads as
+  four missing.
 
 ## Model and effort (`docs/HANDOVER-6.md` §7a)
 

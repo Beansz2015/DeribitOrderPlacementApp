@@ -95,6 +95,14 @@ upper bound.
 actually emits. If any is above 1, **escalate** (an `E` finding scoped `B3-…`): a default of 1 would refuse those
 payloads as stale. The data-age field (`C-7` (a)) is a schema change for the engine side, deferred.
 
+## §4b — Folded in: `RE-SB5` (from `docs/review-refused-edits.md` §2)
+
+The trailing-entry chase's main edit (request id 223347, `UpdateStopLossForTrailingOrder`) still advances
+`placedPrice` at the send. Apply the refused-edits rule `RE-R4` (owner ruling 2026-10-13: a refused entry-chase edit
+resets the entry reference to its echoed price) to 223347 too, reusing the refused-edits seams in
+`frmMainPageV2.vb` (`ClassifyEditReply`, `ReferenceAfterEditReply`, the kept-send record). Fixture that fails against
+`ddb2984`.
+
 ## §5 — Acceptance
 
 1. Gate passes; the nine `frmMainPageV2.vb` censuses re-run (occurrence counts; explain any change).

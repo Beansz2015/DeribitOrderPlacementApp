@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-13T17:53Z",
+    "updated_utc":  "2026-10-13T18:09Z",
     "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 7 commits ahead of origin (your ruling on risk sizing in Live; the batch-3 spec with your five rulings; the refused-edits code and report; pane updates including the paused spread survey).",
+                                  "meaning":  "Push master: 8 commits ahead of origin (your ruling on risk sizing in Live; the batch-3 spec with your five rulings; the refused-edits code, report and review; pane updates).",
                                   "since":  "2026-10-14"
                               },
                               {
@@ -43,17 +43,18 @@
                       "approx":  true,
                       "doc":  "docs/spec-partial-fill-fix.md",
                       "anchor":  "§5 item 5"
+                  },
+                  {
+                      "what":  "After your return: runtime checks owed on testnet for the refused-edits work (a refused stop edit resets the record and pages when stuck; a refused take-profit resize retries) and for protection batch 3",
+                      "date":  "2026-11-25",
+                      "approx":  true,
+                      "doc":  "docs/review-refused-edits.md",
+                      "anchor":  "§3"
                   }
               ],
     "next_up":  [
                     {
-                        "what":  "Coordinator review of the refused-edits code (commit ddb2984): gate passed, 489 of 489 fixtures, five mutation proofs; seven spec-back findings to accept or send to you. The testnet check waits for your return",
-                        "doc":  "docs/impl-report-refused-edits.md",
-                        "anchor":  "§5",
-                        "model":  "Opus 5.5, high"
-                    },
-                    {
-                        "what":  "Protection batch 3 implementer (after the refused-edits seat): a loss cap on the position when no stop path runs; a dead-feed detector (probe, page, stand the bridge down, reconnect); a stand-down cancels the bridge\u0027s working entry; a capped freshness window. All five rulings in. Runtime check waits for your return",
+                        "what":  "Protection batch 3 implementer: a loss cap on the position when no stop path runs; a dead-feed detector (probe, page, stand the bridge down, reconnect); a stand-down cancels the bridge\u0027s working entry; a capped freshness window; plus the trailing-entry refused-edit reset. All rulings in. Runtime check waits for your return",
                         "doc":  "docs/spec-protection-batch3.md",
                         "anchor":  "§0",
                         "model":  "Opus 5.5, high"
