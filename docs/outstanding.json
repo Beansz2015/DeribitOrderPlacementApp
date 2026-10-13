@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-13T18:37Z",
+    "updated_utc":  "2026-10-13T18:39Z",
     "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 12 commits ahead of origin (the batch-3 spec and code; the refused-edits code and review; your freshness-cap ruling; pane updates).",
+                                  "meaning":  "Push master: 13 commits ahead of origin (the batch-3 spec, code and review; the refused-edits code and review; your freshness-cap ruling; pane updates).",
                                   "since":  "2026-10-14"
                               },
                               {
@@ -54,11 +54,7 @@
               ],
     "next_up":  [
                     {
-                        "what":  "Review the protection batch 3 code: position loss cap backstop, dead-feed detector, stand-down cancels the bridge entry, trailing-entry refused-edit reset (one item escalated to the owner, not built)",
-                        "model":  "Opus 5.5, high"
-                    },
-                    {
-                        "what":  "Build the capped freshness window (your ruling 2026-10-14: default 3, so NY, Asia and London keep today\u0027s windows; anything above is capped at 7.5 min). One setting, one check and its fixtures",
+                        "what":  "Build the capped freshness window (your ruling 2026-10-14: default 3, so NY, Asia and London keep today\u0027s windows; anything above is capped at 7.5 min); plus a log row whenever a stand-down cancels the bridge\u0027s entry. Small seat",
                         "doc":  "docs/spec-protection-batch3.md",
                         "anchor":  "§4",
                         "model":  "Opus 5.5, high"
