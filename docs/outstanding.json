@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-13T16:32Z",
+    "updated_utc":  "2026-10-13T17:22Z",
     "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 1 commit ahead of origin (your ruling on risk sizing in Live, with its reminder).",
+                                  "meaning":  "Push master: 2 commits ahead of origin (your ruling on risk sizing in Live, with its reminder; this pane update starting the refused-edits seat).",
                                   "since":  "2026-10-14"
                               },
                               {
@@ -27,7 +27,11 @@
                               }
                           ],
     "in_progress":  [
-
+                        {
+                            "what":  "Refused-edits implementer: the app\u0027s record follows the exchange after a refused stop, take-profit or entry edit; a stop that cannot be moved pages. Code and fixtures only; the testnet check waits for your return",
+                            "where":  "agent re-implementer",
+                            "started_utc":  "2026-10-13T17:22Z"
+                        }
                     ],
     "dated":  [
                   {
@@ -39,12 +43,6 @@
                   }
               ],
     "next_up":  [
-                    {
-                        "what":  "Refused edits implementer: when Deribit refuses a stop, take-profit or entry edit, the app\u0027s own record follows the exchange; a stop that cannot be moved pages; a refused take-profit resize keeps retrying. All four rulings in. Runtime check waits for your return (auto-mode refuses a seat\u0027s testnet orders)",
-                        "doc":  "docs/spec-refused-edits.md",
-                        "anchor":  "§3",
-                        "model":  "Opus 5.5, high"
-                    },
                     {
                         "what":  "Later protection items: position-level loss cap, quote-silence watchdog, stand-down cancels the entry, bounded freshness window; emergency reduce-before-cancel (one testnet observation now; confirm once under first_hit)",
                         "model":  "Opus 5.5, high"
