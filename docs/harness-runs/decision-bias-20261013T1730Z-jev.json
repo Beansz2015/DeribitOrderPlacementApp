@@ -1,0 +1,139 @@
+{
+    "rev":  "033b8e09ed5b63bd2b93f91d8c18f245821a10cf",
+    "population":  "docs/harness-runs/decision-bias-20261013T1730Z-population.json",
+    "baseline":  "docs/harness-runs/decision-bias-20261013T1730Z-baseline.json",
+    "samples":  5,
+    "model":  "jev-latest",
+    "jev_model":  "requested=[jev-latest x25] resolved=[jev-1.13.0 x25] run_utc=2026-10-13T17:31:04Z",
+    "question":  {
+                     "id":  "verdict",
+                     "type":  "choice",
+                     "instructions":  "The state holds one design decision: its options, the option the author recommended, and the author\u0027s stated reasons. Classify why the author did not pick the other options.",
+                     "criteria":  {
+                                      "gives_up_for_economy":  "Another option records more information, guarantees more, or is more self-describing than the recommended option, and the author\u0027s reason for not picking it is that it costs more work or code, or that the recommended option is adequate or good enough, or that the cost can be deferred until later.",
+                                      "richer_option_wrong":  "Another option records more information or guarantees more, and the author\u0027s reason for not picking it is that it would be incorrect, meaningless or uninterpretable, or is forbidden by an earlier ruling.",
+                                      "no_richer_option":  "No other option records more information, guarantees more, or is more self-describing than the recommended option.",
+                                      "ambiguous":  "The stated reasons do not make clear which of the other three applies."
+                                  }
+                 },
+    "calls":  25,
+    "usage_input_tokens":  19459,
+    "wall_time_sec":  7.72,
+    "items":  [
+                  {
+                      "id":  "docs/spec-protection-batch3.md|B3-R1 position loss cap scope@033b8e0",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.99,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.99,
+                                                       0.99,
+                                                       0.99,
+                                                       0.99,
+                                                       0.99
+                                                   ],
+                      "usage_input_tokens":  4326,
+                      "seat_label":  "no_richer_option"
+                  },
+                  {
+                      "id":  "docs/spec-protection-batch3.md|B3-R2 cap when M.SL is off@033b8e0",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.882,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.91,
+                                                       0.85,
+                                                       0.88,
+                                                       0.91,
+                                                       0.86
+                                                   ],
+                      "usage_input_tokens":  3650,
+                      "seat_label":  "richer_option_wrong"
+                  },
+                  {
+                      "id":  "docs/spec-protection-batch3.md|B3-R3 dead feed action@033b8e0",
+                      "verdict":  "no_richer_option",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.514,
+                      "sample_verdicts":  [
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option",
+                                              "no_richer_option"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.54,
+                                                       0.51,
+                                                       0.49,
+                                                       0.51,
+                                                       0.52
+                                                   ],
+                      "usage_input_tokens":  3736,
+                      "seat_label":  "no_richer_option"
+                  },
+                  {
+                      "id":  "docs/spec-protection-batch3.md|B3-R4 stand-down action@033b8e0",
+                      "verdict":  "gives_up_for_economy",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.73,
+                      "sample_verdicts":  [
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy",
+                                              "gives_up_for_economy"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.7,
+                                                       0.75,
+                                                       0.68,
+                                                       0.77,
+                                                       0.75
+                                                   ],
+                      "usage_input_tokens":  3955,
+                      "seat_label":  "no_richer_option"
+                  },
+                  {
+                      "id":  "docs/spec-protection-batch3.md|B3-R5 freshness window@033b8e0",
+                      "verdict":  "richer_option_wrong",
+                      "agreement_rate":  1,
+                      "stable":  true,
+                      "mean_top_probability":  0.814,
+                      "sample_verdicts":  [
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong",
+                                              "richer_option_wrong"
+                                          ],
+                      "sample_top_probabilities":  [
+                                                       0.78,
+                                                       0.8,
+                                                       0.85,
+                                                       0.83,
+                                                       0.81
+                                                   ],
+                      "usage_input_tokens":  3792,
+                      "seat_label":  "no_richer_option"
+                  }
+              ]
+}

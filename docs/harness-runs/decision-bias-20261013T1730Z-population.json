@@ -1,0 +1,97 @@
+{
+    "items":  [
+                  {
+                      "rationale":  "(a) closes every state where no cap runs today without overriding the owner\u0027s ruled anchor for triggered stops. (b) would fire earlier than the owner\u0027s ruled triggered-stop anchor in a gap, overriding a standing ruling. (c) replaces the owner\u0027s chosen fixed M.SL distance with a new parameter the owner has not asked for.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-protection-batch3.md|B3-R1 position loss cap scope@033b8e0",
+                      "question":  "Before a stop triggers, or with no stop at all, nothing caps the loss of an open position; the M.SL emergency only runs after the exchange triggers the stop, and its anchor rule (top-of-book at the first reposition) was set by the owner. What should a new position-level loss cap do?",
+                      "options":  [
+                                      {
+                                          "text":  "Backstop only: flatten when the price is one M.SL past the position\u0027s stop trigger AND the triggered-stop M.SL path is not running (no stop, stop untriggered past its trigger, stop rejected, restart before the snapshot); same M.SL setting; existing emergency sequence.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "Always armed from the trigger, also while the triggered-stop M.SL path runs.",
+                                          "label":  "(b)"
+                                      },
+                                      {
+                                          "text":  "Scaled to ATR (k x ATR) instead of the M.SL setting.",
+                                          "label":  "(c)"
+                                      }
+                                  ]
+                  },
+                  {
+                      "rationale":  "M.SL off is the owner\u0027s explicit choice; a separate always-on cap would bring back a cap the owner turned off. (a) keeps one switch and makes the gap visible by a page. (b) protects more but adds a second, overlapping setting.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-protection-batch3.md|B3-R2 cap when M.SL is off@033b8e0",
+                      "question":  "The owner can untick the M.SL emergency or set it to 0. Should the new position-level loss cap also be off then?",
+                      "options":  [
+                                      {
+                                          "text":  "Off too, and page once per position that it has no loss cap.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "A separate cap setting that stays on even when M.SL is off.",
+                                          "label":  "(b)"
+                                      }
+                                  ]
+                  },
+                  {
+                      "rationale":  "(a) restores live data quickly and stops new signal-driven entries while blind; cancel-on-disconnect is off so a reconnect deletes nothing. (b) is simpler but leaves the app blind until the owner acts.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-protection-batch3.md|B3-R3 dead feed action@033b8e0",
+                      "question":  "The app treats an open socket as connected and has no measure of silence, so a stalled feed (no frames, socket still open) goes unnoticed while a position or working entry exists. What should happen on a detected stall?",
+                      "options":  [
+                                      {
+                                          "text":  "Probe with public/test after 3 s with no inbound frame; no reply in 2 s means a stall: urgent page, the bridge refuses new acts, and the app forces a reconnect.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "Page only.",
+                                          "label":  "(b)"
+                                      }
+                                  ]
+                  },
+                  {
+                      "rationale":  "A stand-down that keeps an entry working still acts on the old signal. (b) leaves a stale order resting. (c) needs a shared-schema change the app cannot make alone; (a) is the app\u0027s full half of it.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-protection-batch3.md|B3-R4 stand-down action@033b8e0",
+                      "question":  "When the engine stands down (stale payload, SKIPPED, ARM off), a working entry placed by the bridge keeps being chased and its abort cap can even be widened. What should a stand-down do?",
+                      "options":  [
+                                      {
+                                          "text":  "Cancel the bridge-placed working entry (scoped cancel); stand-down payloads never resize its abort cap; manual entries untouched.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "Freeze the entry: stop chasing and keep the cap.",
+                                          "label":  "(b)"
+                                      },
+                                      {
+                                          "text":  "(a) plus publish the working entry in the shared feedback file for the engine (needs the engine side; deferred).",
+                                          "label":  "(c)"
+                                      }
+                                  ]
+                  },
+                  {
+                      "rationale":  "(a) keeps the engine\u0027s field meaningful within a bound the app controls. (b) discards information. (c) leaves the payload judging itself.",
+                      "recommended":  "(a)",
+                      "id":  "docs/spec-protection-batch3.md|B3-R5 freshness window@033b8e0",
+                      "question":  "A payload is judged fresh against a window computed from a field the payload itself carries (2.5 x exec_resolution_min minutes, no upper bound). How should the app bound it?",
+                      "options":  [
+                                      {
+                                          "text":  "Cap it: 2.5 x min(exec_resolution_min, N) minutes, N a setting with default 1; escalate first if the engine emits values above 1.",
+                                          "label":  "(a)"
+                                      },
+                                      {
+                                          "text":  "Use the app\u0027s own fixed window and ignore the payload\u0027s field.",
+                                          "label":  "(b)"
+                                      },
+                                      {
+                                          "text":  "Leave as today.",
+                                          "label":  "(c)"
+                                      }
+                                  ]
+                  }
+              ],
+    "rev":  "033b8e09ed5b63bd2b93f91d8c18f245821a10cf"
+}

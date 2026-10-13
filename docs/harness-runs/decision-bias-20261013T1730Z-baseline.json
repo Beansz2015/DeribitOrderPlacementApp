@@ -1,0 +1,10 @@
+{
+    "labels":  {
+                   "docs/spec-protection-batch3.md|B3-R3 dead feed action@033b8e0":  "no_richer_option",
+                   "docs/spec-protection-batch3.md|B3-R4 stand-down action@033b8e0":  "no_richer_option",
+                   "docs/spec-protection-batch3.md|B3-R1 position loss cap scope@033b8e0":  "no_richer_option",
+                   "docs/spec-protection-batch3.md|B3-R5 freshness window@033b8e0":  "no_richer_option",
+                   "docs/spec-protection-batch3.md|B3-R2 cap when M.SL is off@033b8e0":  "richer_option_wrong"
+               },
+    "rev":  "033b8e0"
+}
