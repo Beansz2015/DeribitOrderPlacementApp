@@ -1,81 +1,88 @@
 {
-    "schema":  1,
-    "updated_utc":  "2026-10-13T18:09Z",
-    "updated_by":  "seat coordinator, Opus 5.5",
-    "away":  {
-                 "from":  "2026-10-14",
-                 "to":  "2026-11-25"
-             },
-    "waiting_on_trader":  [
-                              {
-                                  "kind":  "push",
-                                  "meaning":  "Push master: 9 commits ahead of origin (your ruling on risk sizing in Live; the batch-3 spec with your five rulings; the refused-edits code, report and review; pane updates including the batch-3 seat start).",
-                                  "since":  "2026-10-14"
-                              },
-                              {
-                                  "kind":  "go",
-                                  "meaning":  "REMINDER: once the partial-fill fix ships (a real partial fill seen with the fix in force), turn on risk sizing in Live. Your ruling 2026-10-14: hold until then. Amount above 10 USD stays held until the same point.",
-                                  "doc":  "docs/spec-partial-fill-fix.md",
-                                  "anchor":  "§6 step 5",
-                                  "since":  "2026-10-14"
-                              },
-                              {
-                                  "kind":  "go",
-                                  "meaning":  "AWS London migration. The key choreography removes the window where two executors run at once.",
-                                  "doc":  "docs/production-cutover-checklist.md",
-                                  "since":  "2026-08-02"
-                              }
-                          ],
-    "in_progress":  [
-                        {
-                            "what":  "Protection batch 3 implementer: position loss cap backstop, dead-feed detector, stand-down cancels the bridge entry, capped freshness window, trailing-entry refused-edit reset. Code and fixtures only",
-                            "where":  "agent b3-implementer",
-                            "started_utc":  "2026-10-13T18:09Z"
-                        }
-                    ],
-    "dated":  [
-                  {
-                      "what":  "After your return: try a real partial fill on testnet from a second sub-account (works only if the testnet spread is wider than one tick), with the partial-fill fix in force. When it passes, the fix has shipped: turn on risk sizing in Live, and Amount above 10 USD is free",
-                      "date":  "2026-11-25",
-                      "approx":  true,
-                      "doc":  "docs/spec-partial-fill-fix.md",
-                      "anchor":  "§5 item 5"
-                  },
-                  {
-                      "what":  "Resume the testnet spread survey (paused 2026-10-14 at your request; partial samples kept in %LOCALAPPDATA%\\DeribitOrderApp\\spread-survey-partial-20261014\\). Its answer decides whether a real partial fill can be made by hand on testnet",
-                      "date":  "2026-11-25",
-                      "approx":  true,
-                      "doc":  "docs/spec-partial-fill-fix.md",
-                      "anchor":  "§5 item 5"
-                  },
-                  {
-                      "what":  "After your return: runtime checks owed on testnet for the refused-edits work (a refused stop edit resets the record and pages when stuck; a refused take-profit resize retries) and for protection batch 3",
-                      "date":  "2026-11-25",
-                      "approx":  true,
-                      "doc":  "docs/review-refused-edits.md",
-                      "anchor":  "§3"
-                  }
-              ],
-    "next_up":  [
-                    {
-                        "what":  "Remaining audit rows: trailing trigger offset, close during a socket gap, tick rounding direction, payload reader share mode, small log and feedback items",
-                        "model":  "Opus 5.5, high"
-                    },
-                    {
-                        "what":  "Hygiene: serialise all socket sends behind one lock (many threads send today; the watchdog added one more)",
-                        "doc":  "docs/review-protection-batch2.md",
-                        "anchor":  "§4 item 1",
-                        "model":  "Opus 5.5, high"
-                    },
-                    {
-                        "what":  "Hygiene: the \u0027Triggered SL placed\u0027 log line goes missing after a market entry or a take-profit re-anchor (a flag is not reset)",
-                        "doc":  "docs/review-testnet-2026-10-12.md",
-                        "anchor":  "§2, row TN-F4",
-                        "model":  "Opus 5.5, high"
-                    },
-                    {
-                        "what":  "Remaining hygiene rows need runtime observation or a spec of their own; not clearable by a seat alone",
-                        "model":  "Opus 5.5, medium"
-                    }
-                ]
+    "schema": 1,
+    "updated_utc": "2026-10-13T18:27Z",
+    "updated_by": "seat protection batch 3 implementer, Opus 5.5",
+    "away": {
+        "from": "2026-10-14",
+        "to": "2026-11-25"
+    },
+    "waiting_on_trader": [
+        {
+            "kind": "push",
+            "meaning": "Push master: 11 commits ahead of origin (your ruling on risk sizing in Live; the batch-3 spec with your five rulings; the refused-edits code, report and review; the protection batch 3 code and its report; pane updates).",
+            "since": "2026-10-14"
+        },
+        {
+            "kind": "ruling",
+            "tick": true,
+            "id": "B3-E1",
+            "meaning": "Freshness cap default: the engine emits a 3-minute resolution in Asia and London, so your ruled default of 1 would stand the bridge down for most of those sessions. Seat recommends a default of 3 (no change for any real payload; a wrong value capped at 7.5 min); the tripwire flagged a per-session cap as the richer option. Not built until you rule",
+            "doc": "docs/impl-report-protection-batch3.md",
+            "anchor": "§6, row B3-E1",
+            "since": "2026-10-14"
+        },
+        {
+            "kind": "go",
+            "meaning": "REMINDER: once the partial-fill fix ships (a real partial fill seen with the fix in force), turn on risk sizing in Live. Your ruling 2026-10-14: hold until then. Amount above 10 USD stays held until the same point.",
+            "doc": "docs/spec-partial-fill-fix.md",
+            "anchor": "§6 step 5",
+            "since": "2026-10-14"
+        },
+        {
+            "kind": "go",
+            "meaning": "AWS London migration. The key choreography removes the window where two executors run at once.",
+            "doc": "docs/production-cutover-checklist.md",
+            "since": "2026-08-02"
+        }
+    ],
+    "in_progress": [],
+    "dated": [
+        {
+            "what": "After your return: try a real partial fill on testnet from a second sub-account (works only if the testnet spread is wider than one tick), with the partial-fill fix in force. When it passes, the fix has shipped: turn on risk sizing in Live, and Amount above 10 USD is free",
+            "date": "2026-11-25",
+            "approx": true,
+            "doc": "docs/spec-partial-fill-fix.md",
+            "anchor": "§5 item 5"
+        },
+        {
+            "what": "Resume the testnet spread survey (paused 2026-10-14 at your request; partial samples kept in %LOCALAPPDATA%\\DeribitOrderApp\\spread-survey-partial-20261014\\). Its answer decides whether a real partial fill can be made by hand on testnet",
+            "date": "2026-11-25",
+            "approx": true,
+            "doc": "docs/spec-partial-fill-fix.md",
+            "anchor": "§5 item 5"
+        },
+        {
+            "what": "After your return: runtime checks owed on testnet for the refused-edits work (a refused stop edit resets the record and pages when stuck; a refused take-profit resize retries) and for protection batch 3",
+            "date": "2026-11-25",
+            "approx": true,
+            "doc": "docs/review-refused-edits.md",
+            "anchor": "§3"
+        }
+    ],
+    "next_up": [
+        {
+            "what": "Review the protection batch 3 code: position loss cap backstop, dead-feed detector, stand-down cancels the bridge entry, trailing-entry refused-edit reset (one item escalated to the owner, not built)",
+            "model": "Opus 5.5, high"
+        },
+        {
+            "what": "Remaining audit rows: trailing trigger offset, close during a socket gap, tick rounding direction, payload reader share mode, small log and feedback items",
+            "model": "Opus 5.5, high"
+        },
+        {
+            "what": "Hygiene: serialise all socket sends behind one lock (many threads send today; the watchdog added one more)",
+            "doc": "docs/review-protection-batch2.md",
+            "anchor": "§4 item 1",
+            "model": "Opus 5.5, high"
+        },
+        {
+            "what": "Hygiene: the 'Triggered SL placed' log line goes missing after a market entry or a take-profit re-anchor (a flag is not reset)",
+            "doc": "docs/review-testnet-2026-10-12.md",
+            "anchor": "§2, row TN-F4",
+            "model": "Opus 5.5, high"
+        },
+        {
+            "what": "Remaining hygiene rows need runtime observation or a spec of their own; not clearable by a seat alone",
+            "model": "Opus 5.5, medium"
+        }
+    ]
 }
