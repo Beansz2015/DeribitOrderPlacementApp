@@ -1,6 +1,6 @@
 {
     "schema":  1,
-    "updated_utc":  "2026-10-12T20:41Z",
+    "updated_utc":  "2026-10-13T16:32Z",
     "updated_by":  "seat coordinator, Opus 5.5",
     "away":  {
                  "from":  "2026-10-14",
@@ -9,17 +9,15 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 20 commits ahead of origin (the testnet session and its review; the partial-fill spec amendment, fix, follow-up, reports and reviews; HANDOVER-9 and its update; the refused-edits spec with your four rulings).",
-                                  "since":  "2026-10-12"
+                                  "meaning":  "Push master: 1 commit ahead of origin (your ruling on risk sizing in Live, with its reminder).",
+                                  "since":  "2026-10-14"
                               },
                               {
-                                  "kind":  "ruling",
-                                  "tick":  true,
-                                  "id":  "N2 LIVE",
-                                  "meaning":  "Decide whether to run risk sizing in Live. ⚠ The adversarial audit\u0027s partial-fill finding blocks it: risk sizing produces 80-90 USD entries, and a partial fill can flip the account short with no stop. Hold until the fix ships AND a real partial fill has been seen with it in force (your ruling 2026-10-13).",
-                                  "doc":  "docs/HANDOVER-7.md",
-                                  "anchor":  "§2 item 3",
-                                  "since":  "2026-08-14"
+                                  "kind":  "go",
+                                  "meaning":  "REMINDER: once the partial-fill fix ships (a real partial fill seen with the fix in force), turn on risk sizing in Live. Your ruling 2026-10-14: hold until then. Amount above 10 USD stays held until the same point.",
+                                  "doc":  "docs/spec-partial-fill-fix.md",
+                                  "anchor":  "§6 step 5",
+                                  "since":  "2026-10-14"
                               },
                               {
                                   "kind":  "go",
@@ -33,7 +31,7 @@
                     ],
     "dated":  [
                   {
-                      "what":  "After your return: try a real partial fill on testnet from a second sub-account (works only if the testnet spread is wider than one tick), with the partial-fill fix in force. Gate before any Amount above 10 USD in Live",
+                      "what":  "After your return: try a real partial fill on testnet from a second sub-account (works only if the testnet spread is wider than one tick), with the partial-fill fix in force. When it passes, the fix has shipped: turn on risk sizing in Live, and Amount above 10 USD is free",
                       "date":  "2026-11-25",
                       "approx":  true,
                       "doc":  "docs/spec-partial-fill-fix.md",

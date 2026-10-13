@@ -230,8 +230,9 @@ holds about 720,000 USD or more), so items 1–4 accept the build now and item 5
    `docs/review-testnet-2026-10-12.md`. `incremental` dropped; PF-R5 and PF-R6 ruled 2026-10-13.
 4. Phase 2 implementer; coordinator review; acceptance §5 items 1–4; remove `X2Testnet.vb` (grep shows zero
    `X2Testnet.` call sites). `X2_TAKER_ENTRY` is no longer needed; `X2_RAW_ECHO` may serve the §5 item 3 run.
-5. After the owner's return: §5 item 5. Then the owner decides `N2 LIVE` and Amount above 10 USD
-   (`docs/HANDOVER-7.md` §2 item 3).
+5. After the owner's return: §5 item 5. **Owner ruling 2026-10-14 on `N2 LIVE` (risk sizing in Live,
+   `docs/HANDOVER-7.md` §2 item 3): hold until the fix ships, then run it.** "Ships" = §5 item 5 passed (a real
+   partial fill seen with the fix in force), as `PF-R6` set. The pane carries the reminder to turn it on then.
 
 ## §6b — Not verified by this seat
 

@@ -60,11 +60,12 @@ recommend a path where the M.SL flatten can fire beyond one M.SL past the intend
 ## 4. OUTSTANDING
 
 **Owner side** (the pane is the live list):
-1. **Push** (18 commits with this handover).
+1. **Push** — done by the owner 2026-10-14 (origin = `6749c4a`).
 2. **After the return — the gate before size:** a real partial fill with the fix in force
    (`docs/spec-partial-fill-fix.md` §5 item 5): try it on testnet from a second sub-account if the spread is wider
    than one tick. Until a real partial fill is seen, the hold on Amount above 10 USD and on `N2 LIVE` stays.
-3. `N2 LIVE` (risk sizing in Live) — held, as above.
+3. `N2 LIVE` (risk sizing in Live) — **RULED 2026-10-14: hold until the fix ships, then run it.** "Ships" =
+   item 2 passed. The pane carries the reminder; when item 2 passes, remind the owner to turn risk sizing on in Live.
 4. AWS London migration (`docs/production-cutover-checklist.md` §9); re-check cancel-on-disconnect on the AWS key.
 
 **Coordinator side:**
