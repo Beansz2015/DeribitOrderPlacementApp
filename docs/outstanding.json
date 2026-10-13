@@ -9,7 +9,7 @@
     "waiting_on_trader":  [
                               {
                                   "kind":  "push",
-                                  "meaning":  "Push master: 8 commits ahead of origin (your ruling on risk sizing in Live; the batch-3 spec with your five rulings; the refused-edits code, report and review; pane updates).",
+                                  "meaning":  "Push master: 9 commits ahead of origin (your ruling on risk sizing in Live; the batch-3 spec with your five rulings; the refused-edits code, report and review; pane updates including the batch-3 seat start).",
                                   "since":  "2026-10-14"
                               },
                               {
@@ -27,7 +27,11 @@
                               }
                           ],
     "in_progress":  [
-
+                        {
+                            "what":  "Protection batch 3 implementer: position loss cap backstop, dead-feed detector, stand-down cancels the bridge entry, capped freshness window, trailing-entry refused-edit reset. Code and fixtures only",
+                            "where":  "agent b3-implementer",
+                            "started_utc":  "2026-10-13T18:09Z"
+                        }
                     ],
     "dated":  [
                   {
@@ -53,12 +57,6 @@
                   }
               ],
     "next_up":  [
-                    {
-                        "what":  "Protection batch 3 implementer: a loss cap on the position when no stop path runs; a dead-feed detector (probe, page, stand the bridge down, reconnect); a stand-down cancels the bridge\u0027s working entry; a capped freshness window; plus the trailing-entry refused-edit reset. All rulings in. Runtime check waits for your return",
-                        "doc":  "docs/spec-protection-batch3.md",
-                        "anchor":  "§0",
-                        "model":  "Opus 5.5, high"
-                    },
                     {
                         "what":  "Remaining audit rows: trailing trigger offset, close during a socket gap, tick rounding direction, payload reader share mode, small log and feedback items",
                         "model":  "Opus 5.5, high"
